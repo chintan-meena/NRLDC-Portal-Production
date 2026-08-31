@@ -78,6 +78,7 @@ function issueToken(user) {
   const payload = {
     u: user.username,
     r: user.role,
+    g: user.region,
     jti: crypto.randomBytes(16).toString('hex'),
     exp: Date.now() + TOKEN_TTL_MS,
   };
@@ -86,7 +87,7 @@ function issueToken(user) {
 }
 
 /**
- * Verify a token's signature and expiry. Returns { username, role, jti, exp }
+ * Verify a token's signature and expiry. Returns { username, role, region, jti, exp }
  * or null when the token is malformed, tampered with, or expired.
  *
  * This says nothing about revocation — the auth middleware checks that against
@@ -114,7 +115,7 @@ function verifyToken(token) {
   if (!payload || typeof payload.u !== 'string') return null;
   if (typeof payload.exp !== 'number' || Date.now() > payload.exp) return null;
 
-  return { username: payload.u, role: payload.r, jti: payload.jti, exp: payload.exp };
+  return { username: payload.u, role: payload.r, region: payload.g, jti: payload.jti, exp: payload.exp };
 }
 
 module.exports = { issueToken, verifyToken, TOKEN_TTL_MS };

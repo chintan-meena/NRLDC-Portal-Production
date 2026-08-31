@@ -6,6 +6,9 @@ import UserDashboard from './components/UserDashboard';
 import AdminDashboard from './components/AdminDashboard';
 import SystemLogs from './components/SystemLogs';
 
+// Both administer; they differ in reach, not in which screens they get.
+const ADMIN_ROLES = ['ADMIN', 'SUPERADMIN'];
+
 export default function App() {
   const [currentUser, setCurrentUser] = useState(null);
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -28,7 +31,7 @@ export default function App() {
         const parsed = JSON.parse(cachedUser);
         Promise.resolve().then(() => {
           setCurrentUser(parsed);
-          if (parsed.role === 'ADMIN') {
+          if (ADMIN_ROLES.includes(parsed.role)) {
             setActiveTab('requests');
           } else {
             setActiveTab('dashboard');
@@ -44,7 +47,7 @@ export default function App() {
     setCurrentUser(user);
     // Cache session
     localStorage.setItem('nrldc_session_user', JSON.stringify(user));
-    if (user.role === 'ADMIN') {
+    if (ADMIN_ROLES.includes(user.role)) {
       setActiveTab('requests');
     } else {
       setActiveTab('dashboard');
@@ -71,7 +74,7 @@ export default function App() {
             onLogout={handleLogout}
           />
           <main className="main-content">
-            {currentUser.role === 'ADMIN' ? (
+            {ADMIN_ROLES.includes(currentUser.role) ? (
               <>
                 {activeTab === 'logs' ? (
                   <div className="dashboard-layout">

@@ -18,9 +18,13 @@ const router = express.Router();
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const pool = require('../db');
+const { logEvent } = require('../utils/log');
 const { issueToken } = require('../auth/tokens');
 const { validatePassword } = require('../utils/password');
 const { defaultUsernameFor } = require('../utils/usernames');
+const { getBoolean, getNumber } = require('../utils/settings');
+const { setContextRegion } = require('../utils/requestContext');
+const { isValidRegion, REGIONS } = require('../middleware/region');
 const { sendMail, numericConfig } = require('../utils/mailer');
 const {
   rememberDevice, isDeviceTrusted, forgetDevices, pruneExpiredDevices, trustDays,
@@ -141,15 +145,14 @@ async function pruneExpired() {
   } catch { /* not worth failing a login over */ }
 }
 
-/** Is two-factor authentication switched on system-wide? */
-async function is2faEnabled() {
-  try {
-    const res = await pool.query("SELECT value FROM config WHERE key = 'require2FA'");
-    if (res.rows.length === 0) return true;         // default on
-    return String(res.rows[0].value).toLowerCase() !== 'false';
-  } catch {
-    return true;
-  }
+/**
+ * Is two-factor authentication switched on for this region?
+ *
+ * Each despatch centre holds its own switch, so one region turning OTP off
+ * while its mail is broken does not weaken the others.
+ */
+async function is2faEnabled(region) {
+  return getBoolean('require2FA', region, true);   // default on
 }
 
 /**
@@ -165,14 +168,6 @@ function authFailure(res, body) {
   return res.json(body);
 }
 
-// Helper: log to DB
-async function logEvent(type, message) {
-  try {
-    await pool.query('INSERT INTO system_logs (type, message) VALUES ($1, $2)', [type, message]);
-  } catch (e) {
-    console.error('[LOG]', e.message);
-  }
-}
 
 // POST /api/auth/login
 router.post('/login', async (req, res) => {
@@ -183,10 +178,8 @@ router.post('/login', async (req, res) => {
 
   try {
     // Get config
-    const configRes = await pool.query("SELECT value FROM config WHERE key = 'lockoutAttempts'");
-    const lockoutAttempts = parseInt(configRes.rows[0]?.value || '3');
-
-    // Find user
+    // Find user first: the lockout threshold is a regional setting, so it
+    // cannot be read until we know whose region applies.
     const userRes = await pool.query('SELECT * FROM users WHERE LOWER(username) = LOWER($1)', [username]);
     if (userRes.rows.length === 0) {
       await logEvent('error', `Login failed: Username "${username}" does not exist`);
@@ -194,6 +187,9 @@ router.post('/login', async (req, res) => {
     }
 
     const user = userRes.rows[0];
+    // Login is a public route, so the context has no region until now.
+    setContextRegion(user.region);
+    const lockoutAttempts = await getNumber('lockoutAttempts', user.region, 3);
 
     if (user.locked) {
       await logEvent('error', `Login blocked: User "${username}" is currently locked out`);
@@ -232,7 +228,7 @@ router.post('/login', async (req, res) => {
     //
     // The third is what makes the mail budget work: a code is needed once per
     // browser per week rather than once per login.
-    const twoFactorOn = await is2faEnabled();
+    const twoFactorOn = await is2faEnabled(user.region);
     if (user.bypass_2fa || !twoFactorOn) {
       const why = user.bypass_2fa ? '2FA bypassed for this account' : '2FA disabled system-wide by admin';
       await logEvent('success', `User "${username}" logged in directly (${why}).`);
@@ -301,13 +297,14 @@ router.post('/verify-otp', async (req, res) => {
   try {
     // Look up the real username so the HMAC matches regardless of typed case.
     const userRes = await pool.query(
-      'SELECT id, username, name, role, email, email2, email3, mobile, energy_category, locked, preferred_landing, bypass_2fa, can_upload_cycle_data, wbes_acronym, qca_name FROM users WHERE LOWER(username) = LOWER($1)',
+      'SELECT id, username, name, role, region, email, email2, email3, mobile, energy_category, locked, preferred_landing, bypass_2fa, can_upload_cycle_data, wbes_acronym, qca_name FROM users WHERE LOWER(username) = LOWER($1)',
       [username]
     );
     if (userRes.rows.length === 0) {
       return authFailure(res, { success: false, error: 'User not found.' });
     }
     const user = userRes.rows[0];
+    setContextRegion(user.region);
 
     const check = await consumeOtp(user.username, 'login', otp);
     if (!check.ok) {
@@ -512,7 +509,7 @@ router.post('/logout', async (req, res) => {
 // The WBES acronym given here is final — it identifies the plant, and neither
 // the applicant nor the approving admin can change it afterwards.
 router.post('/register', async (req, res) => {
-  const { username, name, role, email, mobile, password, energy_category, wbes_acronym, qca_name } = req.body || {};
+  const { username, name, role, email, mobile, password, energy_category, wbes_acronym, qca_name, region } = req.body || {};
 
   // The username follows from the acronym (DADRI → dadri@nrldc), so an
   // applicant who leaves it blank still gets the conventional name rather than
@@ -532,6 +529,10 @@ router.post('/register', async (req, res) => {
   }
   if (!['ISGS', 'RE', 'States'].includes(energy_category)) {
     return res.status(400).json({ error: 'Choose a valid energy category: ISGS, RE or States.' });
+  }
+  // The region decides which despatch centre's administrator reviews this.
+  if (!isValidRegion(region)) {
+    return res.status(400).json({ error: `Choose your load despatch centre: ${REGIONS.join(', ')}.` });
   }
 
   // QCAs coordinate Renewable Energy plants only — the same rule the rest of
@@ -578,18 +579,21 @@ router.post('/register', async (req, res) => {
 
     const result = await pool.query(
       `INSERT INTO registration_requests
-         (username, name, role, email, mobile, password_hash, energy_category, wbes_acronym, qca_name)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+         (username, name, role, email, mobile, password_hash, energy_category, wbes_acronym, qca_name, region)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
        RETURNING id, created_at`,
       [
         cleanUsername, name.trim(), role, cleanEmail,
         mobile && mobile.trim() ? mobile.trim() : null,
         hash, energy_category, cleanAcronym,
         role === 'QCA' ? qca_name.trim() : null,
+        region,
       ]
     );
 
-    await logEvent('info', `Registration request #${result.rows[0].id} submitted: "${cleanUsername}" (${role}, ${energy_category}, WBES ${cleanAcronym}) — awaiting admin approval.`);
+    await logEvent('info',
+      `Registration request #${result.rows[0].id} submitted: "${cleanUsername}" (${region}, ${role}, ${energy_category}, WBES ${cleanAcronym}) — awaiting admin approval.`,
+      region);
 
     return res.status(201).json({
       success: true,

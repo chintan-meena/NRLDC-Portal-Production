@@ -18,10 +18,16 @@ const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
 const pool = require('../db');
+const { logEvent } = require('../utils/log');
 const { withTransaction } = require('../db');
-const { requireAdmin, requireSelfOrAdmin, isAdmin } = require('../middleware/auth');
+const { requireAdmin, requireSelfOrAdmin, isAdmin, isSuperAdmin } = require('../middleware/auth');
+const {
+  requireSameRegion, scopeToRegion, regionScope, regionForNewRow,
+  canActOnRegion, crossRegionError, isValidRegion,
+} = require('../middleware/region');
 const { previousDayString } = require('../utils/dates');
 const { DEFAULT_PASSWORD, validatePassword } = require('../utils/password');
+const { setSetting, getSetting } = require('../utils/settings');
 const { sendMail, mailUsage } = require('../utils/mailer');
 const { forgetDevices, listDevices } = require('../auth/devices');
 
@@ -55,11 +61,6 @@ function validateQcaCategory(role, energy_category, qca_name) {
   return null;
 }
 
-async function logEvent(type, message) {
-  try {
-    await pool.query('INSERT INTO system_logs (type, message) VALUES ($1, $2)', [type, message]);
-  } catch (e) { /* silent */ }
-}
 
 async function checkUniqueness(username, emails, mobile, wbes_acronym) {
   const errors = [];
@@ -109,8 +110,18 @@ async function checkUniqueness(username, emails, mobile, wbes_acronym) {
 // GET /api/users — admin only (full registry, including lock state)
 router.get('/', requireAdmin, async (req, res) => {
   try {
+    // An admin sees their own region's accounts. A super-admin sees every
+    // region, or one in particular with ?region=ERLDC.
+    const params = [];
+    const conditions = [];
+    scopeToRegion(req, 'region', conditions, params);
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
     const result = await pool.query(
-      'SELECT id, username, name, role, email, email2, email3, mobile, energy_category, locked, failed_attempts, preferred_landing, bypass_2fa, can_upload_cycle_data, wbes_acronym, qca_name FROM users ORDER BY id ASC'
+      `SELECT id, username, name, role, region, email, email2, email3, mobile, energy_category,
+              locked, failed_attempts, preferred_landing, bypass_2fa, can_upload_cycle_data,
+              wbes_acronym, qca_name
+         FROM users ${where} ORDER BY id ASC`,
+      params
     );
     res.json(result.rows);
   } catch (err) {
@@ -128,9 +139,21 @@ router.post('/', requireAdmin, async (req, res) => {
   }
 
   // Validate role
-  if (!['ADMIN', 'USER', 'QCA'].includes(role)) {
+  if (!['SUPERADMIN', 'ADMIN', 'USER', 'QCA'].includes(role)) {
     return res.status(400).json({ error: 'Role must be ADMIN, USER, or QCA.' });
   }
+
+  // Only a national administrator creates administrators. Otherwise a regional
+  // admin could mint peers, or a super-admin, and the boundary would mean
+  // nothing.
+  if (['ADMIN', 'SUPERADMIN'].includes(role) && !isSuperAdmin(req)) {
+    return res.status(403).json({
+      error: 'Only a national administrator can create administrator accounts.',
+    });
+  }
+
+  // A regional admin creates accounts in their own region and nowhere else.
+  const newRegion = regionForNewRow(req, req.body.region);
 
   const validCategories = ['ISGS', 'RE', 'States'];
   const category = validCategories.includes(energy_category) ? energy_category : 'ISGS';
@@ -157,9 +180,9 @@ router.post('/', requireAdmin, async (req, res) => {
   try {
     const hash = await bcrypt.hash(rawPassword, HASH_ROUNDS);
     const result = await pool.query(
-      `INSERT INTO users (username, name, role, email, email2, email3, mobile, password_hash, energy_category, locked, failed_attempts, bypass_2fa, can_upload_cycle_data, wbes_acronym, qca_name)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, FALSE, 0, $10, $11, $12, $13)
-       RETURNING id, username, name, role, email, email2, email3, mobile, energy_category, locked, bypass_2fa, can_upload_cycle_data, wbes_acronym, qca_name`,
+      `INSERT INTO users (username, name, role, region, email, email2, email3, mobile, password_hash, energy_category, locked, failed_attempts, bypass_2fa, can_upload_cycle_data, wbes_acronym, qca_name)
+       VALUES ($1, $2, $3, $14, $4, $5, $6, $7, $8, $9, FALSE, 0, $10, $11, $12, $13)
+       RETURNING id, username, name, role, region, email, email2, email3, mobile, energy_category, locked, bypass_2fa, can_upload_cycle_data, wbes_acronym, qca_name`,
       [
         username.trim(), 
         name.trim(), 
@@ -173,10 +196,21 @@ router.post('/', requireAdmin, async (req, res) => {
         !!bypass_2fa,
         !!can_upload_cycle_data,
         wbes_acronym.trim().toUpperCase(),
-        qca_name ? qca_name.trim() : null
+        qca_name ? qca_name.trim() : null,
+        newRegion
       ]
     );
-    await logEvent('success', `New user registered: ${username} (${category} category, role: ${role}, wbes: ${wbes_acronym}, qca: ${qca_name || 'None'})`);
+
+    // A new plant joins its creator's region too, so the register and the
+    // account cannot disagree about who despatches it.
+    await pool.query(
+      `INSERT INTO wbes_entities (wbes_acronym, name, energy_category, region)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (wbes_acronym) DO NOTHING`,
+      [wbes_acronym.trim().toUpperCase(), name.trim(), category, newRegion]
+    );
+
+    await logEvent('success', `New user registered: ${username} (${newRegion}, ${category} category, role: ${role}, wbes: ${wbes_acronym}, qca: ${qca_name || 'None'})`, newRegion);
     res.status(201).json(result.rows[0]);
   } catch (err) {
     if (err.code === '23505') {
@@ -190,7 +224,7 @@ router.post('/', requireAdmin, async (req, res) => {
 // PATCH /api/users/:username/bypass-2fa — Toggle OTP exemption for one account
 // The operational escape hatch: when a user cannot receive their code, an admin
 // can let that one account in without waiting on anybody else.
-router.patch('/:username/bypass-2fa', requireAdmin, async (req, res) => {
+router.patch('/:username/bypass-2fa', requireAdmin, requireSameRegion(), async (req, res) => {
   const { username } = req.params;
   try {
     const current = await pool.query('SELECT bypass_2fa FROM users WHERE LOWER(username) = LOWER($1)', [username]);
@@ -209,7 +243,7 @@ router.patch('/:username/bypass-2fa', requireAdmin, async (req, res) => {
 });
 
 // PATCH /api/users/:username/lock — Toggle lock
-router.patch('/:username/lock', requireAdmin, async (req, res) => {
+router.patch('/:username/lock', requireAdmin, requireSameRegion(), async (req, res) => {
   const { username } = req.params;
   try {
     const current = await pool.query('SELECT locked FROM users WHERE LOWER(username) = LOWER($1)', [username]);
@@ -229,7 +263,7 @@ router.patch('/:username/lock', requireAdmin, async (req, res) => {
 });
 
 // POST /api/users/:username/reset-password — Admin reset password to the default
-router.post('/:username/reset-password', requireAdmin, async (req, res) => {
+router.post('/:username/reset-password', requireAdmin, requireSameRegion(), async (req, res) => {
   const { username } = req.params;
   try {
     const hash = await bcrypt.hash(DEFAULT_PASSWORD, HASH_ROUNDS);
@@ -253,7 +287,7 @@ router.post('/:username/reset-password', requireAdmin, async (req, res) => {
 });
 
 // PATCH /api/users/:username/profile — Update profile contact details OR update password
-router.patch('/:username/profile', requireSelfOrAdmin('username'), async (req, res) => {
+router.patch('/:username/profile', requireSelfOrAdmin('username'), requireSameRegion(), async (req, res) => {
   const { username } = req.params;
   const { name, email, email2, email3, mobile, password, currentPassword } = req.body;
 
@@ -368,7 +402,7 @@ router.patch('/:username/profile', requireSelfOrAdmin('username'), async (req, r
 });
 
 // PATCH /api/users/:username/landing — Update preferred landing
-router.patch('/:username/landing', requireSelfOrAdmin('username'), async (req, res) => {
+router.patch('/:username/landing', requireSelfOrAdmin('username'), requireSameRegion(), async (req, res) => {
   const { username } = req.params;
   const { preferredLanding } = req.body;
 
@@ -406,14 +440,14 @@ router.post('/bulk-import', requireAdmin, async (req, res) => {
   }
 
   try {
-    // 1. Back up current user registry state into config table
-    const currentUsers = await pool.query('SELECT * FROM users');
-    await pool.query(
-      `INSERT INTO config (key, value) 
-       VALUES ('last_users_backup', $1) 
-       ON CONFLICT (key) DO UPDATE SET value = $1`,
-      [JSON.stringify(currentUsers.rows)]
-    );
+    // 1. Back up the current registry — this region's part of it.
+    //
+    // The backup and the rollback that reads it are both scoped, because
+    // rollback deletes accounts that are not in the backup: an unscoped one
+    // would delete every other region's users.
+    const importRegion = regionForNewRow(req, req.body.region);
+    const currentUsers = await pool.query('SELECT * FROM users WHERE region = $1', [importRegion]);
+    await setSetting('last_users_backup', importRegion, JSON.stringify(currentUsers.rows));
 
     let importCount = 0, errorCount = 0;
 
@@ -454,10 +488,10 @@ router.post('/bulk-import', requireAdmin, async (req, res) => {
         const hash = await bcrypt.hash(DEFAULT_PASSWORD, HASH_ROUNDS);
         
         const dbRes = await pool.query(
-          `INSERT INTO users (username, name, role, email, password_hash, energy_category, locked, failed_attempts, wbes_acronym)
-           VALUES ($1, $2, $3, $4, $5, $6, FALSE, 0, $7)
+          `INSERT INTO users (username, name, role, region, email, password_hash, energy_category, locked, failed_attempts, wbes_acronym)
+           VALUES ($1, $2, $3, $8, $4, $5, $6, FALSE, 0, $7)
            ON CONFLICT (username) DO NOTHING`,
-          [username, name, role, email, hash, energy_category, wbes_acronym]
+          [username, name, role, email, hash, energy_category, wbes_acronym, importRegion]
         );
         if (dbRes.rowCount > 0) {
           importCount++;
@@ -470,7 +504,11 @@ router.post('/bulk-import', requireAdmin, async (req, res) => {
     }
 
     await logEvent('success', `Imported ${importCount} users from CSV. Duplicate/skipped: ${errorCount}`);
-    const allUsers = await pool.query('SELECT id, username, name, role, email, email2, email3, mobile, energy_category, locked, failed_attempts, preferred_landing, bypass_2fa, can_upload_cycle_data, wbes_acronym, qca_name FROM users ORDER BY id ASC');
+    const allUsers = await pool.query(
+      `SELECT id, username, name, role, region, email, email2, email3, mobile, energy_category,
+              locked, failed_attempts, preferred_landing, bypass_2fa, can_upload_cycle_data,
+              wbes_acronym, qca_name
+         FROM users WHERE region = $1 ORDER BY id ASC`, [rollbackRegion]);
     res.json({ importCount, errorCount, users: allUsers.rows });
   } catch (err) {
     console.error('[USERS BULK IMPORT]', err);
@@ -481,19 +519,25 @@ router.post('/bulk-import', requireAdmin, async (req, res) => {
 // POST /api/users/rollback-import — Roll back last CSV import
 router.post('/rollback-import', requireAdmin, async (req, res) => {
   try {
-    const backupRes = await pool.query("SELECT value FROM config WHERE key = 'last_users_backup'");
-    if (backupRes.rows.length === 0 || !backupRes.rows[0].value) {
-      return res.status(400).json({ error: 'No user registry backup found to restore.' });
+    const rollbackRegion = regionForNewRow(req, req.body?.region);
+    const backup = await getSetting('last_users_backup', rollbackRegion, null);
+    if (!backup) {
+      return res.status(400).json({ error: `No user registry backup found for ${rollbackRegion}.` });
     }
 
-    const backupUsers = JSON.parse(backupRes.rows[0].value);
+    const backupUsers = JSON.parse(backup);
     const backupUsernames = backupUsers.map(u => u.username);
 
-    // Get current list
-    const currentUsersRes = await pool.query('SELECT username, role FROM users');
-    
-    // Delete users added since backup (not in backup and not admin)
-    const toDelete = currentUsersRes.rows.filter(u => !backupUsernames.includes(u.username) && u.role !== 'ADMIN');
+    // Only this region's accounts are considered. Rollback deletes anything
+    // added since the backup, so looking wider would delete other regions'
+    // users — the one mistake here that cannot be undone.
+    const currentUsersRes = await pool.query(
+      'SELECT username, role FROM users WHERE region = $1', [rollbackRegion]
+    );
+
+    const toDelete = currentUsersRes.rows.filter(
+      u => !backupUsernames.includes(u.username) && !['ADMIN', 'SUPERADMIN'].includes(u.role)
+    );
 
     // One connection for the whole restore: deleting the imported users and
     // putting the previous ones back has to succeed or fail as a unit.
@@ -505,23 +549,28 @@ router.post('/rollback-import', requireAdmin, async (req, res) => {
 
       for (const u of backupUsers) {
         await client.query(
-          `INSERT INTO users (username, name, role, email, email2, email3, mobile, password_hash, energy_category, locked, failed_attempts, preferred_landing, bypass_2fa, can_upload_cycle_data, wbes_acronym)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+          `INSERT INTO users (username, name, role, region, email, email2, email3, mobile, password_hash, energy_category, locked, failed_attempts, preferred_landing, bypass_2fa, can_upload_cycle_data, wbes_acronym)
+           VALUES ($1, $2, $3, $16, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
            ON CONFLICT (username) DO UPDATE SET
-             name = $2, role = $3, email = $4, email2 = $5, email3 = $6, mobile = $7, password_hash = $8, energy_category = $9, locked = $10, failed_attempts = $11, preferred_landing = $12, bypass_2fa = $13, can_upload_cycle_data = $14, wbes_acronym = $15`,
+             name = $2, role = $3, region = $16, email = $4, email2 = $5, email3 = $6, mobile = $7, password_hash = $8, energy_category = $9, locked = $10, failed_attempts = $11, preferred_landing = $12, bypass_2fa = $13, can_upload_cycle_data = $14, wbes_acronym = $15`,
           [
             u.username, u.name, u.role, u.email, u.email2, u.email3, u.mobile, u.password_hash, u.energy_category,
-            u.locked, u.failed_attempts, u.preferred_landing, u.bypass_2fa, u.can_upload_cycle_data || false, u.wbes_acronym || ''
+            u.locked, u.failed_attempts, u.preferred_landing, u.bypass_2fa, u.can_upload_cycle_data || false, u.wbes_acronym || '',
+            u.region || rollbackRegion
           ]
         );
       }
 
-      await client.query("DELETE FROM config WHERE key = 'last_users_backup'");
+      await client.query("DELETE FROM config WHERE key = 'last_users_backup' AND region = $1", [rollbackRegion]);
     });
 
-    await logEvent('success', `Rolled back user registry successfully. Restored previous state.`);
+    await logEvent('success', `Rolled back the ${rollbackRegion} user registry. ${toDelete.length} account(s) added since the backup were removed.`);
     
-    const allUsers = await pool.query('SELECT id, username, name, role, email, email2, email3, mobile, energy_category, locked, failed_attempts, preferred_landing, bypass_2fa, can_upload_cycle_data, wbes_acronym, qca_name FROM users ORDER BY id ASC');
+    const allUsers = await pool.query(
+      `SELECT id, username, name, role, region, email, email2, email3, mobile, energy_category,
+              locked, failed_attempts, preferred_landing, bypass_2fa, can_upload_cycle_data,
+              wbes_acronym, qca_name
+         FROM users WHERE region = $1 ORDER BY id ASC`, [rollbackRegion]);
     res.json({ success: true, message: 'Rollback complete. Restored registry to previous state.', users: allUsers.rows });
   } catch (err) {
     console.error('[USERS ROLLBACK]', err);
@@ -530,7 +579,7 @@ router.post('/rollback-import', requireAdmin, async (req, res) => {
 });
 
 // PATCH /api/users/:username — Admin update user details (with custom password option)
-router.patch('/:username', requireAdmin, async (req, res) => {
+router.patch('/:username', requireAdmin, requireSameRegion(), async (req, res) => {
   const { username } = req.params;
   const { name, email, email2, email3, mobile, role, energy_category, bypass_2fa, can_upload_cycle_data, wbes_acronym, password, qca_name } = req.body;
 
@@ -689,6 +738,16 @@ router.get('/wbes-entities', async (req, res) => {
     conditions.push(`w.energy_category = $${params.length}`);
   }
 
+  // The plant register is per region: a station only ever picks from plants
+  // its own despatch centre operates.
+  if (!isSuperAdmin(req)) {
+    params.push(req.auth.region);
+    conditions.push(`w.region = $${params.length}`);
+  } else if (req.query.region && isValidRegion(req.query.region)) {
+    params.push(req.query.region);
+    conditions.push(`w.region = $${params.length}`);
+  }
+
   const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
   try {
@@ -721,7 +780,7 @@ router.get('/wbes-entities', async (req, res) => {
 });
 
 // GET /api/users/:username/assignments — Fetch user plant assignments
-router.get('/:username/assignments', requireSelfOrAdmin('username'), async (req, res) => {
+router.get('/:username/assignments', requireSelfOrAdmin('username'), requireSameRegion(), async (req, res) => {
   const { username } = req.params;
   try {
     const result = await pool.query(
@@ -740,7 +799,7 @@ router.get('/:username/assignments', requireSelfOrAdmin('username'), async (req,
 });
 
 // POST /api/users/:username/assignments — Create a plant assignment or trigger transfer request
-router.post('/:username/assignments', requireSelfOrAdmin('username'), async (req, res) => {
+router.post('/:username/assignments', requireSelfOrAdmin('username'), requireSameRegion(), async (req, res) => {
   const { username } = req.params;
   const { wbes_acronym, from_date, to_date } = req.body;
 
@@ -823,8 +882,14 @@ router.get('/transfer-requests', async (req, res) => {
        FROM transfer_requests tr
        JOIN wbes_entities p ON tr.wbes_acronym = p.wbes_acronym`;
 
+    // An admin sees the transfers for plants in their own region.
+    const adminParams = [];
+    const adminConditions = [];
+    scopeToRegion(req, 'p.region', adminConditions, adminParams);
+    const adminWhere = adminConditions.length ? `WHERE ${adminConditions.join(' AND ')}` : '';
+
     const result = isAdmin(req)
-      ? await pool.query(`${baseQuery} ORDER BY tr.created_at DESC`)
+      ? await pool.query(`${baseQuery} ${adminWhere} ORDER BY tr.created_at DESC`, adminParams)
       : await pool.query(
           `${baseQuery}
            WHERE LOWER(tr.requested_by) = LOWER($1)
@@ -912,6 +977,14 @@ router.patch('/transfer-requests/:id/process', requireAdmin, async (req, res) =>
       if (trRes.rows.length === 0) {
         return { status: 404, body: { error: 'Transfer request not found.' } };
       }
+      // A transfer belongs to the region of the plant being transferred.
+      const plantRegion = await client.query(
+        'SELECT region FROM wbes_entities WHERE UPPER(wbes_acronym) = UPPER($1)',
+        [trRes.rows[0].wbes_acronym]
+      );
+      if (!canActOnRegion(req, plantRegion.rows[0]?.region)) {
+        return { status: 403, body: crossRegionError(req) };
+      }
 
       const tr = trRes.rows[0];
       if (tr.status !== 'Pending') {
@@ -968,6 +1041,20 @@ router.patch('/assignments/:id', requireAdmin, async (req, res) => {
   const { id } = req.params;
   const { from_date, to_date } = req.body;
   try {
+    // An assignment belongs to the region of the plant it covers.
+    const owning = await pool.query(
+      `SELECT w.region FROM user_plant_assignments a
+         JOIN wbes_entities w ON UPPER(a.wbes_acronym) = UPPER(w.wbes_acronym)
+        WHERE a.id = $1`,
+      [id]
+    );
+    if (owning.rows.length === 0) {
+      return res.status(404).json({ error: 'Assignment not found.' });
+    }
+    if (!canActOnRegion(req, owning.rows[0].region)) {
+      return res.status(403).json(crossRegionError(req));
+    }
+
     const result = await pool.query(
       `UPDATE user_plant_assignments 
        SET from_date = $1, to_date = $2 
@@ -989,7 +1076,7 @@ router.patch('/assignments/:id', requireAdmin, async (req, res) => {
 // Only RE plants can be under a QCA, so an ISGS or States user always gets
 // { assignedToQCA: false, qcaEligible: false } and the portal hides every QCA
 // control for them.
-router.get('/:username/qca-association', requireSelfOrAdmin('username'), async (req, res) => {
+router.get('/:username/qca-association', requireSelfOrAdmin('username'), requireSameRegion(), async (req, res) => {
   const { username } = req.params;
   try {
     const userRes = await pool.query(
@@ -1041,11 +1128,16 @@ router.get('/:username/qca-association', requireSelfOrAdmin('username'), async (
 // GET /api/users/qcas — Retrieve all active QCA users
 router.get('/qcas', async (req, res) => {
   try {
+    // A station can only be coordinated by a QCA in its own region.
+    const params = [];
+    const conditions = ["role = 'QCA'", 'locked = FALSE'];
+    scopeToRegion(req, 'region', conditions, params);
     const result = await pool.query(
-      `SELECT username, name, qca_name 
-       FROM users 
-       WHERE role = 'QCA' AND locked = FALSE 
-       ORDER BY qca_name ASC`
+      `SELECT username, name, qca_name
+         FROM users
+        WHERE ${conditions.join(' AND ')}
+        ORDER BY qca_name ASC`,
+      params
     );
     res.json(result.rows);
   } catch (err) {
@@ -1061,13 +1153,15 @@ router.get('/registrations', requireAdmin, async (req, res) => {
   const { status } = req.query;
   try {
     const params = [];
-    let where = '';
+    const conditions = [];
     if (status && status !== 'ALL') {
       params.push(status);
-      where = `WHERE status = $${params.length}`;
+      conditions.push(`status = $${params.length}`);
     }
+    scopeToRegion(req, 'region', conditions, params);
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
     const result = await pool.query(
-      `SELECT id, username, name, role, email, mobile, energy_category, wbes_acronym,
+      `SELECT id, username, name, role, region, email, mobile, energy_category, wbes_acronym,
               qca_name, status, review_note, reviewed_by, reviewed_at, created_at
          FROM registration_requests
          ${where}
@@ -1101,6 +1195,10 @@ router.patch('/registrations/:id/process', requireAdmin, async (req, res) => {
   const { id } = req.params;
   const { status, note, edits } = req.body || {};
 
+  if (!/^\d+$/.test(String(id))) {
+    return res.status(404).json({ error: 'That registration request does not exist.' });
+  }
+
   if (!['Approved', 'Rejected'].includes(status)) {
     return res.status(400).json({ error: 'Status must be Approved or Rejected.' });
   }
@@ -1120,6 +1218,10 @@ router.patch('/registrations/:id/process', requireAdmin, async (req, res) => {
       const reg = reqRes.rows[0];
       if (reg.status !== 'Pending') {
         return { status: 400, body: { error: `This request was already ${reg.status.toLowerCase()}.` } };
+      }
+      // An admin decides their own region's applications only.
+      if (!canActOnRegion(req, reg.region)) {
+        return { status: 403, body: crossRegionError(req) };
       }
 
       if (status === 'Rejected') {
@@ -1202,20 +1304,21 @@ router.patch('/registrations/:id/process', requireAdmin, async (req, res) => {
         changes.push(`WBES register: plant ${final.wbes_acronym} reclassified ${existing.rows[0].energy_category} → ${final.energy_category}`);
       }
       await client.query(
-        `INSERT INTO wbes_entities (wbes_acronym, name, energy_category)
-         VALUES ($1, $2, $3)
-         ON CONFLICT (wbes_acronym) DO UPDATE SET energy_category = EXCLUDED.energy_category`,
-        [final.wbes_acronym, final.name, final.energy_category]
+        `INSERT INTO wbes_entities (wbes_acronym, name, energy_category, region)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (wbes_acronym) DO UPDATE
+           SET energy_category = EXCLUDED.energy_category, region = EXCLUDED.region`,
+        [final.wbes_acronym, final.name, final.energy_category, reg.region]
       );
 
       // The account is created with the password the applicant chose, carried
       // across as a hash — there is no temporary password to communicate.
       await client.query(
-        `INSERT INTO users (username, name, role, email, mobile, password_hash, energy_category,
+        `INSERT INTO users (username, name, role, region, email, mobile, password_hash, energy_category,
                             locked, failed_attempts, bypass_2fa, can_upload_cycle_data, wbes_acronym, qca_name)
-         VALUES ($1,$2,$3,$4,$5,$6,$7, FALSE, 0, FALSE, FALSE, $8, $9)`,
+         VALUES ($1,$2,$3,$10,$4,$5,$6,$7, FALSE, 0, FALSE, FALSE, $8, $9)`,
         [final.username, final.name, final.role, final.email, final.mobile, reg.password_hash,
-         final.energy_category, final.wbes_acronym, final.qca_name]
+         final.energy_category, final.wbes_acronym, final.qca_name, reg.region]
       );
 
       // Keep the application as submitted; record the corrections beside it.
@@ -1288,15 +1391,21 @@ router.get('/password-resets', requireAdmin, async (req, res) => {
   const { status } = req.query;
   try {
     const params = [];
-    let where = '';
+    const conditions = [];
     if (status && status !== 'ALL') {
       params.push(status);
-      where = `WHERE r.status = $${params.length}`;
+      conditions.push(`r.status = $${params.length}`);
     }
+    // The join is what carries the region: a reset request belongs to whichever
+    // region its account does. The join stays LEFT so a request whose account
+    // was since deleted is not lost — it has no region, so only a super-admin
+    // sees it, which is the right home for an orphan.
+    scopeToRegion(req, 'u.region', conditions, params);
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
     const result = await pool.query(
       `SELECT r.id, r.username, r.reason, r.status, r.review_note, r.reviewed_by,
               r.reviewed_at, r.created_at,
-              u.name, u.email, u.locked, u.wbes_acronym, u.energy_category
+              u.name, u.email, u.locked, u.wbes_acronym, u.energy_category, u.region
          FROM password_reset_requests r
          LEFT JOIN users u ON LOWER(u.username) = LOWER(r.username)
          ${where}
@@ -1319,6 +1428,10 @@ router.patch('/password-resets/:id/process', requireAdmin, async (req, res) => {
   const { id } = req.params;
   const { status, note } = req.body || {};
 
+  if (!/^\d+$/.test(String(id))) {
+    return res.status(404).json({ error: 'That password reset request does not exist.' });
+  }
+
   if (!['Approved', 'Rejected'].includes(status)) {
     return res.status(400).json({ error: 'Status must be Approved or Rejected.' });
   }
@@ -1340,12 +1453,15 @@ router.patch('/password-resets/:id/process', requireAdmin, async (req, res) => {
       }
 
       const userRes = await client.query(
-        'SELECT username, name, email FROM users WHERE LOWER(username) = LOWER($1)', [reset.username]
+        'SELECT username, name, email, region FROM users WHERE LOWER(username) = LOWER($1)', [reset.username]
       );
       if (userRes.rows.length === 0) {
         return { status: 404, body: { error: `The account "${reset.username}" no longer exists.` } };
       }
       const user = userRes.rows[0];
+      if (!canActOnRegion(req, user.region)) {
+        return { status: 403, body: crossRegionError(req) };
+      }
 
       if (status === 'Approved') {
         const hash = await bcrypt.hash(DEFAULT_PASSWORD, HASH_ROUNDS);
@@ -1410,7 +1526,7 @@ router.patch('/password-resets/:id/process', requireAdmin, async (req, res) => {
 // cut off a lost or shared machine without touching the password.
 
 // GET /api/users/:username/devices
-router.get('/:username/devices', requireSelfOrAdmin('username'), async (req, res) => {
+router.get('/:username/devices', requireSelfOrAdmin('username'), requireSameRegion(), async (req, res) => {
   try {
     res.json(await listDevices(req.params.username));
   } catch (err) {
@@ -1420,7 +1536,7 @@ router.get('/:username/devices', requireSelfOrAdmin('username'), async (req, res
 });
 
 // DELETE /api/users/:username/devices — stop trusting every browser
-router.delete('/:username/devices', requireSelfOrAdmin('username'), async (req, res) => {
+router.delete('/:username/devices', requireSelfOrAdmin('username'), requireSameRegion(), async (req, res) => {
   const { username } = req.params;
   try {
     const dropped = await forgetDevices(username);

@@ -1,7 +1,35 @@
 const express = require('express');
 const router = express.Router();
 const pool = require('../db');
+const { logEvent } = require('../utils/log');
 const { requireAdmin, isAdmin } = require('../middleware/auth');
+const { scopeToRegion, crossRegionError } = require('../middleware/region');
+const { isSuperAdmin } = require('../middleware/auth');
+
+/**
+ * Refuse an admin acting on an outage filed in another region. An outage has
+ * no region column — it belongs to whichever region its filer does — so this
+ * resolves it through the account.
+ */
+async function requireOutageInRegion(req, res, next) {
+  if (isSuperAdmin(req)) return next();
+  try {
+    const result = await pool.query(
+      `SELECT u.region FROM outages o JOIN users u ON o.username = u.username WHERE o.id = $1`,
+      [req.params.id]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Outage filing not found.' });
+    }
+    if (result.rows[0].region !== req.auth.region) {
+      return res.status(403).json(crossRegionError(req));
+    }
+    next();
+  } catch (err) {
+    console.error('[OUTAGE REGION GUARD]', err);
+    res.status(500).json({ error: 'Could not check which region this filing belongs to.' });
+  }
+}
 
 // Helper to format Date Objects to DD-MM-YYYY HH:MM
 function formatDateDMYHM(dateStr) {
@@ -12,11 +40,6 @@ function formatDateDMYHM(dateStr) {
   return `${pad(d.getDate())}-${pad(d.getMonth() + 1)}-${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-async function logEvent(type, message) {
-  try {
-    await pool.query('INSERT INTO system_logs (type, message) VALUES ($1, $2)', [type, message]);
-  } catch (e) { /* silent */ }
-}
 
 // GET /api/outages — Fetch outages list
 router.get('/', async (req, res) => {
@@ -24,31 +47,37 @@ router.get('/', async (req, res) => {
   // Non-admins are pinned to their own filings regardless of the query string.
   const username = isAdmin(req) ? req.query.username : req.auth.username;
   try {
-    let query = 'SELECT id, username, generator_name, unit_number, outage_type, outage_from, outage_to, reason, status, created_at FROM outages';
+    let query = `SELECT o.id, o.username, o.generator_name, o.unit_number, o.outage_type,
+                        o.outage_from, o.outage_to, o.reason, o.status, o.created_at, u.region
+                   FROM outages o
+                   JOIN users u ON o.username = u.username`;
     const params = [];
     const conditions = [];
 
     if (username) {
       params.push(username);
-      conditions.push(`username = $${params.length}`);
+      conditions.push(`o.username = $${params.length}`);
     }
+
+    // An outage belongs to whichever region its filer does.
+    if (isAdmin(req)) scopeToRegion(req, 'u.region', conditions, params);
 
     if (fromDate) {
       params.push(fromDate);
-      conditions.push(`outage_from >= $${params.length}`);
+      conditions.push(`o.outage_from >= $${params.length}`);
     }
 
     if (toDate) {
       // Add 23:59:59 to include full end day
       params.push(toDate + ' 23:59:59');
-      conditions.push(`outage_from <= $${params.length}`);
+      conditions.push(`o.outage_from <= $${params.length}`);
     }
 
     if (conditions.length > 0) {
       query += ' WHERE ' + conditions.join(' AND ');
     }
 
-    query += ' ORDER BY created_at DESC';
+    query += ' ORDER BY o.created_at DESC';
 
     const result = await pool.query(query, params);
     res.json(result.rows);
@@ -96,7 +125,7 @@ router.post('/', async (req, res) => {
 });
 
 // PATCH /api/outages/:id/process — Approve or Reject outage (admin)
-router.patch('/:id/process', requireAdmin, async (req, res) => {
+router.patch('/:id/process', requireAdmin, requireOutageInRegion, async (req, res) => {
   const { id } = req.params;
   const { status } = req.body;
 
@@ -123,7 +152,7 @@ router.patch('/:id/process', requireAdmin, async (req, res) => {
 });
 
 // PATCH /api/outages/:id — Admin edit outage entry
-router.patch('/:id', requireAdmin, async (req, res) => {
+router.patch('/:id', requireAdmin, requireOutageInRegion, async (req, res) => {
   const { id } = req.params;
   const { unit_number, outage_type, outage_from, outage_to, reason, status } = req.body;
 
@@ -196,7 +225,7 @@ router.patch('/:id', requireAdmin, async (req, res) => {
 });
 
 // DELETE /api/outages/:id — Admin delete outage entry
-router.delete('/:id', requireAdmin, async (req, res) => {
+router.delete('/:id', requireAdmin, requireOutageInRegion, async (req, res) => {
   const { id } = req.params;
   try {
     const result = await pool.query('DELETE FROM outages WHERE id = $1 RETURNING *', [id]);
@@ -222,11 +251,18 @@ router.get('/download-excel', requireAdmin, async (req, res) => {
   try {
     // Only approved entries are downloaded!
     let query = `
-      SELECT created_at, generator_name, unit_number, outage_type, outage_from, outage_to, reason 
-      FROM outages 
-      WHERE status = 'Approved' AND outage_from >= $1 AND outage_from <= $2
+      SELECT o.created_at, o.generator_name, o.unit_number, o.outage_type,
+             o.outage_from, o.outage_to, o.reason
+        FROM outages o
+        JOIN users u ON o.username = u.username
+       WHERE o.status = 'Approved' AND o.outage_from >= $1 AND o.outage_from <= $2
     `;
     const params = [fromDate, toDate + ' 23:59:59'];
+
+    // The export is a listing like any other and stops at the region boundary.
+    const exportConditions = [];
+    scopeToRegion(req, 'u.region', exportConditions, params);
+    if (exportConditions.length) query += ` AND ${exportConditions.join(' AND ')}`;
     if (outageType && outageType !== 'All') {
       params.push(outageType);
       query += ` AND outage_type = $${params.length}`;

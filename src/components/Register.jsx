@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { registerAccount } from '../services/db';
 import { RULES as PASSWORD_RULES, validatePassword } from '../utils/password';
 import { defaultUsernameFor } from '../utils/usernames';
+import { REGIONS } from '../utils/regions';
 import { Banner } from './Feedback';
 import { UserPlus, ArrowLeft, CheckCircle2, Building2, Lock } from 'lucide-react';
 
@@ -25,6 +26,9 @@ export default function Register({ onBackToLogin }) {
   const [accountType, setAccountType] = useState('USER');   // USER | QCA
   const [energyCategory, setEnergyCategory] = useState('ISGS');
   const [wbesAcronym, setWbesAcronym] = useState('');
+  // Which despatch centre reviews this application, and will administer the
+  // account afterwards.
+  const [region, setRegion] = useState('NRLDC');
   // Once the applicant types their own username, the acronym stops driving it.
   const [usernameEdited, setUsernameEdited] = useState(false);
   const [qcaName, setQcaName] = useState('');
@@ -77,6 +81,7 @@ export default function Register({ onBackToLogin }) {
         role: accountType,
         energy_category: effectiveCategory,
         wbes_acronym: wbesAcronym.trim().toUpperCase(),
+        region,
         qca_name: isQca ? qcaName.trim() : null,
         password,
       });
@@ -108,6 +113,7 @@ export default function Register({ onBackToLogin }) {
             <div><span>WBES acronym</span><strong>{wbesAcronym.trim().toUpperCase()}</strong></div>
             <div><span>Account type</span><strong>{isQca ? `QCA — ${qcaName.trim()}` : 'Plant user'}</strong></div>
             <div><span>Category</span><strong>{effectiveCategory}</strong></div>
+            <div><span>Despatch centre</span><strong>{region}</strong></div>
           </div>
 
           <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.55, marginTop: '16px' }}>
@@ -143,6 +149,20 @@ export default function Register({ onBackToLogin }) {
         <form onSubmit={handleSubmit}>
           <fieldset className="register-section">
             <legend><Building2 size={14} /> Who is registering</legend>
+
+            <div className="form-group">
+              <label htmlFor="reg-region">Load despatch centre</label>
+              <select id="reg-region" className="form-control" value={region}
+                onChange={(e) => setRegion(e.target.value)}>
+                {REGIONS.map(r => (
+                  <option key={r.code} value={r.code}>{r.name} — {r.code}</option>
+                ))}
+              </select>
+              <span className="settings-field-hint">
+                The centre that despatches your station. Its administrator reviews this
+                request, and administers the account afterwards.
+              </span>
+            </div>
 
             <div className="form-group">
               <label htmlFor="reg-account-type">Account type</label>

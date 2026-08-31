@@ -23,6 +23,8 @@ require('dotenv').config({ path: require('path').join(__dirname, '.env') });
 const bcrypt = require('bcryptjs');
 const pool = require('./db');
 const { DEFAULT_PASSWORD } = require('./utils/password');
+const { getSetting } = require('./utils/settings');
+const { REGIONS } = require('./middleware/region');
 
 const FIX = process.argv.includes('--fix');
 
@@ -37,9 +39,8 @@ const warn  = (m) => { warnings++; console.log(`  ${YELLOW}!${OFF} ${m}`); };
 const note  = (m) => console.log(`    ${DIM}${m}${OFF}`);
 const head  = (m) => console.log(`\n${BOLD}${m}${OFF}`);
 
-async function config(key) {
-  const res = await pool.query('SELECT value FROM config WHERE key = $1', [key]);
-  return res.rows[0]?.value ?? null;
+async function config(key, region = null) {
+  return getSetting(key, region, null);
 }
 
 (async () => {
@@ -71,9 +72,28 @@ async function config(key) {
   head('Accounts');
 
   const users = await pool.query(
-    'SELECT username, role, password_hash, bypass_2fa, locked FROM users ORDER BY role, username'
+    'SELECT username, role, region, password_hash, bypass_2fa, locked FROM users ORDER BY role, username'
   );
   const total = users.rows.length;
+
+  // Which regions are actually in use. A region with no accounts needs no
+  // checking, and reporting on all five would be noise.
+  const activeRegions = [...new Set(users.rows.map(u => u.region))].sort();
+  ok(`${total} account(s) across ${activeRegions.length} region(s): ${activeRegions.join(', ')}`);
+
+  const admins = users.rows.filter(u => u.role === 'ADMIN');
+  const superAdmins = users.rows.filter(u => u.role === 'SUPERADMIN');
+  const orphanRegions = activeRegions.filter(r => !admins.some(a => a.region === r));
+  if (orphanRegions.length > 0 && superAdmins.length === 0) {
+    bad(`No administrator for: ${orphanRegions.join(', ')} — and no national administrator either`);
+    note('Those accounts cannot be managed by anyone. Create an admin per region,');
+    note('or one SUPERADMIN who can reach all of them.');
+  } else if (orphanRegions.length > 0) {
+    warn(`No regional administrator for: ${orphanRegions.join(', ')}`);
+    note(`Only the national administrator (${superAdmins.map(u => u.username).join(', ')}) can manage those.`);
+  } else {
+    ok(`Every region in use has its own administrator`);
+  }
 
   const onDefault = [];
   for (const u of users.rows) {
@@ -82,10 +102,11 @@ async function config(key) {
   if (onDefault.length === 0) {
     ok(`No account is using the default password (checked all ${total})`);
   } else {
-    const admins = onDefault.filter(u => u.role === 'ADMIN');
+    const privileged = onDefault.filter(u => ['ADMIN', 'SUPERADMIN'].includes(u.role));
     bad(`${onDefault.length} of ${total} accounts still use the default password "${DEFAULT_PASSWORD}"`);
-    if (admins.length > 0) {
-      note(`including ${admins.length} ADMIN account(s): ${admins.map(a => a.username).join(', ')}`);
+    if (privileged.length > 0) {
+      note(`including ${privileged.length} administrator account(s): `
+        + privileged.map(a => `${a.username} (${a.role === 'SUPERADMIN' ? 'national' : a.region})`).join(', '));
     }
     const sample = onDefault.slice(0, 8).map(u => u.username).join(', ');
     note(`${sample}${onDefault.length > 8 ? `, and ${onDefault.length - 8} more` : ''}`);
@@ -117,12 +138,17 @@ async function config(key) {
   // ── Portal settings ──────────────────────────────────────────────────────
   head('Portal settings');
 
-  const require2FA = await config('require2FA');
-  if (String(require2FA).toLowerCase() === 'false') {
-    bad('require2FA is OFF — everyone signs in on their password alone');
+  // require2FA is a regional setting, so every region in use needs checking.
+  const otpOff = [];
+  for (const r of activeRegions) {
+    const v = await config('require2FA', r);
+    if (String(v).toLowerCase() === 'false') otpOff.push(r);
+  }
+  if (otpOff.length > 0) {
+    bad(`require2FA is OFF for: ${otpOff.join(', ')} — those users sign in on their password alone`);
     note('Turn it on in System Parameters once mail delivery is proven.');
   } else {
-    ok('require2FA is on');
+    ok(`require2FA is on in every region in use`);
   }
 
   const from = await config('smtpFrom');
@@ -137,15 +163,16 @@ async function config(key) {
     note(`Check with:  dig +short TXT ${domain} | grep spf`);
   }
 
+  // The mail allowance is one shared pot, so the estimate is national — every
+  // region's users draw on the same 300 a day.
   const cap = parseInt(await config('mailDailyCap') || '0', 10);
   const trust = parseInt(await config('otpTrustDays') ?? '7', 10);
-  const usersNeedingCodes = total;
-  const perDay = trust > 0 ? Math.ceil(usersNeedingCodes / trust) : usersNeedingCodes * 2;
+  const perDay = trust > 0 ? Math.ceil(total / trust) : total * 2;
   if (cap > 0 && perDay > cap) {
-    bad(`Expected ~${perDay} codes a day for ${total} users at otpTrustDays=${trust}, over the ${cap} cap`);
-    note('Raise otpTrustDays, or raise the cap if the mail plan allows it.');
+    bad(`Expected ~${perDay} codes a day across all regions at otpTrustDays=${trust}, over the ${cap} cap`);
+    note('The allowance is shared between regions. Raise otpTrustDays, or the cap if the plan allows.');
   } else {
-    ok(`~${perDay} codes a day expected for ${total} users at otpTrustDays=${trust} (cap ${cap})`);
+    ok(`~${perDay} codes a day expected across all regions at otpTrustDays=${trust} (shared cap ${cap})`);
   }
 
   // ── Verdict ──────────────────────────────────────────────────────────────

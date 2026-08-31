@@ -9,7 +9,10 @@
 const express = require('express');
 const router = express.Router();
 const pool = require('../db');
-const { requireAdmin, isAdmin } = require('../middleware/auth');
+const { logEvent } = require('../utils/log');
+const { getSettings } = require('../utils/settings');
+const { requireAdmin, isAdmin, isSuperAdmin } = require('../middleware/auth');
+const { scopeToRegion, canActOnRegion, crossRegionError } = require('../middleware/region');
 const { toDateString, daysSince } = require('../utils/dates');
 const { parseTimeBlocks } = require('../utils/timeBlocks');
 const { typeMatchPattern } = require('../utils/discrepancyTypes');
@@ -27,11 +30,6 @@ if (!fs.existsSync(uploadsDir)) {
 // Upload rules (accepted types, size cap, cleanup) live in config/uploads.js
 const { upload, handleUploadErrors } = createUploader(uploadsDir);
 
-async function logEvent(type, message) {
-  try {
-    await pool.query('INSERT INTO system_logs (type, message) VALUES ($1, $2)', [type, message]);
-  } catch (e) { /* silent */ }
-}
 
 /**
  * True when the caller owns the discrepancy, or is the QCA holding the plant
@@ -72,9 +70,17 @@ router.get('/', async (req, res) => {
   const username = isAdmin(req) ? req.query.username : req.auth.username;
 
   try {
-    let baseQuery = 'SELECT d.*, u.name as request_by_name FROM discrepancies d JOIN users u ON d.request_by = u.username';
+    // The FROM and the WHERE are built once and shared by the count and the
+    // page. They used to be one string, with the count derived by replacing
+    // the SELECT list — which silently broke the moment a column was added to
+    // it. Keeping them separate removes that whole class of mistake.
+    const fromClause = 'FROM discrepancies d JOIN users u ON d.request_by = u.username';
     const params = [];
     const conditions = [];
+
+    // An admin's view stops at their own region. A station's view is already
+    // narrower than that — its own rows — so this is the admin's boundary.
+    if (isAdmin(req)) scopeToRegion(req, 'u.region', conditions, params);
 
     // Role-based visibility
     if (username) {
@@ -171,14 +177,12 @@ router.get('/', async (req, res) => {
       conditions.push(`d.energy_category = $${params.length}`);
     }
 
-    if (conditions.length > 0) {
-      baseQuery += ' WHERE ' + conditions.join(' AND ');
-    }
+    const whereClause = conditions.length > 0 ? ` WHERE ${conditions.join(' AND ')}` : '';
 
-    const countQuery = baseQuery.replace('d.*, u.name as request_by_name', 'COUNT(*) as count');
-    const countResult = await pool.query(countQuery, params);
+    const countResult = await pool.query(`SELECT COUNT(*) AS count ${fromClause}${whereClause}`, params);
     const total = parseInt(countResult.rows[0].count);
 
+    let baseQuery = `SELECT d.*, u.name AS request_by_name, u.region ${fromClause}${whereClause}`;
     baseQuery += ` ORDER BY 
       CASE d.status 
         WHEN 'Pending' THEN 1 
@@ -244,7 +248,10 @@ router.post('/', async (req, res) => {
   }
 
   try {
-    const configResult = await pool.query("SELECT key, value FROM config WHERE key IN ('maxDays', 'allowExtended', 'extendedMaxDays')");
+    // Filing rules belong to the filer's own region.
+    const configResult = { rows: Object.entries(
+      await getSettings(['maxDays', 'allowExtended', 'extendedMaxDays'], req.auth.region)
+    ).map(([key, value]) => ({ key, value })) };
     const config = {};
     configResult.rows.forEach(row => {
       config[row.key] = row.value;
@@ -337,10 +344,21 @@ router.patch('/:reqNo/process', requireAdmin, async (req, res) => {
   }
 
   try {
-    const discRes = await pool.query('SELECT * FROM discrepancies WHERE req_no = $1', [reqNo]);
+    const discRes = await pool.query(
+      `SELECT d.*, u.region FROM discrepancies d
+         JOIN users u ON d.request_by = u.username
+        WHERE d.req_no = $1`,
+      [reqNo]
+    );
     if (discRes.rows.length === 0) return res.status(404).json({ error: 'Discrepancy not found.' });
 
     const disc = discRes.rows[0];
+
+    // An admin processes their own region's filings only.
+    if (!canActOnRegion(req, disc.region)) {
+      return res.status(403).json(crossRegionError(req));
+    }
+
     const result = await pool.query(
       `UPDATE discrepancies SET status = $1, admin_comment = $2, admin_files = $3::jsonb, rejection_reason = $4, resolved_time = NOW()
        WHERE req_no = $5 RETURNING *`,
@@ -369,7 +387,9 @@ router.patch('/:reqNo/reraise', async (req, res) => {
   const username = req.auth.username;
 
   try {
-    const configResult = await pool.query("SELECT key, value FROM config WHERE key IN ('reraiseWindow', 'reraiseLimit')");
+    const configResult = { rows: Object.entries(
+      await getSettings(['reraiseWindow', 'reraiseLimit'], req.auth.region)
+    ).map(([key, value]) => ({ key, value })) };
     const config = {};
     configResult.rows.forEach(row => {
       config[row.key] = row.value;

@@ -2,6 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { getUsers, toggleUserLock, registerUser, bulkImportUsers, updateUserAdmin, resetUserPasswordAdmin, rollbackUserRegistry, toggleUserBypass2FA, getRegistrations, processRegistration, getPasswordResets, processPasswordReset } from '../services/db';
 import { DEFAULT_PASSWORD, RULES as PASSWORD_RULES, validatePassword } from '../utils/password';
 import { defaultUsernameFor } from '../utils/usernames';
+import { REGIONS, isNational } from '../utils/regions';
+
+const ADMIN_ROLES = ['ADMIN', 'SUPERADMIN'];
 import ConfirmDialog from './ConfirmDialog';
 import { Banner, EmptyState, SkeletonRows } from './Feedback';
 import { useFeedback } from '../hooks/useFeedback';
@@ -12,7 +15,7 @@ import {
 } from 'lucide-react';
 import { formatDateDMYHM } from '../utils/format';
 
-export default function UserManagement() {
+export default function UserManagement({ currentUser }) {
   const { notice, notify, clearNotice, askConfirm, confirmProps } = useFeedback();
   const [loadError, setLoadError] = useState('');
   const [registrations, setRegistrations] = useState([]);
@@ -52,6 +55,7 @@ export default function UserManagement() {
   const [formError, setFormError] = useState('');
   const [formSuccess, setFormSuccess] = useState('');
   const [qcaName, setQcaName] = useState('');
+  const [newUserRegion, setNewUserRegion] = useState(currentUser?.region || 'NRLDC');
 
   // Edit Modal States
   const [editingUser, setEditingUser] = useState(null);
@@ -368,6 +372,7 @@ export default function UserManagement() {
         password: password || DEFAULT_PASSWORD,
         energy_category: energyCategory === 'QCA' ? 'RE' : energyCategory,
         wbes_acronym: wbesAcronym.trim().toUpperCase(),
+        region: newUserRegion,
         bypass_2fa: bypass2FA,
         can_upload_cycle_data: energyCategory === 'QCA' ? false : canUploadCycleData,
         qca_name: energyCategory === 'QCA' ? qcaName.trim() : null
@@ -472,7 +477,7 @@ export default function UserManagement() {
       const headers = ['Name', 'Role', 'Username', 'Email', 'Email2', 'Email3', 'Mobile', 'Category', 'WBES_Acronym', 'Bypass2FA', 'CycleUpload', 'Status'];
       const rows = users.map(u => [
         `"${u.name}"`, u.role, u.username, u.email, u.email2 || '', u.email3 || '', u.mobile || '',
-        u.role === 'ADMIN' ? 'Admin' : u.energy_category, u.wbes_acronym || '', u.bypass_2fa ? 'BYPASS' : 'OTP', u.can_upload_cycle_data ? 'AUTHORIZED' : 'NONE', u.locked ? 'LOCKED' : 'ACTIVE'
+        ADMIN_ROLES.includes(u.role) ? 'Admin' : u.energy_category, u.wbes_acronym || '', u.bypass_2fa ? 'BYPASS' : 'OTP', u.can_upload_cycle_data ? 'AUTHORIZED' : 'NONE', u.locked ? 'LOCKED' : 'ACTIVE'
       ]);
       const csvContent = 'data:text/csv;charset=utf-8,'
         + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
@@ -561,6 +566,7 @@ HARYANA_UTILITY,usr_HARYANA,scheduling@haryana.gov.in,States,HARYANA`);
                   <tr>
                     <th>Applicant</th>
                     <th>Username</th>
+                    {isNational(currentUser) && <th>Region</th>}
                     <th>WBES Acronym</th>
                     <th>Type</th>
                     <th>Email</th>
@@ -575,6 +581,7 @@ HARYANA_UTILITY,usr_HARYANA,scheduling@haryana.gov.in,States,HARYANA`);
                     <tr className={reviewingId === reg.id ? 'is-reviewing' : ''}>
                       <td>{reg.name}</td>
                       <td className="mono">{reg.username}</td>
+                      {isNational(currentUser) && <td><span className="region-badge">{reg.region}</span></td>}
                       <td><strong className="mono" style={{ color: 'var(--accent-blue)' }}>{reg.wbes_acronym}</strong></td>
                       <td>
                         <span className={`energy-badge ${reg.energy_category}`}>{reg.energy_category}</span>
@@ -633,7 +640,7 @@ HARYANA_UTILITY,usr_HARYANA,scheduling@haryana.gov.in,States,HARYANA`);
                         correction, and the request keeps its original record. */}
                     {reviewingId === reg.id && reviewDraft && (
                       <tr className="review-row">
-                        <td colSpan="8">
+                        <td colSpan={isNational(currentUser) ? 9 : 8}>
                           <div className="review-panel">
                             <div className="review-panel-head">
                               <h4>Check the details before creating this account</h4>
@@ -982,6 +989,21 @@ HARYANA_UTILITY,usr_HARYANA,scheduling@haryana.gov.in,States,HARYANA`);
                 />
               </div>
 
+              {isNational(currentUser) && (
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label htmlFor="um-region">Region</label>
+                  <select id="um-region" className="form-control" value={newUserRegion}
+                    onChange={(e) => setNewUserRegion(e.target.value)}>
+                    {REGIONS.map(r => (
+                      <option key={r.code} value={r.code}>{r.name} — {r.code}</option>
+                    ))}
+                  </select>
+                  <small style={{ color: 'var(--text-muted)', fontSize: '0.72rem' }}>
+                    Which despatch centre administers this account.
+                  </small>
+                </div>
+              )}
+
               <div className="form-group" style={{ marginBottom: 0 }}>
                 <label htmlFor="um-category">Category</label>
                 <select id="um-category" className="form-control" value={energyCategory} onChange={(e) => setEnergyCategory(e.target.value)}>
@@ -1115,6 +1137,7 @@ HARYANA_UTILITY,usr_HARYANA,scheduling@haryana.gov.in,States,HARYANA`);
             <tr>
               <th>Station / Full Name</th>
               <th>Role</th>
+              {isNational(currentUser) && <th>Region</th>}
               <th>Username</th>
               <th>WBES Acronym</th>
               <th>Mandatory Email</th>
@@ -1127,7 +1150,7 @@ HARYANA_UTILITY,usr_HARYANA,scheduling@haryana.gov.in,States,HARYANA`);
           </thead>
           <tbody>
             {loading ? (
-              <SkeletonRows rows={6} columns={9} />
+              <SkeletonRows rows={6} columns={isNational(currentUser) ? 11 : 10} />
             ) : filteredUsers.length === 0 ? (
               <tr>
                 <td colSpan="9">
@@ -1150,19 +1173,20 @@ HARYANA_UTILITY,usr_HARYANA,scheduling@haryana.gov.in,States,HARYANA`);
                     borderRadius: '4px',
                     fontSize: '0.72rem',
                     fontWeight: '700',
-                    background: user.role === 'ADMIN' ? 'rgba(37,99,235,0.1)' : (user.role === 'QCA' || user.qca_name ? 'rgba(245,158,11,0.1)' : 'rgba(15,118,110,0.1)'),
-                    color: user.role === 'ADMIN' ? '#1d4ed8' : (user.role === 'QCA' || user.qca_name ? '#d97706' : '#0f766e'),
-                    border: `1px solid ${user.role === 'ADMIN' ? 'rgba(37,99,235,0.2)' : (user.role === 'QCA' || user.qca_name ? 'rgba(245,158,11,0.2)' : 'rgba(15,118,110,0.2)')}`,
+                    background: ADMIN_ROLES.includes(user.role) ? 'rgba(37,99,235,0.1)' : (user.role === 'QCA' || user.qca_name ? 'rgba(245,158,11,0.1)' : 'rgba(15,118,110,0.1)'),
+                    color: ADMIN_ROLES.includes(user.role) ? '#1d4ed8' : (user.role === 'QCA' || user.qca_name ? '#d97706' : '#0f766e'),
+                    border: `1px solid ${ADMIN_ROLES.includes(user.role) ? 'rgba(37,99,235,0.2)' : (user.role === 'QCA' || user.qca_name ? 'rgba(245,158,11,0.2)' : 'rgba(15,118,110,0.2)')}`,
                   }}>
                     {user.role === 'QCA' || user.qca_name ? 'QCA' : user.role}
                   </span>
                 </td>
+                {isNational(currentUser) && <td><span className="region-badge">{user.region}</span></td>}
                 <td style={{ fontFamily: 'monospace' }}>{user.username}</td>
                 <td><strong style={{ fontFamily: 'monospace', color: 'var(--accent-blue)' }}>{user.wbes_acronym || '-'}</strong></td>
                 <td>{user.email}</td>
                 <td>
-                  <span className={`energy-badge ${user.role === 'ADMIN' ? 'admin' : (user.qca_name ? 'QCA' : user.energy_category)}`}>
-                    {user.role === 'ADMIN' ? 'Admin' : (user.qca_name ? 'QCA' : user.energy_category)}
+                  <span className={`energy-badge ${ADMIN_ROLES.includes(user.role) ? 'admin' : (user.qca_name ? 'QCA' : user.energy_category)}`}>
+                    {user.role === 'SUPERADMIN' ? 'National' : user.role === 'ADMIN' ? 'Admin' : (user.qca_name ? 'QCA' : user.energy_category)}
                   </span>
                 </td>
                 <td>

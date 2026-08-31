@@ -24,13 +24,14 @@ This document outlines the complete setup and startup guide for the **NRLDC Sche
 8. [File Uploads](#-file-uploads) — *how to allow a new file type*
 9. [Time Blocks](#-time-blocks)
 10. [If Users Cannot Receive Their OTP](#-if-users-cannot-receive-their-otp)
-11. [Email Budget](#-email-budget)
-12. [Deploying to Production](DEPLOYMENT.md) — *the go-live runbook*
-13. [Deploying](#-deploying)
-14. [Self-Service Registration](#-self-service-registration)
-15. [Password Resets](#-password-resets)
-16. [Turning Features On and Off](#%EF%B8%8F-turning-features-on-and-off)
-17. [Troubleshooting Common Issues](#%EF%B8%8F-troubleshooting-common-issues)
+11. [Regions](#%EF%B8%8F-regions)
+12. [Email Budget](#-email-budget)
+13. [Deploying to Production](DEPLOYMENT.md) — *the go-live runbook*
+14. [Deploying](#-deploying)
+15. [Self-Service Registration](#-self-service-registration)
+16. [Password Resets](#-password-resets)
+17. [Turning Features On and Off](#%EF%B8%8F-turning-features-on-and-off)
+18. [Troubleshooting Common Issues](#%EF%B8%8F-troubleshooting-common-issues)
 
 ---
 
@@ -462,6 +463,63 @@ changes, or when it is revoked.
 A user can see and revoke their own trusted browsers, and an admin can revoke
 anyone's — useful for a lost or shared machine, and it does not require changing
 the password.
+
+## 🗺️ Regions
+
+One deployment serves several load despatch centres. Each has its own
+administrator, and they cannot see or touch each other's data.
+
+| Role | Sees | Can create |
+| --- | --- | --- |
+| `USER` / `QCA` | Their own filings, within their region | — |
+| `ADMIN` | Everything in **one** region | Users and QCAs in that region |
+| `SUPERADMIN` | **Every** region | Administrators, in any region |
+
+So `admin@nrldc` administers NRLDC's plants, states, discrepancies, outages,
+registrations and settings; `admin@erldc` administers ERLDC's. Neither appears
+in the other's user registry, log, or plant list.
+
+### What is per region, and what is not
+
+Almost everything is regional: accounts, plants, discrepancies, outages, cycle
+data, registrations, password resets, the system log, and the filing rules
+(filing window, re-raise limits, lockout threshold, outage categories, Cycle
+Data on/off, whether OTP is required).
+
+Three things cannot be, because there is only one of the underlying thing —
+**one mail account and one daily allowance**:
+
+* `otpTrustDays` · `resetOtpMinutes` · `mailDailyCap`
+* the SMTP server settings
+
+Those live under a reserved `GLOBAL` region and only a `SUPERADMIN` can change
+them. A regional admin sees them greyed out, with a note saying why.
+
+> The mail allowance is **shared**. Every region's login codes come out of the
+> same 300 a day, so adding a region does not add headroom — see
+> [Email Budget](#-email-budget).
+
+### Adding a region
+
+```bash
+./nrldc.sh regions           # accounts, plants and admins per region
+./nrldc.sh promote <user>    # make an account the national administrator
+```
+
+`promote` is the bootstrap: only a national administrator can create
+administrators, which leaves the first one with nowhere to come from. Promote
+one account, sign in as it, then create each region's admin from *User Registry*
+with the **Region** selector.
+
+Everything that existed before regions is NRLDC. Adding a region needs no
+migration — the settings for all five are seeded already, and a region with no
+accounts simply has nothing in it.
+
+### The registration form asks which centre
+
+Self-registration has a **Load despatch centre** field, and it decides which
+admin reviews the request. A registration for ERLDC never appears in the NRLDC
+queue, and an NRLDC admin who somehow reaches it is refused.
 
 ## 📧 Email Budget
 

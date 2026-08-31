@@ -4,6 +4,10 @@
 -- Users table (roles: ADMIN or USER only)
 CREATE TABLE IF NOT EXISTS wbes_entities (
   wbes_acronym VARCHAR(50) PRIMARY KEY,
+  -- The region that despatches this plant. Acronyms are unique nationally, so
+  -- this decides which admin administers it, not which name it may hold.
+  region VARCHAR(10) NOT NULL DEFAULT 'NRLDC'
+    CHECK (region IN ('NRLDC', 'ERLDC', 'WRLDC', 'SRLDC', 'NERLDC')),
   name VARCHAR(200) NOT NULL,
   -- A plant's energy category is a property of the plant itself, not of
   -- whichever user currently holds the acronym. QCA management is permitted
@@ -16,7 +20,12 @@ CREATE TABLE IF NOT EXISTS users (
   id SERIAL PRIMARY KEY,
   username VARCHAR(100) UNIQUE NOT NULL,
   name VARCHAR(200) NOT NULL,
-  role VARCHAR(20) NOT NULL CHECK (role IN ('ADMIN', 'USER', 'QCA')),
+  role VARCHAR(20) NOT NULL CHECK (role IN ('SUPERADMIN', 'ADMIN', 'USER', 'QCA')),
+  -- Which load despatch centre this account belongs to. An ADMIN administers
+  -- exactly this region; a USER or QCA is a station within it. A SUPERADMIN
+  -- sees every region, and its own value here is only a home label.
+  region VARCHAR(10) NOT NULL DEFAULT 'NRLDC'
+    CHECK (region IN ('NRLDC', 'ERLDC', 'WRLDC', 'SRLDC', 'NERLDC')),
   email VARCHAR(200) NOT NULL,
   email2 VARCHAR(200),
   email3 VARCHAR(200),
@@ -105,7 +114,11 @@ CREATE TABLE IF NOT EXISTS cycle_data_uploads (
 );
 
 -- System logs table
+-- Region is nullable here: an event that belongs to no single region (a
+-- failed login for an unknown username, an SMTP failure) is visible only to a
+-- super-admin, which NULL expresses better than a guess.
 CREATE TABLE IF NOT EXISTS system_logs (
+  region VARCHAR(10),
   id BIGSERIAL PRIMARY KEY,
   type VARCHAR(20) NOT NULL DEFAULT 'info' CHECK (type IN ('info', 'success', 'warn', 'error')),
   message TEXT NOT NULL,
@@ -113,9 +126,18 @@ CREATE TABLE IF NOT EXISTS system_logs (
 );
 
 -- Config table (key-value store)
+-- Settings, per region.
+--
+-- Most settings belong to one region: each despatch centre sets its own filing
+-- window, re-raise limits and lockout threshold. A few cannot be regional
+-- because there is only one of the underlying thing — one Brevo account, one
+-- daily mail allowance — and those live under the reserved region 'GLOBAL',
+-- writable only by a super-admin. See GLOBAL_KEYS in routes/config.js.
 CREATE TABLE IF NOT EXISTS config (
-  key VARCHAR(100) PRIMARY KEY,
-  value TEXT NOT NULL
+  key VARCHAR(100) NOT NULL,
+  region VARCHAR(10) NOT NULL DEFAULT 'NRLDC',
+  value TEXT NOT NULL,
+  PRIMARY KEY (key, region)
 );
 
 -- Login OTPs. Stored in the database rather than in process memory so that a
@@ -204,6 +226,8 @@ CREATE TABLE IF NOT EXISTS revoked_tokens (
 -- recorded in review_note, so the application and the decision stay separable.
 CREATE TABLE IF NOT EXISTS registration_requests (
   id SERIAL PRIMARY KEY,
+  region VARCHAR(10) NOT NULL DEFAULT 'NRLDC'
+    CHECK (region IN ('NRLDC', 'ERLDC', 'WRLDC', 'SRLDC', 'NERLDC')),
   username VARCHAR(100) NOT NULL,
   name VARCHAR(200) NOT NULL,
   role VARCHAR(20) NOT NULL CHECK (role IN ('USER', 'QCA')),
@@ -239,6 +263,84 @@ CREATE TABLE IF NOT EXISTS password_reset_requests (
 );
 
 -- ─── Migrations for pre-existing databases ──────────────────────────────────
+
+-- ─── Regions ────────────────────────────────────────────────────────────────
+-- Everything that existed before regions belongs to NRLDC, which is what the
+-- defaults below say. Nothing here loses data: each step is additive, and the
+-- backfill names the region every existing row already implicitly had.
+
+ALTER TABLE users            ADD COLUMN IF NOT EXISTS region VARCHAR(10) NOT NULL DEFAULT 'NRLDC';
+ALTER TABLE wbes_entities    ADD COLUMN IF NOT EXISTS region VARCHAR(10) NOT NULL DEFAULT 'NRLDC';
+ALTER TABLE system_logs      ADD COLUMN IF NOT EXISTS region VARCHAR(10);
+ALTER TABLE registration_requests ADD COLUMN IF NOT EXISTS region VARCHAR(10) NOT NULL DEFAULT 'NRLDC';
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'users_region_check') THEN
+    ALTER TABLE users ADD CONSTRAINT users_region_check
+      CHECK (region IN ('NRLDC', 'ERLDC', 'WRLDC', 'SRLDC', 'NERLDC'));
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'wbes_entities_region_check') THEN
+    ALTER TABLE wbes_entities ADD CONSTRAINT wbes_entities_region_check
+      CHECK (region IN ('NRLDC', 'ERLDC', 'WRLDC', 'SRLDC', 'NERLDC'));
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'registration_requests_region_check') THEN
+    ALTER TABLE registration_requests ADD CONSTRAINT registration_requests_region_check
+      CHECK (region IN ('NRLDC', 'ERLDC', 'WRLDC', 'SRLDC', 'NERLDC'));
+  END IF;
+END $$;
+
+-- SUPERADMIN did not exist before, so the role constraint has to be replaced
+-- rather than added to.
+DO $$
+DECLARE
+  con text;
+BEGIN
+  SELECT conname INTO con FROM pg_constraint
+   WHERE conrelid = 'users'::regclass AND contype = 'c'
+     AND pg_get_constraintdef(oid) LIKE '%role%ADMIN%'
+     AND pg_get_constraintdef(oid) NOT LIKE '%SUPERADMIN%'
+   LIMIT 1;
+  IF con IS NOT NULL THEN
+    EXECUTE format('ALTER TABLE users DROP CONSTRAINT %I', con);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'users_role_check_v2') THEN
+    ALTER TABLE users ADD CONSTRAINT users_role_check_v2
+      CHECK (role IN ('SUPERADMIN', 'ADMIN', 'USER', 'QCA'));
+  END IF;
+END $$;
+
+-- A plant's region follows its registered user where one exists, so an
+-- existing multi-region import stays consistent.
+UPDATE wbes_entities w
+   SET region = u.region
+  FROM users u
+ WHERE UPPER(u.wbes_acronym) = UPPER(w.wbes_acronym)
+   AND w.region IS DISTINCT FROM u.region;
+
+-- ─── Settings become per-region ─────────────────────────────────────────────
+-- The config table was keyed on `key` alone. It gains a region, the handful of
+-- settings that cannot be regional move to the reserved 'GLOBAL' region, and
+-- the primary key widens to match.
+ALTER TABLE config ADD COLUMN IF NOT EXISTS region VARCHAR(10) NOT NULL DEFAULT 'NRLDC';
+
+UPDATE config
+   SET region = 'GLOBAL'
+ WHERE region <> 'GLOBAL'
+   AND (key LIKE 'smtp%' OR key IN ('mailDailyCap', 'otpTrustDays', 'resetOtpMinutes'));
+
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM pg_constraint
+     WHERE conrelid = 'config'::regclass AND contype = 'p'
+       AND array_length(conkey, 1) = 1
+  ) THEN
+    ALTER TABLE config DROP CONSTRAINT config_pkey;
+    ALTER TABLE config ADD PRIMARY KEY (key, region);
+  END IF;
+END $$;
+
 -- Add the plant energy category, backfilling from the plant's registered user
 -- where one exists (plants with no user default to RE, matching prior behaviour).
 ALTER TABLE wbes_entities
@@ -332,6 +434,12 @@ CREATE INDEX IF NOT EXISTS idx_otp_expiry     ON login_otps (expires_at);
 CREATE INDEX IF NOT EXISTS idx_device_user   ON trusted_devices (LOWER(username));
 CREATE INDEX IF NOT EXISTS idx_device_expiry ON trusted_devices (expires_at);
 
+-- Region scoping. Every admin listing filters on one of these.
+CREATE INDEX IF NOT EXISTS idx_users_region     ON users (region);
+CREATE INDEX IF NOT EXISTS idx_entities_region  ON wbes_entities (region);
+CREATE INDEX IF NOT EXISTS idx_logs_region      ON system_logs (region, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_regreq_region    ON registration_requests (region, status);
+
 -- Substring search across the free-text discrepancy fields. A trigram index is
 -- what makes "... LIKE '%text%'" fast; it needs the pg_trgm extension, which
 -- requires elevated rights. If that is unavailable the search still works, just
@@ -345,35 +453,47 @@ EXCEPTION WHEN OTHERS THEN
   RAISE NOTICE 'pg_trgm unavailable (%) — text search will work without a trigram index.', SQLERRM;
 END $$;
 
--- Default config values (upsert)
-INSERT INTO config (key, value) VALUES
-  ('maxDays', '5'),
-  ('lockoutAttempts', '3'),
-  ('allowExtended', 'true'),
-  ('extendedMaxDays', '15'),
-  ('reraiseWindow', '45'),
-  ('reraiseLimit', '2'),
-  ('outage_ISGS', 'true'),
-  ('outage_RE', 'true'),
-  ('outage_States', 'false'),
-  -- Master two-factor switch. When 'false', OTP is skipped for everyone and
-  -- login completes on the password alone. Intended as an operational escape
-  -- hatch when mail delivery is broken; see also each user's bypass_2fa flag.
-  ('require2FA', 'true'),
-  -- Cycle Data upload/download. Switch off to hide the feature entirely
-  -- without deleting anything already uploaded.
-  ('feature_cycle_data', 'true'),
-  -- How long a browser stays trusted after its user verifies an OTP. This is
-  -- the single biggest control on mail usage: at 7 days, 200 users cost about
-  -- 29 codes a day instead of one per login. Set to '0' to demand a code every
-  -- time (and budget the mail for it).
-  ('otpTrustDays', '7'),
+-- ─── Default settings ───────────────────────────────────────────────────────
+
+-- Regional settings: one row per region, so each despatch centre can diverge.
+-- The cross join means adding a region to the list below is all it takes to
+-- give it a full set of defaults.
+INSERT INTO config (key, region, value)
+SELECT d.key, r.region, d.value
+  FROM (VALUES
+    ('maxDays', '5'),
+    ('lockoutAttempts', '3'),
+    ('allowExtended', 'true'),
+    ('extendedMaxDays', '15'),
+    ('reraiseWindow', '45'),
+    ('reraiseLimit', '2'),
+    ('outage_ISGS', 'true'),
+    ('outage_RE', 'true'),
+    ('outage_States', 'false'),
+    -- Master two-factor switch for this region. When 'false', OTP is skipped
+    -- and login completes on the password alone. An operational escape hatch
+    -- for when mail delivery breaks; see also each user's bypass_2fa flag.
+    ('require2FA', 'true'),
+    -- Cycle Data upload/download. Switch off to hide the feature entirely
+    -- without deleting anything already uploaded.
+    ('feature_cycle_data', 'true')
+  ) AS d(key, value)
+  CROSS JOIN (VALUES ('NRLDC'), ('ERLDC'), ('WRLDC'), ('SRLDC'), ('NERLDC')) AS r(region)
+ON CONFLICT (key, region) DO NOTHING;
+
+-- Global settings: there is one mail account and one daily allowance, so these
+-- cannot be regional. Only a super-admin may change them.
+INSERT INTO config (key, region, value) VALUES
+  -- How long a browser stays trusted after its user verifies an OTP. The
+  -- single biggest control on mail usage: at 7 days, 200 users cost about 29
+  -- codes a day instead of one per login. Set to '0' to demand one every time.
+  ('otpTrustDays', 'GLOBAL', '7'),
   -- How long an emailed password-reset code stays valid. No second code is
-  -- sent while one is still live, so a user hammering "forgot password"
-  -- cannot drain the day's allowance.
-  ('resetOtpMinutes', '20'),
+  -- sent while one is live, so a user hammering "forgot password" cannot
+  -- drain the day's allowance.
+  ('resetOtpMinutes', 'GLOBAL', '20'),
   -- Messages the portal will send in a day before it stops. Deliberately below
   -- the provider's real limit, so the portal refuses on its own terms with a
   -- log entry rather than having the provider reject mail silently.
-  ('mailDailyCap', '280')
-ON CONFLICT (key) DO NOTHING;
+  ('mailDailyCap', 'GLOBAL', '280')
+ON CONFLICT (key, region) DO NOTHING;

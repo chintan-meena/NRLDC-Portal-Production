@@ -22,6 +22,7 @@
 
 const crypto = require('crypto');
 const pool = require('../db');
+const { getNumber } = require('../utils/settings');
 
 const DEFAULT_TRUST_DAYS = 7;
 
@@ -31,14 +32,10 @@ function hashToken(token) {
 
 /** How long a device stays trusted. 0 disables the whole mechanism. */
 async function trustDays() {
-  try {
-    const res = await pool.query("SELECT value FROM config WHERE key = 'otpTrustDays'");
-    if (res.rows.length === 0) return DEFAULT_TRUST_DAYS;
-    const n = parseInt(res.rows[0].value, 10);
-    return Number.isFinite(n) && n >= 0 ? n : DEFAULT_TRUST_DAYS;
-  } catch {
-    return DEFAULT_TRUST_DAYS;
-  }
+  // Global: the trust window governs mail usage, and the mail allowance is
+  // shared across every region.
+  const n = await getNumber('otpTrustDays', null, DEFAULT_TRUST_DAYS);
+  return Number.isFinite(n) && n >= 0 ? n : DEFAULT_TRUST_DAYS;
 }
 
 /**

@@ -1344,6 +1344,36 @@ button {
   margin-bottom: 4px;
   border-left: 3px solid var(--accent-blue);
 }
+.region-badge {
+  display: inline-block;
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: rgba(15, 118, 110, 0.1);
+  color: #0f766e;
+  border: 1px solid rgba(15, 118, 110, 0.22);
+  white-space: nowrap;
+}
+
+/* Which region's settings are on screen. Regional admins can otherwise not
+   tell whether a change is local to them or applies everywhere. */
+.settings-scope {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 18px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-tertiary);
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+
 .queue-count {
   font-size: 0.7rem;
   font-weight: 700;

@@ -11,6 +11,7 @@ import {
   Edit, Trash2, Mail
 } from 'lucide-react';
 import UserManagement from './UserManagement';
+import { isNational, regionLabel } from '../utils/regions';
 import ConfirmDialog from './ConfirmDialog';
 import { Banner, EmptyState, SkeletonRows } from './Feedback';
 import { useFeedback } from '../hooks/useFeedback';
@@ -1049,6 +1050,17 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
 
             <Banner type="success" message={configSuccess} />
 
+            {/* Settings are per region, so say plainly whose are on screen —
+                otherwise an admin cannot tell whether a change is local. */}
+            <div className="settings-scope">
+              <span className="region-badge">{currentUser.region}</span>
+              <span>
+                {isNational(currentUser)
+                  ? <>You administer <strong>every region</strong>. These settings apply to {regionLabel(currentUser.region)} unless you switch region.</>
+                  : <>These settings apply to <strong>{regionLabel(currentUser.region)}</strong> only. Other despatch centres keep their own.</>}
+              </span>
+            </div>
+
             <form onSubmit={handleSaveConfig}>
               <div className="form-group">
                 <label htmlFor="ad-maximum-discrepancy-filing-limit-days-iegc-6-5-33">Maximum Discrepancy Filing Limit (Days — IEGC 6.5.33)</label>
@@ -1164,6 +1176,10 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
               <h3 className="settings-heading">Email Budget</h3>
               <p className="settings-hint">
                 How much email the portal is allowed to send, and how hard it works to avoid needing to.
+                {!isNational(currentUser) && (
+                  <> These are <strong>national</strong> settings — one mail account serves every
+                  region — so they are shown here but only a national administrator can change them.</>
+                )}
               </p>
 
               {mailUsage && (
@@ -1188,7 +1204,7 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
 
               <div className="form-group">
                 <label htmlFor="ad-otp-trust-days">Ask for an OTP once every … days</label>
-                <input id="ad-otp-trust-days" type="number" min="0" max="90" className="form-control"
+                <input id="ad-otp-trust-days" disabled={!isNational(currentUser)} type="number" min="0" max="90" className="form-control"
                   value={otpTrustDays} onChange={(e) => setOtpTrustDays(e.target.value)} />
                 <span className="settings-field-hint">
                   After a user verifies a code, that browser is trusted for this long and signs in
@@ -1200,7 +1216,7 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
 
               <div className="form-group">
                 <label htmlFor="ad-reset-otp-minutes">Password reset code valid for … minutes</label>
-                <input id="ad-reset-otp-minutes" type="number" min="5" max="120" className="form-control"
+                <input id="ad-reset-otp-minutes" disabled={!isNational(currentUser)} type="number" min="5" max="120" className="form-control"
                   value={resetOtpMinutes} onChange={(e) => setResetOtpMinutes(e.target.value)} />
                 <span className="settings-field-hint">
                   No second code is emailed while one is still valid, so repeatedly pressing
@@ -1210,7 +1226,7 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
 
               <div className="form-group">
                 <label htmlFor="ad-mail-daily-cap">Daily message limit</label>
-                <input id="ad-mail-daily-cap" type="number" min="0" className="form-control"
+                <input id="ad-mail-daily-cap" disabled={!isNational(currentUser)} type="number" min="0" className="form-control"
                   value={mailDailyCap} onChange={(e) => setMailDailyCap(e.target.value)} />
                 <span className="settings-field-hint">
                   The portal stops sending once it reaches this number and writes a log entry saying
@@ -1374,7 +1390,7 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
       )}
 
       {activeTab === 'users' && (
-        <UserManagement />
+        <UserManagement currentUser={currentUser} />
       )}
 
 

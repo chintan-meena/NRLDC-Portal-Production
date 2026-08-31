@@ -43,7 +43,7 @@ async function requireAuth(req, res, next) {
     // Re-read the account so a locked, deleted or demoted user cannot keep
     // using a token that was issued before the change.
     const result = await pool.query(
-      'SELECT username, role, locked, energy_category, wbes_acronym, qca_name FROM users WHERE username = $1',
+      'SELECT username, role, region, locked, energy_category, wbes_acronym, qca_name FROM users WHERE username = $1',
       [claims.username]
     );
     if (result.rows.length === 0) {
@@ -73,10 +73,26 @@ async function requireAuth(req, res, next) {
   }
 }
 
-/** Rejects the request unless the caller is an ADMIN. */
+/**
+ * Rejects the request unless the caller administers something.
+ *
+ * A SUPERADMIN passes every check an ADMIN passes; what separates them is not
+ * permission but reach, and that is decided by the region scope rather than
+ * here. See middleware/region.js.
+ */
 function requireAdmin(req, res, next) {
-  if (!req.auth || req.auth.role !== 'ADMIN') {
+  if (!req.auth || !['ADMIN', 'SUPERADMIN'].includes(req.auth.role)) {
     return res.status(403).json({ error: 'Administrator privileges are required for this action.' });
+  }
+  next();
+}
+
+/** Rejects the request unless the caller administers every region. */
+function requireSuperAdmin(req, res, next) {
+  if (!req.auth || req.auth.role !== 'SUPERADMIN') {
+    return res.status(403).json({
+      error: 'This action affects every region, so it is reserved for a national administrator.',
+    });
   }
   next();
 }
@@ -91,15 +107,22 @@ function requireSelfOrAdmin(param = 'username') {
     if (!req.auth) {
       return res.status(401).json({ error: 'Authentication required.' });
     }
-    if (req.auth.role === 'ADMIN') return next();
+    if (['ADMIN', 'SUPERADMIN'].includes(req.auth.role)) return next();
     if (target && target.toLowerCase() === req.auth.username.toLowerCase()) return next();
     return res.status(403).json({ error: 'You may only act on your own account.' });
   };
 }
 
-/** True when the caller is an ADMIN. */
+/** True when the caller administers anything — one region or all of them. */
 function isAdmin(req) {
-  return !!req.auth && req.auth.role === 'ADMIN';
+  return !!req.auth && ['ADMIN', 'SUPERADMIN'].includes(req.auth.role);
 }
 
-module.exports = { requireAuth, requireAdmin, requireSelfOrAdmin, isAdmin };
+/** True when the caller administers every region. */
+function isSuperAdmin(req) {
+  return !!req.auth && req.auth.role === 'SUPERADMIN';
+}
+
+module.exports = {
+  requireAuth, requireAdmin, requireSuperAdmin, requireSelfOrAdmin, isAdmin, isSuperAdmin,
+};

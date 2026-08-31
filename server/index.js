@@ -9,6 +9,7 @@ const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const { apiLimiter, authLimiter } = require('./middleware/rateLimit');
+const { requestContext } = require('./utils/requestContext');
 const pool = require('./db');
 const { requireAuth, requireAdmin } = require('./middleware/auth');
 const { checkSchema, reportSchemaProblem } = require('./schemaCheck');
@@ -114,6 +115,11 @@ app.get('/api/uploads/:filename', requireAuth, sendUpload);
 // Routes
 // Only /api/auth/logout needs an identity; the rest (login, verify-otp,
 // forgot-password) must stay reachable to signed-out users.
+// Carries the caller's region for the rest of the request, so log entries can
+// be attributed without every writer being handed it. Annotation only —
+// authorisation always reads req.auth. See utils/requestContext.js.
+app.use('/api', requestContext);
+
 app.use('/api/auth/logout',   requireAuth);
 app.use('/api/auth',          authRoutes);                       // public (rate-limited)
 app.use('/api/users',         requireAuth, usersRoutes);

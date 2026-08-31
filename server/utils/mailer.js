@@ -14,23 +14,22 @@
 
 const nodemailer = require('nodemailer');
 const pool = require('../db');
+const { getNumber, getSettings } = require('./settings');
+const { logEvent } = require('./log');
 
-/** Read a numeric setting, falling back when it is missing or unparseable. */
+/**
+ * Read a numeric setting. Everything this module reads is global — there is one
+ * mail account and one daily allowance, shared by every region — so no region
+ * is passed.
+ */
 async function numericConfig(key, fallback) {
-  try {
-    const res = await pool.query('SELECT value FROM config WHERE key = $1', [key]);
-    if (res.rows.length === 0) return fallback;
-    const n = parseInt(res.rows[0].value, 10);
-    return Number.isFinite(n) ? n : fallback;
-  } catch {
-    return fallback;
-  }
+  return getNumber(key, null, fallback);
 }
 
 async function getTransporter() {
-  const configRes = await pool.query("SELECT key, value FROM config WHERE key LIKE 'smtp%'");
-  const smtp = {};
-  configRes.rows.forEach(row => { smtp[row.key] = row.value; });
+  const smtp = await getSettings(
+    ['smtpHost', 'smtpPort', 'smtpSecure', 'smtpUser', 'smtpPass', 'smtpFrom'], null
+  );
 
   const user = smtp.smtpUser || process.env.SMTP_USER || '';
   const transporter = nodemailer.createTransport({
@@ -81,12 +80,6 @@ async function releaseQuota() {
         WHERE day = CURRENT_DATE`
     );
   } catch { /* the count drifting by one is not worth failing anything over */ }
-}
-
-async function logEvent(type, message) {
-  try {
-    await pool.query('INSERT INTO system_logs (type, message) VALUES ($1, $2)', [type, message]);
-  } catch { /* never let logging break a send */ }
 }
 
 /**

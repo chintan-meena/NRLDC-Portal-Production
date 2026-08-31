@@ -7,7 +7,10 @@
 const express = require('express');
 const router = express.Router();
 const pool = require('../db');
-const { requireAdmin, isAdmin } = require('../middleware/auth');
+const { logEvent } = require('../utils/log');
+const { requireAdmin, isAdmin, isSuperAdmin } = require('../middleware/auth');
+const { isValidRegion, scopeToRegion } = require('../middleware/region');
+const { GLOBAL_REGION, isGlobalKey, setSetting, getNumber } = require('../utils/settings');
 const { mailUsage } = require('../utils/mailer');
 
 // Only these keys may be written through the API. Anything else — including
@@ -35,16 +38,21 @@ function redactSecrets(updates) {
   return safe;
 }
 
-async function logEvent(type, message) {
-  try {
-    await pool.query('INSERT INTO system_logs (type, message) VALUES ($1, $2)', [type, message]);
-  } catch (e) { /* silent */ }
-}
 
 // GET /api/config
+//
+// Returns the caller's own region's settings, with the global ones merged in.
+// Nobody sees another region's settings, and a super-admin can inspect one in
+// particular with ?region=ERLDC.
 router.get('/', async (req, res) => {
   try {
-    const result = await pool.query('SELECT key, value FROM config');
+    const region = isSuperAdmin(req) && isValidRegion(req.query.region)
+      ? req.query.region
+      : (req.auth?.region || 'NRLDC');
+    const result = await pool.query(
+      'SELECT key, value FROM config WHERE region = $1 OR region = $2',
+      [region, GLOBAL_REGION]
+    );
     const admin = isAdmin(req);
     const config = {};
     result.rows.forEach(row => {
@@ -56,6 +64,7 @@ router.get('/', async (req, res) => {
       else if (!isNaN(val) && val.trim() !== '') val = parseInt(val);
       config[row.key] = val;
     });
+    config.region = region;
     res.json(config);
   } catch (err) {
     console.error('[CONFIG GET]', err);
@@ -72,15 +81,29 @@ router.patch('/', requireAdmin, async (req, res) => {
     return res.status(400).json({ error: `Unknown configuration key(s): ${rejected.join(', ')}.` });
   }
 
+  // Settings that describe shared things — the one mail account, the one daily
+  // allowance — cannot be changed by a regional admin, because the change
+  // would land on everyone.
+  const globalAttempts = Object.keys(updates).filter(isGlobalKey);
+  if (globalAttempts.length > 0 && !isSuperAdmin(req)) {
+    return res.status(403).json({
+      error: `${globalAttempts.join(', ')} ${globalAttempts.length === 1 ? 'applies' : 'apply'} to every region, `
+        + 'so only a national administrator can change '
+        + (globalAttempts.length === 1 ? 'it.' : 'them.'),
+    });
+  }
+
+  const region = isSuperAdmin(req) && isValidRegion(req.body.region)
+    ? req.body.region
+    : (req.auth?.region || 'NRLDC');
+
   try {
     for (const [key, value] of Object.entries(updates)) {
-      await pool.query(
-        'INSERT INTO config (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = $2',
-        [key, String(value)]
-      );
+      await setSetting(key, region, value);
     }
-    await logEvent('info', `Security/regulation config updated by "${req.auth.username}": ${JSON.stringify(redactSecrets(updates))}`);
-    res.json({ success: true, config: updates });
+    await logEvent('info',
+      `Settings updated for ${region} by "${req.auth.username}": ${JSON.stringify(redactSecrets(updates))}`);
+    res.json({ success: true, config: updates, region });
   } catch (err) {
     console.error('[CONFIG PATCH]', err);
     res.status(500).json({ error: 'Failed to update config.' });
@@ -94,15 +117,26 @@ router.patch('/', requireAdmin, async (req, res) => {
 // means an admin can see it coming.
 router.get('/mail-usage', requireAdmin, async (req, res) => {
   try {
+    // The allowance is one shared pot, so the totals are national however many
+    // regions are using it. The device count is scoped, so a regional admin
+    // sees how many of their own stations are currently trusted.
     const usage = await mailUsage();
-    const trustRes = await pool.query("SELECT value FROM config WHERE key = 'otpTrustDays'");
-    const days = parseInt(trustRes.rows[0]?.value ?? '7', 10);
+    const days = await getNumber('otpTrustDays', null, 7);
+
+    const params = [];
+    const conditions = ['d.expires_at > NOW()'];
+    scopeToRegion(req, 'u.region', conditions, params);
     const devices = await pool.query(
-      'SELECT count(*)::int AS n FROM trusted_devices WHERE expires_at > NOW()'
+      `SELECT count(*)::int AS n FROM trusted_devices d
+         JOIN users u ON d.username = u.username
+        WHERE ${conditions.join(' AND ')}`,
+      params
     );
+
     res.json({
       ...usage,
-      trustDays: Number.isFinite(days) ? days : 7,
+      shared: true,
+      trustDays: days,
       trustedDevices: devices.rows[0].n,
     });
   } catch (err) {
