@@ -70,13 +70,52 @@ app.use(cors({
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
-// Health first: uptime monitors poll it and must never be throttled.
+// ─── Which backend served this? ─────────────────────────────────────────────
+// Behind a load balancer, a response is anonymous: nothing in it says which
+// node produced it, so an uneven distribution, a single sick node, or a
+// session that breaks when the client is moved are all invisible. Every
+// response carries the node's identity, so any request — not just a health
+// check — can be attributed during a load test or an incident.
+//
+// It is a hostname and pid, deliberately not a public address: it identifies
+// the node to whoever already has access to the logs, and tells an outsider
+// nothing about the topology.
+const os = require('os');
+const NODE_ID = `${os.hostname()}/${process.pid}`;
+
+app.use((req, res, next) => {
+  res.setHeader('X-Served-By', NODE_ID);
+  next();
+});
+
+// Health first: uptime monitors poll it and must never be throttled. It is
+// also the load test's probe, so it reports enough to tell the nodes apart
+// and to show what the proxy in front is passing through.
 app.get('/api/health', async (req, res) => {
+  const identity = {
+    node: NODE_ID,
+    host: os.hostname(),
+    pid: process.pid,
+    uptimeSeconds: Math.round(process.uptime()),
+    // What the app believes the caller's address is, and what the proxy said.
+    // If these disagree, TRUST_PROXY_HOPS is wrong and the rate limiter is
+    // throttling the proxy rather than the client.
+    clientIp: req.ip,
+    forwardedFor: req.get('x-forwarded-for') || null,
+    trustProxyHops: parseInt(process.env.TRUST_PROXY_HOPS || '1'),
+  };
   try {
+    const started = Date.now();
     await pool.query('SELECT 1');
-    res.json({ status: 'ok', db: 'connected', timestamp: new Date().toISOString() });
+    res.json({
+      status: 'ok',
+      db: 'connected',
+      dbLatencyMs: Date.now() - started,
+      ...identity,
+      timestamp: new Date().toISOString(),
+    });
   } catch (err) {
-    res.status(503).json({ status: 'error', db: 'disconnected', error: err.message });
+    res.status(503).json({ status: 'error', db: 'disconnected', error: err.message, ...identity });
   }
 });
 

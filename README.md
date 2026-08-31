@@ -24,14 +24,16 @@ This document outlines the complete setup and startup guide for the **NRLDC Sche
 8. [File Uploads](#-file-uploads) — *how to allow a new file type*
 9. [Time Blocks](#-time-blocks)
 10. [If Users Cannot Receive Their OTP](#-if-users-cannot-receive-their-otp)
-11. [Regions](#%EF%B8%8F-regions)
-12. [Email Budget](#-email-budget)
-13. [Deploying to Production](DEPLOYMENT.md) — *the go-live runbook*
-14. [Deploying](#-deploying)
-15. [Self-Service Registration](#-self-service-registration)
-16. [Password Resets](#-password-resets)
-17. [Turning Features On and Off](#%EF%B8%8F-turning-features-on-and-off)
-18. [Troubleshooting Common Issues](#%EF%B8%8F-troubleshooting-common-issues)
+11. [Financial-Year Week Filter](#-financial-year-week-filter)
+12. [Load Testing Behind the Balancer](#-load-testing-behind-the-balancer)
+13. [Regions](#%EF%B8%8F-regions)
+14. [Email Budget](#-email-budget)
+15. [Deploying to Production](DEPLOYMENT.md) — *the go-live runbook*
+16. [Deploying](#-deploying)
+17. [Self-Service Registration](#-self-service-registration)
+18. [Password Resets](#-password-resets)
+19. [Turning Features On and Off](#%EF%B8%8F-turning-features-on-and-off)
+20. [Troubleshooting Common Issues](#%EF%B8%8F-troubleshooting-common-issues)
 
 ---
 
@@ -463,6 +465,75 @@ changes, or when it is revoked.
 A user can see and revoke their own trusted browsers, and an admin can revoke
 anyone's — useful for a lost or shared machine, and it does not require changing
 the password.
+
+## 📅 Financial-Year Week Filter
+
+The discrepancy filter can select a date range by **financial year and week**
+instead of typing two dates. Tick *Financial Year Week* in the filter panel.
+
+The rule, and the one thing about it that looks wrong but is not:
+
+* The financial year runs **1 April → 31 March**.
+* A week runs **Monday → Sunday**.
+* **Week 1 of FY(Y) is the Mon–Sun week containing 1 April of year Y.**
+
+Because 1 April is rarely a Monday, **Week 1 usually starts in March**:
+
+| Week | FY | Dates |
+| --- | --- | --- |
+| Week 52 | 2025–26 | 23 Mar 2026 – 29 Mar 2026 |
+| **Week 1** | **2026–27** | **30 Mar 2026 – 05 Apr 2026** |
+| Week 2 | 2026–27 | 06 Apr 2026 – 12 Apr 2026 |
+
+1 April 2026 is a Wednesday, so FY2026-27 Week 1 reaches back to Monday
+30 March. That is correct, not an off-by-one.
+
+The weeks tile exactly: the last week of one year ends the day before Week 1 of
+the next begins, so no day falls in two financial years and none falls in
+neither. That is why a year has **52 or 53 weeks** rather than always 52 —
+FY2018-19 and FY2023-24 have 53. Asking for Week 53 of a 52-week year returns
+nothing rather than guessing at seven days.
+
+The arithmetic lives in `server/utils/financialYear.js`, mirrored for the
+browser in `src/utils/financialYear.js`. It works in local calendar days
+throughout — the portal has had a UTC day-shift bug before, and this would be a
+fresh way to reintroduce it.
+
+## 🧪 Load Testing Behind the Balancer
+
+Two scripts in `loadtest/`, measuring the same things:
+
+```bash
+k6 run -e BASE_URL=https://portal.example.in \
+       -e USERNAME=loadtest@nrldc -e PASSWORD='...' loadtest/lb-soak.js
+
+node loadtest/lb-soak.mjs --url https://portal.example.in \
+     --user loadtest@nrldc --pass '...'          # no install needed
+```
+
+Every response carries an **`X-Served-By`** header naming the backend that
+produced it, so requests can be attributed to one of the balanced nodes. Without
+it a response is anonymous and an uneven split, a single sick node, or a session
+breaking on a move are all invisible.
+
+`/api/health` reports the same identity plus the database latency, the client
+address the app believes it has, and what the proxy forwarded — if those two
+disagree, `TRUST_PROXY_HOPS` is wrong and the rate limiter is throttling the
+proxy rather than the client.
+
+The distribution is what tells you the algorithm: an even split with sessions
+moving is round-robin; an even split with each client pinned is IP-hash or
+sticky sessions; a lopsided split is least-connections or a peer in trouble.
+
+> **Read the rate-limit note at the top of `lb-soak.js` before a production
+> run.** Every virtual user shares one account and the read limit is *per user*,
+> so a long run at 35 concurrent will produce 429s that are the portal working
+> correctly rather than failing.
+
+Verified against two backends behind a round-robin proxy: with a **shared**
+`SESSION_SECRET`, 334 session moves produced zero errors — **sticky sessions are
+not required**. With mismatched secrets the same run produced 258 rejected
+sessions, which is the failure this test exists to catch.
 
 ## 🗺️ Regions
 

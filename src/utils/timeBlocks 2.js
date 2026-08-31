@@ -1,5 +1,9 @@
 /**
- * utils/timeBlocks.js — Parsing and validation for the 15-minute block field.
+ * timeBlocks.js — Parsing and validation for the 15-minute block field.
+ *
+ * Mirrors server/utils/timeBlocks.js so the form can flag a bad entry as it is
+ * typed. The server validates independently — this is convenience only. Keep
+ * the two in sync.
  *
  * A scheduling day has 96 blocks of 15 minutes (block 1 = 00:00–00:15,
  * block 96 = 23:45–24:00). Users type them as a list, a range, or a mix:
@@ -13,8 +17,8 @@
  * blocks, and the Excel export already expands them.
  */
 
-const MIN_BLOCK = 1;
-const MAX_BLOCK = 96;
+export const MIN_BLOCK = 1;
+export const MAX_BLOCK = 96;
 
 /** Characters a valid entry may contain — anything else is a typo or paste error. */
 const ALLOWED_CHARS = /^[0-9,\-\s]+$/;
@@ -25,7 +29,7 @@ const ALLOWED_CHARS = /^[0-9,\-\s]+$/;
  * Returns { ok: true, blocks: [numbers], normalised: '1-4, 20' }
  *      or { ok: false, error: 'reason to show the user' }.
  */
-function parseTimeBlocks(input) {
+export function parseTimeBlocks(input) {
   const raw = String(input == null ? '' : input).trim();
 
   if (!raw) {
@@ -82,7 +86,7 @@ function parseTimeBlocks(input) {
 }
 
 /** Collapse a sorted block list back into compact text: [1,2,3,7] → "1-3, 7". */
-function condense(sorted) {
+export function condense(sorted) {
   const parts = [];
   let start = sorted[0];
   let prev = sorted[0];
@@ -95,5 +99,3 @@ function condense(sorted) {
   }
   return parts.join(', ');
 }
-
-module.exports = { parseTimeBlocks, condense, MIN_BLOCK, MAX_BLOCK };

@@ -19,7 +19,6 @@ import { useModalDismiss } from '../hooks/useModalDismiss';
 import { originalFilename } from '../utils/filenames';
 import { FILTERABLE_TYPES } from '../utils/discrepancyTypes';
 import { formatDateDMY, formatDateDMYHM, getStatusPriority, todayISO, daysAgoISO, shiftDaysISO, nowDatetimeLocal } from '../utils/format';
-import { fyWeekRange, fyWeekForDate, fyForDate, weeksInFY, fyLabel } from '../utils/financialYear';
 
 
 export default function AdminDashboard({ currentUser, onUserUpdate, activeTab }) {
@@ -56,17 +55,7 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
 
   // Filters
   const [categoryFilter, setCategoryFilter] = useState('both');
-  // What is typed, and what has actually been applied. They were one value,
-  // so every keystroke re-ran the query — typing "singrauli" fired nine
-  // requests and the table flickered through nine result sets.
-  const [searchInput, setSearchInput] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
-
-  // Financial-year week picker. When on, the date range is derived from the
-  // FY and week rather than typed.
-  const [weekMode, setWeekMode] = useState(false);
-  const [fyYear, setFyYear] = useState(() => fyForDate(todayISO()) ?? new Date().getFullYear());
-  const [fyWeek, setFyWeek] = useState(() => fyWeekForDate(todayISO())?.week ?? 1);
   const [fromDate, setFromDate] = useState(daysAgoISO(30));
   const [toDate, setToDate] = useState(todayISO());
   const [typeFilter, setTypeFilter] = useState('ALL');
@@ -484,55 +473,6 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
     }
   };
 
-  /**
-   * Point the date range at one financial-year week. Week 1 contains 1 April,
-   * so it usually starts in March — see utils/financialYear.js.
-   */
-  const applyFyWeek = (year, week) => {
-    const range = fyWeekRange(year, week);
-    if (!range) return;
-    setFromDate(range.start);
-    setToDate(range.end);
-    setCurrentPage(1);
-  };
-
-  const handleFyYearChange = (year) => {
-    const y = Number(year);
-    // A 53-week year narrowing to 52 would otherwise leave week 53 selected.
-    const week = Math.min(fyWeek, weeksInFY(y));
-    setFyYear(y);
-    setFyWeek(week);
-    applyFyWeek(y, week);
-  };
-
-  const handleFyWeekChange = (week) => {
-    const w = Number(week);
-    setFyWeek(w);
-    applyFyWeek(fyYear, w);
-  };
-
-  const handleShiftWeek = (delta) => {
-    let y = fyYear, w = fyWeek + delta;
-    // Stepping past either end rolls into the neighbouring financial year.
-    if (w < 1) { y -= 1; w = weeksInFY(y); }
-    else if (w > weeksInFY(y)) { y += 1; w = 1; }
-    setFyYear(y); setFyWeek(w); applyFyWeek(y, w);
-  };
-
-  const handleToggleWeekMode = (on) => {
-    setWeekMode(on);
-    if (on) {
-      setWorkingDateMode(false);
-      applyFyWeek(fyYear, fyWeek);
-    }
-  };
-
-  /** Run the search that has been typed. Nothing queries until this happens. */
-  const handleSearch = () => {
-    setSearchQuery(searchInput.trim());
-    setCurrentPage(1);
-  };
-
   const handleShiftDay = (days) => {
     const newDateStr = shiftDaysISO(workingDate, days);
     setWorkingDate(newDateStr);
@@ -690,31 +630,13 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px', alignItems: 'end' }}>
               <div className="form-group" style={{ marginBottom: 0 }}>
                 <label htmlFor="ad-search-request">Search Request</label>
-                <div className="search-field">
-                  <div className="search-input-wrap">
-                    <input
-                      id="ad-search-request"
-                      type="text"
-                      className="form-control"
-                      placeholder="Req No, Station Name..."
-                      value={searchInput}
-                      onChange={(e) => setSearchInput(e.target.value)}
-                      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleSearch(); } }}
-                    />
-                    <Search size={14} className="search-input-icon" />
-                  </div>
-                  <button type="button" className="btn btn-primary search-go" onClick={handleSearch}>
-                    Search
-                  </button>
+                <div style={{ position: 'relative' }}>
+                  <input id="ad-search-request" type="text" className="form-control" placeholder="Req No, Station Name..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} style={{ paddingLeft: '36px' }} />
+                  <Search size={14} style={{ position: 'absolute', left: '12px', top: '13px', color: 'var(--text-muted)' }} />
                 </div>
-                {searchQuery && searchQuery !== searchInput.trim() && (
-                  <span className="settings-field-hint">
-                    Showing results for &ldquo;{searchQuery}&rdquo; — press Search to update.
-                  </span>
-                )}
               </div>
               
-              {!workingDateMode && !weekMode && (
+              {!workingDateMode && (
                 <>
                   <div className="form-group" style={{ marginBottom: 0 }}>
                     <label htmlFor="ad-correction-from-date">Correction From Date</label>
@@ -723,42 +645,6 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
                   <div className="form-group" style={{ marginBottom: 0 }}>
                     <label htmlFor="ad-correction-to-date">Correction To Date</label>
                     <input id="ad-correction-to-date" type="date" className="form-control" value={toDate} onChange={(e) => setToDate(e.target.value)} />
-                  </div>
-                </>
-              )}
-
-              {/* Financial-year week. The dates are derived, so they are shown
-                  read-only rather than hidden — Week 1 reaching back into March
-                  looks like a bug until you can see the actual days. */}
-              {weekMode && (
-                <>
-                  <div className="form-group" style={{ marginBottom: 0 }}>
-                    <label htmlFor="ad-fy-year">Financial Year</label>
-                    <select id="ad-fy-year" className="form-control" value={fyYear}
-                      onChange={(e) => handleFyYearChange(e.target.value)}>
-                      {Array.from({ length: 11 }, (_, i) => fyYear - 5 + i).map(y => (
-                        <option key={y} value={y}>{fyLabel(y)}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="form-group" style={{ marginBottom: 0 }}>
-                    <label htmlFor="ad-fy-week">Week</label>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <button type="button" className="btn btn-secondary" style={{ padding: '8px 11px' }}
-                        onClick={() => handleShiftWeek(-1)} title="Previous week">◀</button>
-                      <select id="ad-fy-week" className="form-control" value={fyWeek}
-                        onChange={(e) => handleFyWeekChange(e.target.value)}>
-                        {Array.from({ length: weeksInFY(fyYear) }, (_, i) => i + 1).map(w => (
-                          <option key={w} value={w}>Week {w}</option>
-                        ))}
-                      </select>
-                      <button type="button" className="btn btn-secondary" style={{ padding: '8px 11px' }}
-                        onClick={() => handleShiftWeek(1)} title="Next week">▶</button>
-                    </div>
-                    <span className="settings-field-hint">
-                      {formatDateDMY(fromDate)} – {formatDateDMY(toDate)}
-                      {' · '}{weeksInFY(fyYear)} weeks in FY {fyLabel(fyYear)}
-                    </span>
                   </div>
                 </>
               )}
@@ -792,21 +678,15 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
                   <option value="Rejected">Rejected</option>
                 </select>
               </div>
-              <button className="btn btn-secondary" style={{ height: '40px' }} onClick={() => { setSearchInput(''); setSearchQuery(''); setFromDate(daysAgoISO(30)); setToDate(todayISO()); setWorkingDate(todayISO()); setWorkingDateMode(false); setWeekMode(false); setTypeFilter('ALL'); setStatusFilter('ALL'); setCurrentPage(1); }}>
+              <button className="btn btn-secondary" style={{ height: '40px' }} onClick={() => { setSearchQuery(''); setFromDate(daysAgoISO(30)); setToDate(todayISO()); setWorkingDate(todayISO()); setWorkingDateMode(false); setTypeFilter('ALL'); setStatusFilter('ALL'); }}>
                 Reset Filters
               </button>
             </div>
 
-            <div className="filter-modes">
-              <label className="filter-mode" htmlFor="workingDateCheck">
-                <input type="checkbox" id="workingDateCheck" checked={workingDateMode}
-                  onChange={(e) => { handleToggleWorkingDateMode(e.target.checked); if (e.target.checked) setWeekMode(false); }} />
-                <span>Working Date Mode <span className="filter-mode-hint">— one day at a time</span></span>
-              </label>
-              <label className="filter-mode" htmlFor="fyWeekCheck">
-                <input type="checkbox" id="fyWeekCheck" checked={weekMode}
-                  onChange={(e) => handleToggleWeekMode(e.target.checked)} />
-                <span>Financial Year Week <span className="filter-mode-hint">— Mon–Sun, Week 1 contains 1 April</span></span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', borderTop: '1px solid var(--border-color)', paddingTop: '10px' }}>
+              <input type="checkbox" id="workingDateCheck" checked={workingDateMode} onChange={(e) => handleToggleWorkingDateMode(e.target.checked)} style={{ width: '16px', height: '16px', cursor: 'pointer' }} />
+              <label htmlFor="workingDateCheck" style={{ cursor: 'pointer', margin: 0, fontSize: '0.85rem', fontWeight: '600', color: 'var(--text-primary)' }}>
+                Enable Working Date Mode (filters single date sequentially)
               </label>
             </div>
           </div>
@@ -1175,10 +1055,9 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
             <div className="settings-scope">
               <span className="region-badge">{currentUser.region}</span>
               <span>
-                These settings apply to <strong>{regionLabel(currentUser.region)}</strong> only —
-                other despatch centres keep their own.
-                {isNational(currentUser) && <> As national administrator you also own the
-                shared email settings below.</>}
+                {isNational(currentUser)
+                  ? <>You administer <strong>every region</strong>. These settings apply to {regionLabel(currentUser.region)} unless you switch region.</>
+                  : <>These settings apply to <strong>{regionLabel(currentUser.region)}</strong> only. Other despatch centres keep their own.</>}
               </span>
             </div>
 
@@ -1297,10 +1176,10 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
               <h3 className="settings-heading">Email Budget</h3>
               <p className="settings-hint">
                 How much email the portal is allowed to send, and how hard it works to avoid needing to.
-                {' '}One mail account serves every region, so these are <strong>shared</strong>:
-                {isNational(currentUser)
-                  ? <> changing them here changes them for every despatch centre.</>
-                  : <> they are shown for reference, and only the national administrator can change them.</>}
+                {!isNational(currentUser) && (
+                  <> These are <strong>national</strong> settings — one mail account serves every
+                  region — so they are shown here but only a national administrator can change them.</>
+                )}
               </p>
 
               {mailUsage && (

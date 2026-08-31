@@ -1344,6 +1344,74 @@ button {
   margin-bottom: 4px;
   border-left: 3px solid var(--accent-blue);
 }
+/* ── The search field ──────────────────────────────────────────────────────
+   The input and its button are one control. Searching used to run on every
+   keystroke with no button at all, so there was nothing to look for and no
+   moment where the query was deliberately issued. */
+.search-field {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.search-input-wrap {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;          /* lets the input shrink instead of pushing the button out */
+}
+
+.search-input-wrap .form-control {
+  padding-left: 36px;
+  width: 100%;
+}
+
+.search-input-icon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+.search-go {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  padding: 0 16px;
+}
+
+/* ── Filter mode switches ──────────────────────────────────────────────── */
+.filter-modes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 26px;
+  border-top: 1px solid var(--border-color);
+  padding-top: 12px;
+}
+
+.filter-mode {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.filter-mode input {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.filter-mode-hint {
+  font-weight: 400;
+  color: var(--text-muted);
+}
+
 .region-badge {
   display: inline-block;
   font-family: ui-monospace, Menlo, monospace;
