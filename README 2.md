@@ -24,14 +24,13 @@ This document outlines the complete setup and startup guide for the **NRLDC Sche
 8. [File Uploads](#-file-uploads) — *how to allow a new file type*
 9. [Time Blocks](#-time-blocks)
 10. [If Users Cannot Receive Their OTP](#-if-users-cannot-receive-their-otp)
-11. [Regions](#%EF%B8%8F-regions)
-12. [Email Budget](#-email-budget)
-13. [Deploying to Production](DEPLOYMENT.md) — *the go-live runbook*
-14. [Deploying](#-deploying)
-15. [Self-Service Registration](#-self-service-registration)
-16. [Password Resets](#-password-resets)
-17. [Turning Features On and Off](#%EF%B8%8F-turning-features-on-and-off)
-18. [Troubleshooting Common Issues](#%EF%B8%8F-troubleshooting-common-issues)
+11. [Email Budget](#-email-budget)
+12. [Deploying to Production](DEPLOYMENT.md) — *the go-live runbook*
+13. [Deploying](#-deploying)
+14. [Self-Service Registration](#-self-service-registration)
+15. [Password Resets](#-password-resets)
+16. [Turning Features On and Off](#%EF%B8%8F-turning-features-on-and-off)
+17. [Troubleshooting Common Issues](#%EF%B8%8F-troubleshooting-common-issues)
 
 ---
 
@@ -463,86 +462,6 @@ changes, or when it is revoked.
 A user can see and revoke their own trusted browsers, and an admin can revoke
 anyone's — useful for a lost or shared machine, and it does not require changing
 the password.
-
-## 🗺️ Regions
-
-One deployment serves several load despatch centres. **Every account is
-confined to its own region — administrators included.** Nobody reads another
-centre's accounts, filings, outages, log or settings.
-
-| Role | Sees | Can create |
-| --- | --- | --- |
-| `USER` / `QCA` | Their own filings, within their region | — |
-| `ADMIN` | Everything in **their own** region | Users, QCAs and further admins — in their own region |
-| `SUPERADMIN` | Everything in **their own** region — no more than an admin | The same, **plus** an admin for a *different* region |
-
-So `admin@nrldc` administers NRLDC and `admin@erldc` administers ERLDC, and
-neither appears in the other's user registry, log, plant list or discrepancy
-queue.
-
-### What the national administrator is for
-
-It is **not** a wider view. A `SUPERADMIN` sees exactly what an admin of the
-same region sees, and asking for another region changes nothing. It has two
-jobs that belong to no single region:
-
-1. **Opening a new one.** Creating an admin whose region is not its own is how
-   a despatch centre gets its first administrator. That admin then runs it
-   independently — adding its own stations, QCAs and further admins.
-2. **The settings that are shared.** Three of them, plus SMTP, because there is
-   one mail account and one daily allowance behind them all.
-
-Ordinary accounts can never be created in another region — only administrators,
-and only by the national administrator. Naming another region for a station is
-refused rather than quietly ignored.
-
-### What is per region, and what is not
-
-Almost everything is regional: accounts, plants, discrepancies, outages, cycle
-data, registrations, password resets, the system log, and the filing rules
-(filing window, re-raise limits, lockout threshold, outage categories, Cycle
-Data on/off, whether OTP is required).
-
-Four things cannot be, because there is only one of the underlying thing:
-
-* `otpTrustDays` · `resetOtpMinutes` · `mailDailyCap`
-* the SMTP server settings
-
-Those live under a reserved `GLOBAL` region. Every admin sees them; only the
-national administrator can change them.
-
-> The mail allowance is **shared**. Every region's login codes come out of the
-> same 300 a day, so adding a region does not add headroom — see
-> [Email Budget](#-email-budget).
-
-One thing deliberately crosses the boundary in the other direction: log entries
-that belong to *no* region — a failed login for a username that does not exist,
-an SMTP failure — are shown to every admin. Hiding them would leave them
-visible to nobody.
-
-### Adding a region
-
-```bash
-./nrldc.sh regions           # accounts, plants and admins per region
-./nrldc.sh promote <user>    # make an account the national administrator
-```
-
-`promote` is the bootstrap: creating an admin for another region is reserved to
-a national administrator, and the first one has nowhere to come from.
-
-Then sign in as that account, open *User Registry → Add User*, choose role
-**ADMIN**, and pick the region. That account becomes the new centre's first
-administrator and takes it from there.
-
-Everything that existed before regions is NRLDC. Adding one needs no migration —
-the settings for all five are seeded already, and an unused region simply has
-nothing in it.
-
-### The registration form asks which centre
-
-Self-registration has a **Load despatch centre** field, and it decides which
-admin reviews the request. A registration for ERLDC never appears in the NRLDC
-queue, and an NRLDC admin who somehow reaches it is refused.
 
 ## 📧 Email Budget
 

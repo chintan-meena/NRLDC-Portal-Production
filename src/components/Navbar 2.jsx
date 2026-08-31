@@ -44,7 +44,7 @@ export default function Navbar({ currentUser, onLogout, activeTab, setActiveTab 
     return name ? name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) : 'US';
   };
 
-  const isAdmin = currentUser && ['ADMIN', 'SUPERADMIN'].includes(currentUser.role);
+  const isAdmin = currentUser && currentUser.role === 'ADMIN';
 
   // Check if current user is allowed to see the outages filing tab
   const userCat = currentUser?.energy_category;
@@ -200,11 +200,7 @@ export default function Navbar({ currentUser, onLogout, activeTab, setActiveTab 
             <div className="user-info">
               <span className="username-label">{currentUser.username}</span>
               <span className="user-role-badge">
-                {currentUser.role === 'SUPERADMIN'
-                  ? `⚡ ${currentUser.region} Admin · National`
-                  : currentUser.role === 'ADMIN'
-                    ? `⚡ ${currentUser.region} Admin`
-                    : `👤 ${currentUser.region} User`}
+                {currentUser.role === 'ADMIN' ? '⚡ Admin' : '👤 User'}
               </span>
             </div>
             <button

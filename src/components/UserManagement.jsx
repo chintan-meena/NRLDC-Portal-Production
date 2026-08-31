@@ -566,7 +566,6 @@ HARYANA_UTILITY,usr_HARYANA,scheduling@haryana.gov.in,States,HARYANA`);
                   <tr>
                     <th>Applicant</th>
                     <th>Username</th>
-                    {isNational(currentUser) && <th>Region</th>}
                     <th>WBES Acronym</th>
                     <th>Type</th>
                     <th>Email</th>
@@ -581,7 +580,6 @@ HARYANA_UTILITY,usr_HARYANA,scheduling@haryana.gov.in,States,HARYANA`);
                     <tr className={reviewingId === reg.id ? 'is-reviewing' : ''}>
                       <td>{reg.name}</td>
                       <td className="mono">{reg.username}</td>
-                      {isNational(currentUser) && <td><span className="region-badge">{reg.region}</span></td>}
                       <td><strong className="mono" style={{ color: 'var(--accent-blue)' }}>{reg.wbes_acronym}</strong></td>
                       <td>
                         <span className={`energy-badge ${reg.energy_category}`}>{reg.energy_category}</span>
@@ -640,7 +638,7 @@ HARYANA_UTILITY,usr_HARYANA,scheduling@haryana.gov.in,States,HARYANA`);
                         correction, and the request keeps its original record. */}
                     {reviewingId === reg.id && reviewDraft && (
                       <tr className="review-row">
-                        <td colSpan={isNational(currentUser) ? 9 : 8}>
+                        <td colSpan="8">
                           <div className="review-panel">
                             <div className="review-panel-head">
                               <h4>Check the details before creating this account</h4>
@@ -930,9 +928,20 @@ HARYANA_UTILITY,usr_HARYANA,scheduling@haryana.gov.in,States,HARYANA`);
               <div className="form-group" style={{ marginBottom: 0 }}>
                 <label htmlFor="um-system-role">System Role</label>
                 <select id="um-system-role" className="form-control" value={role} onChange={(e) => setRole(e.target.value)}>
-                  <option value="USER">USER</option>
-                  <option value="ADMIN">ADMIN</option>
+                  <option value="USER">USER — a station</option>
+                  <option value="ADMIN">ADMIN — administers this region</option>
+                  {/* Only a national administrator can appoint another. */}
+                  {isNational(currentUser) && (
+                    <option value="SUPERADMIN">NATIONAL ADMIN — can also open new regions</option>
+                  )}
                 </select>
+                <small style={{ color: 'var(--text-muted)', fontSize: '0.72rem' }}>
+                  {role === 'ADMIN'
+                    ? 'Sees and manages this region only, and can add further admins to it.'
+                    : role === 'SUPERADMIN'
+                      ? 'The same view as an admin, plus the ability to open another region by giving it its first administrator.'
+                      : 'Files and tracks discrepancies for its own station.'}
+                </small>
               </div>
 
               <div className="form-group" style={{ marginBottom: 0 }}>
@@ -989,9 +998,12 @@ HARYANA_UTILITY,usr_HARYANA,scheduling@haryana.gov.in,States,HARYANA`);
                 />
               </div>
 
-              {isNational(currentUser) && (
+              {/* Only the national administrator can open another region, and
+                  only by giving it an admin. Everything else is created here,
+                  in this region, so the field would be a decoy. */}
+              {isNational(currentUser) && role === 'ADMIN' && (
                 <div className="form-group" style={{ marginBottom: 0 }}>
-                  <label htmlFor="um-region">Region</label>
+                  <label htmlFor="um-region">Region this admin will run</label>
                   <select id="um-region" className="form-control" value={newUserRegion}
                     onChange={(e) => setNewUserRegion(e.target.value)}>
                     {REGIONS.map(r => (
@@ -999,7 +1011,8 @@ HARYANA_UTILITY,usr_HARYANA,scheduling@haryana.gov.in,States,HARYANA`);
                     ))}
                   </select>
                   <small style={{ color: 'var(--text-muted)', fontSize: '0.72rem' }}>
-                    Which despatch centre administers this account.
+                    Choosing another centre opens it: this account becomes its first
+                    administrator, and can then add its own stations and admins.
                   </small>
                 </div>
               )}
@@ -1137,7 +1150,6 @@ HARYANA_UTILITY,usr_HARYANA,scheduling@haryana.gov.in,States,HARYANA`);
             <tr>
               <th>Station / Full Name</th>
               <th>Role</th>
-              {isNational(currentUser) && <th>Region</th>}
               <th>Username</th>
               <th>WBES Acronym</th>
               <th>Mandatory Email</th>
@@ -1150,7 +1162,7 @@ HARYANA_UTILITY,usr_HARYANA,scheduling@haryana.gov.in,States,HARYANA`);
           </thead>
           <tbody>
             {loading ? (
-              <SkeletonRows rows={6} columns={isNational(currentUser) ? 11 : 10} />
+              <SkeletonRows rows={6} columns={10} />
             ) : filteredUsers.length === 0 ? (
               <tr>
                 <td colSpan="9">
@@ -1180,7 +1192,6 @@ HARYANA_UTILITY,usr_HARYANA,scheduling@haryana.gov.in,States,HARYANA`);
                     {user.role === 'QCA' || user.qca_name ? 'QCA' : user.role}
                   </span>
                 </td>
-                {isNational(currentUser) && <td><span className="region-badge">{user.region}</span></td>}
                 <td style={{ fontFamily: 'monospace' }}>{user.username}</td>
                 <td><strong style={{ fontFamily: 'monospace', color: 'var(--accent-blue)' }}>{user.wbes_acronym || '-'}</strong></td>
                 <td>{user.email}</td>

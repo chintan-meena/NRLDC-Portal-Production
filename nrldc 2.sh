@@ -18,8 +18,6 @@
 #   ./nrldc.sh mail            today's email usage against the daily cap
 #   ./nrldc.sh harden          check the settings that matter on a live server
 #   ./nrldc.sh harden --fix    ...and turn OTP on for every account
-#   ./nrldc.sh regions         accounts, plants and admins per region
-#   ./nrldc.sh promote <user>  make an account the national administrator
 #
 # restart is the one to use after pulling changes: it stops the running
 # instance, rebuilds, and starts again.
@@ -339,55 +337,6 @@ cmd_mail() {
 # but right on a test one. Run this before opening the portal to real users.
 cmd_harden() { (cd server && node harden.js "$@"); }
 
-# Promote an account to national administrator.
-#
-# Only a national administrator can create administrators, which leaves the
-# first one with nowhere to come from. This is that bootstrap — and the way to
-# hand the role over if the holder leaves.
-cmd_promote() {
-  local user="${1:-}"
-  [ -n "$user" ] || die "Which account? e.g. ./nrldc.sh promote admin@nrldc"
-
-  step "Promoting $user to national administrator"
-  local out
-  out=$(psql -d "${PGDATABASE:-nrldc_db}" -tAqc "
-    UPDATE users SET role = 'SUPERADMIN'
-     WHERE LOWER(username) = LOWER('${user//\'/\'\'}')
-    RETURNING username || ' | ' || region;
-  " 2>&1) || die "Could not reach the database: $out"
-
-  [ -n "$out" ] || die "No account called \"$user\"."
-
-  say "  ${GREEN}OK${OFF} $out"
-  say "  ${DIM}still sees only its own region — this grants no extra visibility${OFF}"
-  say ""
-  say "  ${DIM}What it gains: it can create an administrator for another region,${OFF}"
-  say "  ${DIM}which is how a new despatch centre is opened, and it owns the${OFF}"
-  say "  ${DIM}settings shared by all of them — SMTP, the mail allowance, the${OFF}"
-  say "  ${DIM}OTP trust window.${OFF}"
-}
-
-# What each region actually holds. Useful before and after adding one.
-cmd_regions() {
-  step "Regions"
-  psql -d "${PGDATABASE:-nrldc_db}" -c "
-    SELECT u.region,
-           count(*)                                                       AS accounts,
-           count(*) FILTER (WHERE u.role IN ('ADMIN', 'SUPERADMIN'))      AS admins,
-           count(*) FILTER (WHERE u.role = 'SUPERADMIN')                  AS national,
-           count(*) FILTER (WHERE u.role = 'QCA')                         AS qcas,
-           (SELECT count(*) FROM wbes_entities w WHERE w.region = u.region) AS plants
-      FROM users u
-     GROUP BY u.region
-     ORDER BY u.region;" 2>&1 || die "Could not reach the database."
-  psql -d "${PGDATABASE:-nrldc_db}" -tAc "
-    SELECT '  national administrator: ' || COALESCE(string_agg(username || ' (' || region || ')', ', '), 'none — run ./nrldc.sh promote <user>')
-      FROM users WHERE role = 'SUPERADMIN';
-    " 2>&1
-  say "  ${DIM}An admin, national or not, sees only its own region. 'national' is the${OFF}"
-  say "  ${DIM}count that can additionally open a new region.${OFF}"
-}
-
 cmd_logs() {
   [ -f "$LOG_FILE" ] || die "No log file yet at $LOG_FILE"
   say "${DIM}following $LOG_FILE — Ctrl+C to stop${OFF}"
@@ -409,8 +358,6 @@ case "${1:-}" in
   unlock)  shift; cmd_unlock "${1:-}" ;;
   mail)    cmd_mail ;;
   harden)  shift; cmd_harden "$@" ;;
-  promote) shift; cmd_promote "${1:-}" ;;
-  regions) cmd_regions ;;
   ""|-h|--help|help)
     sed -n '2,23p' "$0" | sed 's/^# \{0,1\}//'
     ;;

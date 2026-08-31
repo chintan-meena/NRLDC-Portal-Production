@@ -76,9 +76,9 @@ async function requireAuth(req, res, next) {
 /**
  * Rejects the request unless the caller administers something.
  *
- * A SUPERADMIN passes every check an ADMIN passes; what separates them is not
- * permission but reach, and that is decided by the region scope rather than
- * here. See middleware/region.js.
+ * A SUPERADMIN passes every check an ADMIN passes. The two see exactly the
+ * same data — their own region's — and differ only in being able to create an
+ * administrator for another region. See middleware/region.js.
  */
 function requireAdmin(req, res, next) {
   if (!req.auth || !['ADMIN', 'SUPERADMIN'].includes(req.auth.role)) {
@@ -87,11 +87,16 @@ function requireAdmin(req, res, next) {
   next();
 }
 
-/** Rejects the request unless the caller administers every region. */
+/**
+ * Rejects the request unless the caller is the national administrator.
+ *
+ * Reserved for the two things that are not one region's business: opening a
+ * new region with its first admin, and the settings shared by all of them.
+ */
 function requireSuperAdmin(req, res, next) {
   if (!req.auth || req.auth.role !== 'SUPERADMIN') {
     return res.status(403).json({
-      error: 'This action affects every region, so it is reserved for a national administrator.',
+      error: 'This affects more than your own region, so it is reserved for a national administrator.',
     });
   }
   next();
@@ -113,12 +118,15 @@ function requireSelfOrAdmin(param = 'username') {
   };
 }
 
-/** True when the caller administers anything — one region or all of them. */
+/** True when the caller administers a region. */
 function isAdmin(req) {
   return !!req.auth && ['ADMIN', 'SUPERADMIN'].includes(req.auth.role);
 }
 
-/** True when the caller administers every region. */
+/**
+ * True when the caller is the national administrator — the only role that can
+ * create an admin for another region. It confers no extra visibility.
+ */
 function isSuperAdmin(req) {
   return !!req.auth && req.auth.role === 'SUPERADMIN';
 }

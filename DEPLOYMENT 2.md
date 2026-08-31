@@ -4,7 +4,7 @@ This is the short runbook for putting the portal in front of real users. The
 full feature documentation is in [README.md](README.md); this file only covers
 what is different about a live server.
 
-Work through it in order. The ordering matters in three places, all noted below.
+Work through it in order. The ordering matters in two places, both noted below.
 
 ---
 
@@ -107,35 +107,7 @@ arrives in an inbox, not a spam folder.
 
 ---
 
-## 6. Set up the regions
-
-Skip this if only one despatch centre uses the portal — everything defaults to
-NRLDC and needs no setup.
-
-Otherwise, promote one account to national administrator first. Only that role
-can create administrators, so without it there is no way to make the first one:
-
-```bash
-./nrldc.sh promote admin@nrldc
-./nrldc.sh regions              # accounts, plants and admins per region
-```
-
-Then sign in as that account, and for each new centre add a user with role
-**ADMIN** and that centre's region. It becomes their first administrator and
-runs the region from there, adding its own stations, QCAs and further admins.
-
-Every admin — the national one included — sees only its own region. The national
-role adds exactly two things: it can create an admin elsewhere, and it owns the
-settings shared by all regions (SMTP, the mail allowance, the OTP trust window).
-
-Note the mail allowance is **shared across regions**: adding a region adds users
-drawing on the same daily total, without adding headroom.
-
-Give every region an administrator. Because nobody can see across the boundary,
-a region without one is a region nobody can manage — `./nrldc.sh harden` reports
-this.
-
-## 7. Harden, then open the doors
+## 6. Harden, then open the doors
 
 ```bash
 ./nrldc.sh harden          # report what is still wrong
@@ -147,7 +119,7 @@ shared value solves nothing, and randomising them locks everyone out with no way
 to tell them. Accounts still on the default are listed so you can deal with them
 deliberately — **change every admin password first.**
 
-**Do steps 5 and 6 before this step.** Turning OTP on while mail is broken locks out the
+**Do step 5 before this step.** Turning OTP on while mail is broken locks out the
 entire user base at once, including you.
 
 If you do lock yourself out, the way back is on the server:
@@ -163,7 +135,7 @@ portal can undo it.
 
 ---
 
-## 8. Start it
+## 7. Start it
 
 ```bash
 ./nrldc.sh start
@@ -182,7 +154,6 @@ and the same `SESSION_SECRET` for every instance.
 | `./nrldc.sh status` | What is running, on which port, and whether it is healthy |
 | `./nrldc.sh mail` | Today's email usage against the daily cap |
 | `./nrldc.sh harden` | Whether the live settings are still correct |
-| `./nrldc.sh regions` | Accounts, plants and admins in each region |
 | `./nrldc.sh logs` | The server log, followed |
 
 The mail allowance is the tightest resource the portal has. `./nrldc.sh mail`

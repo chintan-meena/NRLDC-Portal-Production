@@ -1,9 +1,18 @@
 /**
  * middleware/region.js — Confining a query to the caller's region.
  *
- * The portal serves several load despatch centres from one deployment. An
- * ADMIN administers exactly one of them; a SUPERADMIN administers all. Stations
- * and QCAs are scoped to their own rows already, one level below this.
+ * The portal serves several load despatch centres from one deployment, and
+ * **every account is confined to its own region — including a SUPERADMIN**.
+ * Nobody reads another centre's accounts, filings, outages or settings.
+ *
+ * The roles differ only in what they may create:
+ *
+ *   ADMIN       administers its own region, and may create users, QCAs and
+ *               further admins *within that region*.
+ *   SUPERADMIN  the same, plus the one power nobody else has: creating an
+ *               admin for a *different* region. That is how a new despatch
+ *               centre gets its first administrator, and it is the whole of
+ *               the difference. It grants no extra visibility.
  *
  * The danger with region scoping is that a *missing* filter is silent: the
  * query succeeds and quietly returns another region's data. So every admin
@@ -32,17 +41,13 @@ function isValidRegion(region) {
 }
 
 /**
- * Which region this request should be confined to.
+ * Which region this request is confined to — always the caller's own.
  *
- * Returns null when the caller sees everything — a super-admin who has not
- * asked for one region in particular. A super-admin may narrow the view with
- * ?region=ERLDC; anyone else gets their own region whatever they ask for.
+ * There is deliberately no way to ask for another. A super-admin's extra power
+ * is creating an admin elsewhere, not reading elsewhere, so no role and no
+ * query parameter widens this.
  */
 function regionScope(req) {
-  if (isSuperAdmin(req)) {
-    const asked = req.query?.region;
-    return asked && isValidRegion(asked) ? asked : null;
-  }
   return req.auth?.region ?? null;
 }
 
@@ -62,13 +67,26 @@ function scopeToRegion(req, column, conditions, params) {
 }
 
 /**
+ * As scopeToRegion, but also admits rows belonging to no region at all.
+ *
+ * Only the system log has those — a failed login for a username that does not
+ * exist, an SMTP failure — and they would otherwise be visible to nobody.
+ */
+function scopeToRegionOrUnassigned(req, column, conditions, params) {
+  const region = regionScope(req);
+  if (!region) return null;
+  params.push(region);
+  conditions.push(`(${column} = $${params.length} OR ${column} IS NULL)`);
+  return region;
+}
+
+/**
  * May this caller act on something belonging to `region`?
  *
  * Used on the single-row paths — approving a registration, editing a user —
  * where there is no list to filter, just one row to accept or refuse.
  */
 function canActOnRegion(req, region) {
-  if (isSuperAdmin(req)) return true;
   if (!region) return false;
   return req.auth?.region === region;
 }
@@ -90,10 +108,60 @@ function crossRegionError(req) {
  * elsewhere. A super-admin may name one, and falls back to their home region if
  * they do not.
  */
-function regionForNewRow(req, requested) {
-  if (isSuperAdmin(req) && requested && isValidRegion(requested)) return requested;
-  if (isSuperAdmin(req)) return req.auth?.region ?? 'NRLDC';
+/**
+ * The region a newly created row belongs to: the creator's own.
+ *
+ * The single exception is a super-admin creating an ADMIN, which is how a new
+ * region is opened — see regionForNewAccount.
+ */
+function regionForNewRow(req) {
   return req.auth?.region ?? 'NRLDC';
+}
+
+/**
+ * Where a newly created *account* belongs, and whether the caller may make it.
+ *
+ * Returns { ok: true, region } or { ok: false, error }.
+ *
+ *   - Anyone administering may create USER and QCA accounts, in their own
+ *     region only.
+ *   - An admin may create further ADMINs, again in their own region.
+ *   - Only a SUPERADMIN may name a different region, and only for an ADMIN:
+ *     that is the act of opening a new despatch centre.
+ *   - Only a SUPERADMIN may create another SUPERADMIN, and never elsewhere —
+ *     the role carries no cross-region visibility to hand out.
+ */
+function regionForNewAccount(req, role, requestedRegion) {
+  const home = req.auth?.region ?? 'NRLDC';
+  const elsewhere = requestedRegion && isValidRegion(requestedRegion) && requestedRegion !== home;
+
+  if (role === 'SUPERADMIN') {
+    if (!isSuperAdmin(req)) {
+      return { ok: false, error: 'Only a national administrator can create another national administrator.' };
+    }
+    if (elsewhere) {
+      return { ok: false, error: 'A national administrator belongs to the region that created it.' };
+    }
+    return { ok: true, region: home };
+  }
+
+  if (role === 'ADMIN') {
+    if (!elsewhere) return { ok: true, region: home };
+    if (!isSuperAdmin(req)) {
+      return {
+        ok: false,
+        error: `You administer ${home}, so you can only create administrators for ${home}. `
+             + 'Opening another region is reserved for a national administrator.',
+      };
+    }
+    return { ok: true, region: requestedRegion };
+  }
+
+  // Ordinary accounts never leave the creator's region.
+  if (elsewhere) {
+    return { ok: false, error: `Stations and QCAs can only be created in your own region, ${home}.` };
+  }
+  return { ok: true, region: home };
 }
 
 /**
@@ -107,7 +175,6 @@ function regionForNewRow(req, requested) {
  */
 function requireSameRegion(param = 'username') {
   return async (req, res, next) => {
-    if (isSuperAdmin(req)) return next();
     const target = req.params[param];
     if (!target) return next();
 
@@ -140,7 +207,9 @@ module.exports = {
   isValidRegion,
   regionScope,
   scopeToRegion,
+  scopeToRegionOrUnassigned,
   canActOnRegion,
   crossRegionError,
   regionForNewRow,
+  regionForNewAccount,
 };

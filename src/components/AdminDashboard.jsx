@@ -1055,9 +1055,10 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
             <div className="settings-scope">
               <span className="region-badge">{currentUser.region}</span>
               <span>
-                {isNational(currentUser)
-                  ? <>You administer <strong>every region</strong>. These settings apply to {regionLabel(currentUser.region)} unless you switch region.</>
-                  : <>These settings apply to <strong>{regionLabel(currentUser.region)}</strong> only. Other despatch centres keep their own.</>}
+                These settings apply to <strong>{regionLabel(currentUser.region)}</strong> only —
+                other despatch centres keep their own.
+                {isNational(currentUser) && <> As national administrator you also own the
+                shared email settings below.</>}
               </span>
             </div>
 
@@ -1176,10 +1177,10 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
               <h3 className="settings-heading">Email Budget</h3>
               <p className="settings-hint">
                 How much email the portal is allowed to send, and how hard it works to avoid needing to.
-                {!isNational(currentUser) && (
-                  <> These are <strong>national</strong> settings — one mail account serves every
-                  region — so they are shown here but only a national administrator can change them.</>
-                )}
+                {' '}One mail account serves every region, so these are <strong>shared</strong>:
+                {isNational(currentUser)
+                  ? <> changing them here changes them for every despatch centre.</>
+                  : <> they are shown for reference, and only the national administrator can change them.</>}
               </p>
 
               {mailUsage && (
