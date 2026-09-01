@@ -7,6 +7,7 @@ import { REGIONS, isNational } from '../utils/regions';
 const ADMIN_ROLES = ['ADMIN', 'SUPERADMIN'];
 import ConfirmDialog from './ConfirmDialog';
 import { Banner, EmptyState, SkeletonRows } from './Feedback';
+import { categoryLabel, categoryShort } from '../utils/categories';
 import { useFeedback } from '../hooks/useFeedback';
 import { useModalDismiss } from '../hooks/useModalDismiss';
 import {
@@ -582,9 +583,9 @@ HARYANA_UTILITY,usr_HARYANA,scheduling@haryana.gov.in,States,HARYANA`);
                       <td className="mono">{reg.username}</td>
                       <td><strong className="mono" style={{ color: 'var(--accent-blue)' }}>{reg.wbes_acronym}</strong></td>
                       <td>
-                        <span className={`energy-badge ${reg.energy_category}`}>{reg.energy_category}</span>
+                        <span className={`energy-badge ${reg.energy_category}`}>{categoryShort(reg.energy_category)}</span>
                         {reg.role === 'QCA' && (
-                          <div style={{ fontSize: '0.72rem', color: '#b45309', marginTop: '3px' }}>QCA — {reg.qca_name}</div>
+                          <div style={{ fontSize: '0.72rem', color: 'var(--warn-text)', marginTop: '3px' }}>QCA — {reg.qca_name}</div>
                         )}
                       </td>
                       <td style={{ fontSize: '0.78rem' }}>{reg.email}</td>
@@ -702,7 +703,7 @@ HARYANA_UTILITY,usr_HARYANA,scheduling@haryana.gov.in,States,HARYANA`);
                                   value={reviewDraft.energy_category}
                                   disabled={reviewDraft.role === 'QCA'}
                                   onChange={(e) => updateDraft('energy_category', e.target.value)}>
-                                  <option value="ISGS">ISGS</option>
+                                  <option value="ISGS">{categoryLabel('ISGS')}</option>
                                   <option value="RE">RE — Renewable Energy</option>
                                   <option value="States">States</option>
                                 </select>
@@ -814,7 +815,7 @@ HARYANA_UTILITY,usr_HARYANA,scheduling@haryana.gov.in,States,HARYANA`);
                         <strong className="mono">{reset.username}</strong>
                         {reset.name && <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{reset.name}</div>}
                         {reset.locked && (
-                          <div style={{ fontSize: '0.72rem', color: '#dc2626', display: 'flex', alignItems: 'center', gap: '4px', marginTop: '2px' }}>
+                          <div style={{ fontSize: '0.72rem', color: 'var(--danger-text)', display: 'flex', alignItems: 'center', gap: '4px', marginTop: '2px' }}>
                             <Lock size={11} /> locked out
                           </div>
                         )}
@@ -822,7 +823,7 @@ HARYANA_UTILITY,usr_HARYANA,scheduling@haryana.gov.in,States,HARYANA`);
                       <td>
                         {reset.wbes_acronym
                           ? <><strong className="mono" style={{ color: 'var(--accent-blue)' }}>{reset.wbes_acronym}</strong>
-                              {reset.energy_category && <div><span className={`energy-badge ${reset.energy_category}`}>{reset.energy_category}</span></div>}
+                              {reset.energy_category && <div><span className={`energy-badge ${reset.energy_category}`}>{categoryShort(reset.energy_category)}</span></div>}
                             </>
                           : <span style={{ color: 'var(--text-muted)' }}>account deleted</span>}
                       </td>
@@ -893,7 +894,7 @@ HARYANA_UTILITY,usr_HARYANA,scheduling@haryana.gov.in,States,HARYANA`);
             <FileUp size={16} />
             {showImport ? 'Close Importer' : 'Bulk CSV Upload'}
           </button>
-          <button className="btn btn-warning" onClick={handleRollback} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#d97706', color: '#fff' }}>
+          <button className="btn btn-warning" onClick={handleRollback} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'var(--warn-strong)', color: '#fff' }}>
             <Undo2 size={16} />
             Revert Last CSV Import
           </button>
@@ -1020,8 +1021,8 @@ HARYANA_UTILITY,usr_HARYANA,scheduling@haryana.gov.in,States,HARYANA`);
               <div className="form-group" style={{ marginBottom: 0 }}>
                 <label htmlFor="um-category">Category</label>
                 <select id="um-category" className="form-control" value={energyCategory} onChange={(e) => setEnergyCategory(e.target.value)}>
-                  <option value="ISGS">ISGS</option>
-                  <option value="RE">RE</option>
+                  <option value="ISGS">{categoryLabel('ISGS')}</option>
+                  <option value="RE">{categoryLabel('RE')}</option>
                   <option value="States">States</option>
                   {/* A QCA account is always Renewable Energy — see the QCA/RE rule. */}
                   <option value="QCA">QCA (Renewable Energy)</option>
@@ -1186,7 +1187,7 @@ HARYANA_UTILITY,usr_HARYANA,scheduling@haryana.gov.in,States,HARYANA`);
                     fontSize: '0.72rem',
                     fontWeight: '700',
                     background: ADMIN_ROLES.includes(user.role) ? 'rgba(37,99,235,0.1)' : (user.role === 'QCA' || user.qca_name ? 'rgba(245,158,11,0.1)' : 'rgba(15,118,110,0.1)'),
-                    color: ADMIN_ROLES.includes(user.role) ? '#1d4ed8' : (user.role === 'QCA' || user.qca_name ? '#d97706' : '#0f766e'),
+                    color: ADMIN_ROLES.includes(user.role) ? 'var(--link-text)' : (user.role === 'QCA' || user.qca_name ? 'var(--warn-strong)' : 'var(--success-text)'),
                     border: `1px solid ${ADMIN_ROLES.includes(user.role) ? 'rgba(37,99,235,0.2)' : (user.role === 'QCA' || user.qca_name ? 'rgba(245,158,11,0.2)' : 'rgba(15,118,110,0.2)')}`,
                   }}>
                     {user.role === 'QCA' || user.qca_name ? 'QCA' : user.role}
@@ -1218,7 +1219,7 @@ HARYANA_UTILITY,usr_HARYANA,scheduling@haryana.gov.in,States,HARYANA`);
                       background: user.bypass_2fa ? 'rgba(245,158,11,0.10)' : 'transparent',
                       borderRadius: '6px',
                       padding: '3px 9px',
-                      color: user.bypass_2fa ? '#b45309' : 'var(--text-muted)',
+                      color: user.bypass_2fa ? 'var(--warn-text)' : 'var(--text-muted)',
                     }}
                   >
                     {user.bypass_2fa ? <X size={13} /> : <Check size={13} />}
@@ -1261,7 +1262,7 @@ HARYANA_UTILITY,usr_HARYANA,scheduling@haryana.gov.in,States,HARYANA`);
                   </button>
                   <button
                     className="lock-icon-btn"
-                    style={{ color: '#d97706' }}
+                    style={{ color: 'var(--warn-strong)' }}
                     onClick={() => handleResetPassword(user.username)}
                     title="Reset Password to Default"
                   >
@@ -1326,8 +1327,8 @@ HARYANA_UTILITY,usr_HARYANA,scheduling@haryana.gov.in,States,HARYANA`);
               <div className="form-group" style={{ marginBottom: 0 }}>
                 <label htmlFor="um-category-2">Category</label>
                 <select id="um-category-2" className="form-control" value={editEnergyCategory} onChange={(e) => setEditEnergyCategory(e.target.value)}>
-                  <option value="ISGS">ISGS</option>
-                  <option value="RE">RE</option>
+                  <option value="ISGS">{categoryLabel('ISGS')}</option>
+                  <option value="RE">{categoryLabel('RE')}</option>
                   <option value="States">States</option>
                   {/* A QCA account is always Renewable Energy — see the QCA/RE rule. */}
                   <option value="QCA">QCA (Renewable Energy)</option>

@@ -7,6 +7,7 @@ import {
 } from '../services/db';
 import { RULES as PASSWORD_RULES, validatePassword } from '../utils/password';
 import { Banner, EmptyState, SkeletonRows } from './Feedback';
+import { categoryLabel } from '../utils/categories';
 import { useFeedback } from '../hooks/useFeedback';
 import { useModalDismiss } from '../hooks/useModalDismiss';
 import { originalFilename } from '../utils/filenames';
@@ -726,7 +727,7 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
                         <td onClick={() => setSelectedRequest(disc)}>{formatDateDMY(disc.request_date)}</td>
                         <td onClick={() => setSelectedRequest(disc)} style={{ fontWeight: '500' }}>{formatDateDMY(disc.correction_for_date)}</td>
                         <td onClick={() => setSelectedRequest(disc)}>
-                          <span style={{ color: disc.days_diff > config.maxDays ? '#d97706' : 'var(--text-primary)', fontWeight: disc.days_diff > config.maxDays ? 'bold' : 'normal' }}>
+                          <span style={{ color: disc.days_diff > config.maxDays ? 'var(--warn-strong)' : 'var(--text-primary)', fontWeight: disc.days_diff > config.maxDays ? 'bold' : 'normal' }}>
                             {disc.days_diff} day{disc.days_diff !== 1 ? 's' : ''}
                             {disc.days_diff > config.maxDays && <span style={{ marginLeft: '4px' }} title={`Beyond regulation limit of ${config.maxDays} days`}>⚠️</span>}
                           </span>
@@ -737,7 +738,7 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
                               disc.discrepancy_type.match(/<[^>]+>/g)?.map((tag, idx) => (
                                 <span key={idx} style={{
                                   background: 'rgba(59,130,246,0.1)',
-                                  color: '#1d4ed8',
+                                  color: 'var(--link-text)',
                                   border: '1px solid rgba(59,130,246,0.2)',
                                   borderRadius: '4px',
                                   padding: '2px 6px',
@@ -866,7 +867,7 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
           {isRenewableUser && qcaAssociation?.qcaEligible && qcaAssociation?.assignedToQCA ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '25px', width: '100%' }}>
               <div style={{ padding: '30px', background: 'var(--bg-tertiary)', borderRadius: '12px', border: '1px solid var(--border-color)', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px' }}>
-                <AlertCircle size={36} style={{ color: '#d97706' }} />
+                <AlertCircle size={36} style={{ color: 'var(--warn-strong)' }} />
                 <h3 style={{ fontSize: '1.1rem', fontWeight: '700' }}>Filing Restricted</h3>
                 <p style={{ color: 'var(--text-secondary)', fontSize: '0.88rem', margin: 0 }}>
                   Your plant <strong>{currentUser.wbes_acronym}</strong> is currently managed by QCA <strong>{qcaAssociation.qcaName}</strong>.
@@ -890,7 +891,7 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
                 <form onSubmit={handleTransferSubmit}>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '20px', marginBottom: '20px' }}>
                     <div className="form-group" style={{ marginBottom: 0 }}>
-                      <label htmlFor="ud-target-qca">Target QCA <span style={{ color: '#dc2626' }}>*</span></label>
+                      <label htmlFor="ud-target-qca">Target QCA <span style={{ color: 'var(--danger-text)' }}>*</span></label>
                       <select id="ud-target-qca"
                         className="form-control"
                         value={selectedTargetQca}
@@ -910,7 +911,7 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
                     </div>
 
                     <div className="form-group" style={{ marginBottom: 0 }}>
-                      <label htmlFor="ud-effective-date">Effective Date <span style={{ color: '#dc2626' }}>*</span></label>
+                      <label htmlFor="ud-effective-date">Effective Date <span style={{ color: 'var(--danger-text)' }}>*</span></label>
                       <input id="ud-effective-date"
                         type="date"
                         className="form-control"
@@ -988,7 +989,7 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
                     style={{ border: isDateInvalid ? '1px solid #dc2626' : '' }}
                   />
                   {correctionDate && (
-                    <span style={{ fontSize: '0.8rem', marginTop: '4px', color: isDateInvalid ? '#dc2626' : (daysDiff > config.maxDays ? '#f59e0b' : '#047857'), fontWeight: '500', display: 'block' }}>
+                    <span style={{ fontSize: '0.8rem', marginTop: '4px', color: isDateInvalid ? 'var(--danger-text)' : (daysDiff > config.maxDays ? '#f59e0b' : 'var(--status-resolved-text)'), fontWeight: '500', display: 'block' }}>
                       {isDateInvalid
                         ? `⚠️ Disallowed: date is ${daysDiff} days old (limit: ${maxAllowedDays} days)`
                         : (daysDiff > config.maxDays 
@@ -1002,7 +1003,7 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
 
               {isQcaUser && (
                 <div className="form-group">
-                  <label htmlFor="ud-select-plant-wbes-acronym">Select Plant (WBES Acronym) <span style={{ color: '#dc2626' }}>*</span></label>
+                  <label htmlFor="ud-select-plant-wbes-acronym">Select Plant (WBES Acronym) <span style={{ color: 'var(--danger-text)' }}>*</span></label>
                   {reRaiseReqNo ? (
                     <input id="ud-select-plant-wbes-acronym" 
                       type="text" 
@@ -1092,11 +1093,11 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
               {timeBlocks.trim() && (() => {
                 const check = parseTimeBlocks(timeBlocks);
                 return check.ok ? (
-                  <small style={{ color: '#047857', fontSize: '0.75rem' }}>
+                  <small style={{ color: 'var(--status-resolved-text)', fontSize: '0.75rem' }}>
                     ✓ {check.blocks.length} block{check.blocks.length === 1 ? '' : 's'} selected — will be saved as {check.normalised}
                   </small>
                 ) : (
-                  <small style={{ color: '#dc2626', fontSize: '0.75rem' }}>{check.error}</small>
+                  <small style={{ color: 'var(--danger-text)', fontSize: '0.75rem' }}>{check.error}</small>
                 );
               })()}
             </div>
@@ -1156,7 +1157,7 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
                 <form onSubmit={handleTransferSubmit}>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '20px', marginBottom: '20px' }}>
                     <div className="form-group" style={{ marginBottom: 0 }}>
-                      <label htmlFor="ud-target-qca-2">Target QCA <span style={{ color: '#dc2626' }}>*</span></label>
+                      <label htmlFor="ud-target-qca-2">Target QCA <span style={{ color: 'var(--danger-text)' }}>*</span></label>
                       <select id="ud-target-qca-2"
                         className="form-control"
                         value={selectedTargetQca}
@@ -1173,7 +1174,7 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
                     </div>
 
                     <div className="form-group" style={{ marginBottom: 0 }}>
-                      <label htmlFor="ud-effective-date-2">Effective Date <span style={{ color: '#dc2626' }}>*</span></label>
+                      <label htmlFor="ud-effective-date-2">Effective Date <span style={{ color: 'var(--danger-text)' }}>*</span></label>
                       <input id="ud-effective-date-2"
                         type="date"
                         className="form-control"
@@ -1559,7 +1560,7 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
                 <label htmlFor="ud-confirm-new-password">Confirm New Password</label>
                 <input id="ud-confirm-new-password" type="password" className="form-control" placeholder="Verify password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} autoComplete="new-password" required />
                 {confirmPassword && password !== confirmPassword && (
-                  <small style={{ color: '#dc2626', fontSize: '0.75rem' }}>Passwords do not match.</small>
+                  <small style={{ color: 'var(--danger-text)', fontSize: '0.75rem' }}>Passwords do not match.</small>
                 )}
               </div>
 
@@ -1667,11 +1668,11 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
                           <strong style={{ fontSize: '0.85rem', color: 'var(--text-primary)' }}>{entity.wbes_acronym}</strong>
                           <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>{entity.plant_name} ({entity.energy_category})</div>
                           {entity.current_owner ? (
-                            <span style={{ fontSize: '0.7rem', color: '#b45309', background: '#fef3c7', padding: '2px 6px', borderRadius: '4px', display: 'inline-block', marginTop: '4px' }}>
+                            <span style={{ fontSize: '0.7rem', color: 'var(--warn-text)', background: '#fef3c7', padding: '2px 6px', borderRadius: '4px', display: 'inline-block', marginTop: '4px' }}>
                               Owner: {entity.current_owner_qca || entity.current_owner}
                             </span>
                           ) : (
-                            <span style={{ fontSize: '0.7rem', color: '#047857', background: '#d1fae5', padding: '2px 6px', borderRadius: '4px', display: 'inline-block', marginTop: '4px' }}>
+                            <span style={{ fontSize: '0.7rem', color: 'var(--status-resolved-text)', background: '#d1fae5', padding: '2px 6px', borderRadius: '4px', display: 'inline-block', marginTop: '4px' }}>
                               Unassigned
                             </span>
                           )}
@@ -1708,10 +1709,10 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
             <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', marginBottom: '20px' }}>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', fontSize: '0.85rem' }}>
                 <div><span style={{ color: 'var(--text-secondary)' }}>Filer Station:</span> <strong>{selectedRequest.request_by}</strong></div>
-                <div><span style={{ color: 'var(--text-secondary)' }}>Category:</span> <span className={`energy-badge ${selectedRequest.energy_category}`}>{selectedRequest.energy_category}</span></div>
+                <div><span style={{ color: 'var(--text-secondary)' }}>Category:</span> <span className={`energy-badge ${selectedRequest.energy_category}`}>{categoryLabel(selectedRequest.energy_category)}</span></div>
                 <div><span style={{ color: 'var(--text-secondary)' }}>Request Date:</span> {formatDateDMY(selectedRequest.request_date)}</div>
                 <div><span style={{ color: 'var(--text-secondary)' }}>Correction Date:</span> {formatDateDMY(selectedRequest.correction_for_date)}</div>
-                <div><span style={{ color: 'var(--text-secondary)' }}>Days Mismatch:</span> <strong style={{ color: selectedRequest.days_diff > config.maxDays ? '#dc2626' : 'var(--text-primary)' }}>{selectedRequest.days_diff} days</strong></div>
+                <div><span style={{ color: 'var(--text-secondary)' }}>Days Mismatch:</span> <strong style={{ color: selectedRequest.days_diff > config.maxDays ? 'var(--danger-text)' : 'var(--text-primary)' }}>{selectedRequest.days_diff} days</strong></div>
                 <div><span style={{ color: 'var(--text-secondary)' }}>Status:</span> <span className={`status-badge ${selectedRequest.status.toLowerCase()}`}>{selectedRequest.status}</span></div>
               </div>
 
@@ -1722,7 +1723,7 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
                     selectedRequest.discrepancy_type.match(/<[^>]+>/g)?.map((tag, idx) => (
                       <span key={idx} style={{
                         background: 'rgba(59,130,246,0.1)',
-                        color: '#1d4ed8',
+                        color: 'var(--link-text)',
                         border: '1px solid rgba(59,130,246,0.2)',
                         borderRadius: '4px',
                         padding: '3px 8px',
@@ -1789,7 +1790,7 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
 
               {selectedRequest.status === 'Returned' && (
                 <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '10px' }}>
-                  <span style={{ color: '#d97706', fontSize: '0.85rem', display: 'block', marginBottom: '4px', fontWeight: 'bold' }}>Feedback / Return Comments:</span>
+                  <span style={{ color: 'var(--warn-strong)', fontSize: '0.85rem', display: 'block', marginBottom: '4px', fontWeight: 'bold' }}>Feedback / Return Comments:</span>
                   <div style={{ background: 'rgba(245,158,11,0.05)', border: '1px solid rgba(245,158,11,0.2)', padding: '10px', borderRadius: '6px', fontSize: '0.85rem' }}>{selectedRequest.admin_comment}</div>
                 </div>
               )}

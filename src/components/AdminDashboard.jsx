@@ -14,6 +14,7 @@ import UserManagement from './UserManagement';
 import { isNational, regionLabel } from '../utils/regions';
 import ConfirmDialog from './ConfirmDialog';
 import { Banner, EmptyState, SkeletonRows } from './Feedback';
+import { categoryLabel, categoryShort } from '../utils/categories';
 import { useFeedback } from '../hooks/useFeedback';
 import { useModalDismiss } from '../hooks/useModalDismiss';
 import { originalFilename } from '../utils/filenames';
@@ -719,8 +720,8 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
             </div>
             <div className="category-tabs">
               <button className={`category-tab ${categoryFilter === 'both' ? 'active' : ''}`} onClick={() => setCategoryFilter('both')}>All Categories</button>
-              <button className={`category-tab ${categoryFilter === 'ISGS' ? 'active' : ''}`} onClick={() => setCategoryFilter('ISGS')}>ISGS</button>
-              <button className={`category-tab ${categoryFilter === 'RE' ? 'active' : ''}`} onClick={() => setCategoryFilter('RE')}>RE</button>
+              <button className={`category-tab ${categoryFilter === 'ISGS' ? 'active' : ''}`} onClick={() => setCategoryFilter('ISGS')}>{categoryLabel('ISGS')}</button>
+              <button className={`category-tab ${categoryFilter === 'RE' ? 'active' : ''}`} onClick={() => setCategoryFilter('RE')}>{categoryLabel('RE')}</button>
               <button className={`category-tab ${categoryFilter === 'States' ? 'active' : ''}`} onClick={() => setCategoryFilter('States')}>States</button>
             </div>
           </div>
@@ -887,19 +888,19 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
                       <td onClick={() => handleOpenActionModal(req, 'view')}>{formatDateDMY(req.request_date)}</td>
                       <td onClick={() => handleOpenActionModal(req, 'view')}>{formatDateDMY(req.correction_for_date)}</td>
                       <td onClick={() => handleOpenActionModal(req, 'view')}>
-                        <span style={{ color: req.days_diff > config.maxDays ? '#d97706' : 'var(--text-primary)', fontWeight: req.days_diff > config.maxDays ? 'bold' : 'normal' }}>
+                        <span style={{ color: req.days_diff > config.maxDays ? 'var(--warn-strong)' : 'var(--text-primary)', fontWeight: req.days_diff > config.maxDays ? 'bold' : 'normal' }}>
                           {req.days_diff} day{req.days_diff !== 1 ? 's' : ''}
                           {req.days_diff > config.maxDays && <span style={{ marginLeft: '4px' }} title={`Beyond regulation limit of ${config.maxDays} days`}>⚠️</span>}
                         </span>
                       </td>
-                      <td onClick={() => handleOpenActionModal(req, 'view')}><span className={`energy-badge ${req.energy_category}`}>{req.energy_category}</span></td>
+                      <td onClick={() => handleOpenActionModal(req, 'view')}><span className={`energy-badge ${req.energy_category}`}>{categoryShort(req.energy_category)}</span></td>
                       <td onClick={() => handleOpenActionModal(req, 'view')} style={{ maxWidth: '180px' }}>
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
                           {req.discrepancy_type ? (
                             req.discrepancy_type.match(/<[^>]+>/g)?.map((tag, idx) => (
                               <span key={idx} style={{
                                 background: 'rgba(59,130,246,0.1)',
-                                color: '#1d4ed8',
+                                color: 'var(--link-text)',
                                 border: '1px solid rgba(59,130,246,0.2)',
                                 borderRadius: '4px',
                                 padding: '2px 6px',
@@ -931,7 +932,7 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
                         {req.status === 'Pending' ? (
                           <div style={{ display: 'flex', gap: '6px' }}>
                             <button className="btn btn-teal" style={{ padding: '4px 8px', fontSize: '0.75rem' }} onClick={(e) => { e.stopPropagation(); handleOpenActionModal(req, 'resolve'); }}>Resolve</button>
-                            <button className="btn btn-warning" style={{ padding: '4px 8px', fontSize: '0.75rem', background: '#d97706', color: '#fff' }} onClick={(e) => { e.stopPropagation(); handleOpenActionModal(req, 'return'); }}>Return</button>
+                            <button className="btn btn-warning" style={{ padding: '4px 8px', fontSize: '0.75rem', background: 'var(--warn-strong)', color: '#fff' }} onClick={(e) => { e.stopPropagation(); handleOpenActionModal(req, 'return'); }}>Return</button>
                             <button className="btn btn-danger" style={{ padding: '4px 8px', fontSize: '0.75rem' }} onClick={(e) => { e.stopPropagation(); handleOpenActionModal(req, 'reject'); }}>Reject</button>
                           </div>
                         ) : (
@@ -1089,7 +1090,7 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
                                 </button>
                                 <button
                                   className="btn btn-secondary"
-                                  style={{ padding: '4px 8px', fontSize: '0.75rem', height: '28px', color: '#dc2626' }}
+                                  style={{ padding: '4px 8px', fontSize: '0.75rem', height: '28px', color: 'var(--danger-text)' }}
                                   onClick={() => handleProcessOutage(out.id, 'Rejected')}
                                 >
                                   Reject
@@ -1105,7 +1106,7 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
                             </button>
                             <button
                               className="btn btn-secondary"
-                              style={{ padding: '4px 8px', fontSize: '0.75rem', height: '28px', display: 'flex', alignItems: 'center', gap: '4px', color: '#dc2626' }}
+                              style={{ padding: '4px 8px', fontSize: '0.75rem', height: '28px', display: 'flex', alignItems: 'center', gap: '4px', color: 'var(--danger-text)' }}
                               onClick={() => handleDeleteOutage(out.id)}
                             >
                               <Trash2 size={12} /> Delete
@@ -1274,7 +1275,7 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
                   />
                   <span>Require OTP (two-factor) at login</span>
                 </label>
-                <p className="settings-toggle-note" style={{ color: require2FA ? 'var(--text-secondary)' : '#b45309' }}>
+                <p className="settings-toggle-note" style={{ color: require2FA ? 'var(--text-secondary)' : 'var(--warn-text)' }}>
                   {require2FA
                     ? 'Users receive a one-time code by email at every login. Turn this off if mail delivery breaks and people cannot sign in — everyone will then log in with their password alone.'
                     : 'OTP is OFF for everyone. Anyone with a valid password can sign in without a code. Turn this back on as soon as email delivery is working.'}
@@ -1316,11 +1317,11 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
                 <p className="settings-hint">Which energy categories may submit unit outages.</p>
                 <label className="settings-check">
                   <input type="checkbox" checked={outageISGS} onChange={(e) => setOutageISGS(e.target.checked)} />
-                  <span>ISGS</span>
+                  <span>{categoryLabel('ISGS')}</span>
                 </label>
                 <label className="settings-check">
                   <input type="checkbox" checked={outageRE} onChange={(e) => setOutageRE(e.target.checked)} />
-                  <span>RE</span>
+                  <span>{categoryLabel('RE')}</span>
                 </label>
                 <label className="settings-check">
                   <input type="checkbox" checked={outageStates} onChange={(e) => setOutageStates(e.target.checked)} />
@@ -1356,7 +1357,7 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
                     {mailUsage.trustedDevices} browser{mailUsage.trustedDevices === 1 ? '' : 's'} currently
                     trusted, so those users need no code for up to {mailUsage.trustDays} day{mailUsage.trustDays === 1 ? '' : 's'}.
                     {mailUsage.suppressed > 0 && (
-                      <> <strong style={{ color: '#b45309' }}>{mailUsage.suppressed} message(s) were held back today after the cap was reached.</strong></>
+                      <> <strong style={{ color: 'var(--warn-text)' }}>{mailUsage.suppressed} message(s) were held back today after the cap was reached.</strong></>
                     )}
                   </p>
                 </div>
@@ -1445,7 +1446,7 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
                 <label htmlFor="ad-default-page-landing-view-preference">Default category when you open the portal</label>
                 <select id="ad-default-page-landing-view-preference" className="form-control" value={landingPref} onChange={(e) => setLandingPref(e.target.value)}>
                   <option value="both">All Categories</option>
-                  <option value="ISGS">ISGS energy only</option>
+                  <option value="ISGS">{categoryLabel('ISGS')} only</option>
                   <option value="RE">RE energy only</option>
                   <option value="States">States only</option>
                 </select>
@@ -1568,10 +1569,10 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
             <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', marginBottom: '20px' }}>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', fontSize: '0.85rem' }}>
                 <div><span style={{ color: 'var(--text-secondary)' }}>Filer Station:</span> <strong>{selectedRequest.request_by}</strong></div>
-                <div><span style={{ color: 'var(--text-secondary)' }}>Category:</span> <span className={`energy-badge ${selectedRequest.energy_category}`}>{selectedRequest.energy_category}</span></div>
+                <div><span style={{ color: 'var(--text-secondary)' }}>Category:</span> <span className={`energy-badge ${selectedRequest.energy_category}`}>{categoryLabel(selectedRequest.energy_category)}</span></div>
                 <div><span style={{ color: 'var(--text-secondary)' }}>Request Date:</span> {formatDateDMY(selectedRequest.request_date)}</div>
                 <div><span style={{ color: 'var(--text-secondary)' }}>Correction Date:</span> {formatDateDMY(selectedRequest.correction_for_date)}</div>
-                <div><span style={{ color: 'var(--text-secondary)' }}>Days Mismatch:</span> <strong style={{ color: selectedRequest.days_diff > config.maxDays ? '#dc2626' : 'var(--text-primary)' }}>{selectedRequest.days_diff} days</strong></div>
+                <div><span style={{ color: 'var(--text-secondary)' }}>Days Mismatch:</span> <strong style={{ color: selectedRequest.days_diff > config.maxDays ? 'var(--danger-text)' : 'var(--text-primary)' }}>{selectedRequest.days_diff} days</strong></div>
                 <div><span style={{ color: 'var(--text-secondary)' }}>Status:</span> <span className={`status-badge ${selectedRequest.status.toLowerCase()}`}>{selectedRequest.status}</span></div>
               </div>
 
@@ -1582,7 +1583,7 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
                     selectedRequest.discrepancy_type.match(/<[^>]+>/g)?.map((tag, idx) => (
                       <span key={idx} style={{
                         background: 'rgba(59,130,246,0.1)',
-                        color: '#1d4ed8',
+                        color: 'var(--link-text)',
                         border: '1px solid rgba(59,130,246,0.2)',
                         borderRadius: '4px',
                         padding: '3px 8px',
@@ -1649,7 +1650,7 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
 
               {selectedRequest.status === 'Returned' && (
                 <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '10px' }}>
-                  <span style={{ color: '#d97706', fontSize: '0.85rem', display: 'block', marginBottom: '4px', fontWeight: 'bold' }}>Feedback / Return Comments:</span>
+                  <span style={{ color: 'var(--warn-strong)', fontSize: '0.85rem', display: 'block', marginBottom: '4px', fontWeight: 'bold' }}>Feedback / Return Comments:</span>
                   <div style={{ background: 'rgba(245,158,11,0.05)', border: '1px solid rgba(245,158,11,0.2)', padding: '10px', borderRadius: '6px', fontSize: '0.85rem' }}>{selectedRequest.admin_comment}</div>
                 </div>
               )}
@@ -1694,7 +1695,7 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
                     </div>
                   )}
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px', background: 'rgba(13,148,136,0.05)', border: '1px solid rgba(13,148,136,0.2)', borderRadius: '6px', marginBottom: '15px', fontSize: '0.75rem', color: '#047857' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px', background: 'rgba(13,148,136,0.05)', border: '1px solid rgba(13,148,136,0.2)', borderRadius: '6px', marginBottom: '15px', fontSize: '0.75rem', color: 'var(--status-resolved-text)' }}>
                   <Check size={14} /><span>Submitting will trigger a notification email stating the issue is Cleared.</span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
@@ -1710,12 +1711,12 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
                   <label htmlFor="ad-feedback-return-reason-comments">Feedback / Return Reason comments</label>
                   <textarea id="ad-feedback-return-reason-comments" rows="3" className="form-control" placeholder="Enter feedback details for returning..." value={correctiveAction} onChange={(e) => setCorrectiveAction(e.target.value)} required />
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px', background: 'rgba(245,158,11,0.05)', border: '1px solid rgba(245,158,11,0.2)', borderRadius: '6px', marginBottom: '15px', fontSize: '0.75rem', color: '#b45309' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px', background: 'rgba(245,158,11,0.05)', border: '1px solid rgba(245,158,11,0.2)', borderRadius: '6px', marginBottom: '15px', fontSize: '0.75rem', color: 'var(--warn-text)' }}>
                   <Undo2 size={14} /><span>Submitting will return this request back to the user to review and correct.</span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
                   <button type="button" className="btn btn-secondary" onClick={handleCloseModal}>Cancel</button>
-                  <button type="submit" className="btn btn-warning" style={{ background: '#d97706', color: '#fff' }}>Return to User</button>
+                  <button type="submit" className="btn btn-warning" style={{ background: 'var(--warn-strong)', color: '#fff' }}>Return to User</button>
                 </div>
               </form>
             )}
@@ -1726,7 +1727,7 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
                   <label htmlFor="ad-rejection-reason">Rejection Reason</label>
                   <textarea id="ad-rejection-reason" rows="3" className="form-control" placeholder="Provide detailed feedback on why this correction was rejected..." value={rejectionReason} onChange={(e) => setRejectionReason(e.target.value)} required />
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px', background: 'rgba(239,68,68,0.05)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: '6px', marginBottom: '15px', fontSize: '0.75rem', color: '#b91c1c' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px', background: 'rgba(239,68,68,0.05)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: '6px', marginBottom: '15px', fontSize: '0.75rem', color: 'var(--danger-strong)' }}>
                   <XCircle size={14} /><span>Submitting will trigger a rejection email warning.</span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
@@ -1747,7 +1748,7 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
                   {selectedRequest.status === 'Pending' && (
                     <>
                       <button className="btn btn-teal" onClick={() => setModalMode('resolve')}>Resolve</button>
-                      <button className="btn btn-warning" style={{ background: '#d97706', color: '#fff' }} onClick={() => setModalMode('return')}>Return</button>
+                      <button className="btn btn-warning" style={{ background: 'var(--warn-strong)', color: '#fff' }} onClick={() => setModalMode('return')}>Return</button>
                       <button className="btn btn-danger" onClick={() => setModalMode('reject')}>Reject</button>
                     </>
                   )}

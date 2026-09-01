@@ -70,6 +70,20 @@ app.use(cors({
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
+// A body that is not valid JSON is the caller's mistake, not ours. Without
+// this the parser's SyntaxError fell through to the global handler and became
+// a 500 — which says "the server broke" to whoever is watching the error rate,
+// and is trivially triggerable by anyone who can reach the API.
+app.use((err, req, res, next) => {
+  if (err instanceof SyntaxError && err.status === 400 && 'body' in err) {
+    return res.status(400).json({ error: 'The request body is not valid JSON.' });
+  }
+  if (err && err.type === 'entity.too.large') {
+    return res.status(413).json({ error: 'That request is too large.' });
+  }
+  return next(err);
+});
+
 // ─── Which backend served this? ─────────────────────────────────────────────
 // Behind a load balancer, a response is anonymous: nothing in it says which
 // node produced it, so an uneven distribution, a single sick node, or a
@@ -103,6 +117,10 @@ app.get('/api/health', async (req, res) => {
     clientIp: req.ip,
     forwardedFor: req.get('x-forwarded-for') || null,
     trustProxyHops: parseInt(process.env.TRUST_PROXY_HOPS || '1'),
+    // Whether *this process* has the production hardening on. Already
+    // observable from the CSP and HSTS headers, and it lets the readiness
+    // check report on the running server rather than on its own shell.
+    production: IS_PRODUCTION,
   };
   try {
     const started = Date.now();

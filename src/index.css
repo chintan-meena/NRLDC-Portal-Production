@@ -39,6 +39,135 @@
   --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
   --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.08), 0 4px 6px -2px rgba(0, 0, 0, 0.04);
   --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.08), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+
+  /* The page ground, and the two washes over it. Tokenised so a theme can
+     change them — they used to be written into the body rule directly. */
+  --body-bg: #f3f4f6;
+  --body-wash-1: rgba(219, 234, 254, 0.6);
+  --body-wash-2: rgba(204, 251, 241, 0.5);
+
+  /* Semantic colours used outside the palette. Named here so the dark theme
+     can lift them off the background instead of leaving dark-on-dark text. */
+  --warn-text: #b45309;
+  --warn-strong: #d97706;
+  --danger-text: #dc2626;
+  --danger-strong: #b91c1c;
+  --success-text: #0f766e;
+  --link-text: #1d4ed8;
+  --surface-subtle: #f8fafc;
+
+  color-scheme: light;
+}
+
+/* ── Dark theme ────────────────────────────────────────────────────────────
+   Only the tokens are redefined; every component reads through them, so the
+   rules below are the whole theme.
+
+   Three states, not two. An explicit choice stamps data-theme on <html>; the
+   default "system" setting stamps nothing, and then only the media query
+   separates light from dark. The :not([data-theme="light"]) guard is what lets
+   an explicit light choice win on a dark OS. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg-primary: #0f141b;
+    --bg-secondary: #161d26;
+    --bg-tertiary: #1c242f;
+    --bg-glass: rgba(22, 29, 38, 0.85);
+    --border-color: #2a3441;
+    --border-focus: #60a5fa;
+
+    --text-primary: #e6ebf2;
+    --text-secondary: #a8b3c1;
+    --text-muted: #7d8896;
+
+    --accent-blue: #60a5fa;
+    --accent-blue-hover: #93c5fd;
+    --accent-teal: #2dd4bf;
+    --accent-teal-hover: #5eead4;
+
+    /* Status chips: dark grounds with lifted text, rather than the light
+       pastels which turn to mud on a dark surface. */
+    --status-pending-bg: #2b2216;
+    --status-pending-border: #4a3a1d;
+    --status-pending-text: #fbbf24;
+
+    --status-resolved-bg: #14261f;
+    --status-resolved-border: #1f4436;
+    --status-resolved-text: #4ade80;
+
+    --status-rejected-bg: #2c1a19;
+    --status-rejected-border: #4d2523;
+    --status-rejected-text: #f87171;
+
+    --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.4);
+    --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.45), 0 2px 4px -1px rgba(0, 0, 0, 0.3);
+    --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.5), 0 4px 6px -2px rgba(0, 0, 0, 0.35);
+    --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.55), 0 10px 10px -5px rgba(0, 0, 0, 0.4);
+
+    --body-bg: #0b0f14;
+    --body-wash-1: rgba(37, 99, 235, 0.14);
+    --body-wash-2: rgba(13, 148, 136, 0.12);
+
+    --warn-text: #fbbf24;
+    --warn-strong: #f59e0b;
+    --danger-text: #f87171;
+    --danger-strong: #fca5a5;
+    --success-text: #2dd4bf;
+    --link-text: #93c5fd;
+    --surface-subtle: #1c242f;
+
+    color-scheme: dark;
+  }
+}
+
+/* An explicit dark choice wins over a light OS, so the toggle works both ways. */
+:root[data-theme="dark"] {
+  --bg-primary: #0f141b;
+  --bg-secondary: #161d26;
+  --bg-tertiary: #1c242f;
+  --bg-glass: rgba(22, 29, 38, 0.85);
+  --border-color: #2a3441;
+  --border-focus: #60a5fa;
+
+  --text-primary: #e6ebf2;
+  --text-secondary: #a8b3c1;
+  --text-muted: #7d8896;
+
+  --accent-blue: #60a5fa;
+  --accent-blue-hover: #93c5fd;
+  --accent-teal: #2dd4bf;
+  --accent-teal-hover: #5eead4;
+
+  --status-pending-bg: #2b2216;
+  --status-pending-border: #4a3a1d;
+  --status-pending-text: #fbbf24;
+
+  --status-resolved-bg: #14261f;
+  --status-resolved-border: #1f4436;
+  --status-resolved-text: #4ade80;
+
+  --status-rejected-bg: #2c1a19;
+  --status-rejected-border: #4d2523;
+  --status-rejected-text: #f87171;
+
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.45), 0 2px 4px -1px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.5), 0 4px 6px -2px rgba(0, 0, 0, 0.35);
+  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.55), 0 10px 10px -5px rgba(0, 0, 0, 0.4);
+
+  --body-bg: #0b0f14;
+  --body-wash-1: rgba(37, 99, 235, 0.14);
+  --body-wash-2: rgba(13, 148, 136, 0.12);
+
+  --warn-text: #fbbf24;
+  --warn-strong: #f59e0b;
+  --danger-text: #f87171;
+  --danger-strong: #fca5a5;
+  --success-text: #2dd4bf;
+  --link-text: #93c5fd;
+  --surface-subtle: #1c242f;
+
+  color-scheme: dark;
 }
 
 * {
@@ -49,10 +178,10 @@
 
 body {
   font-family: var(--font-primary);
-  background-color: #f3f4f6;
+  background-color: var(--body-bg);
   background-image: 
-    radial-gradient(at 0% 0%, rgba(219, 234, 254, 0.6) 0px, transparent 50%),
-    radial-gradient(at 100% 0%, rgba(204, 251, 241, 0.5) 0px, transparent 50%);
+    radial-gradient(at 0% 0%, var(--body-wash-1) 0px, transparent 50%),
+    radial-gradient(at 100% 0%, var(--body-wash-2) 0px, transparent 50%);
   color: var(--text-primary);
   min-height: 100vh;
   overflow-x: hidden;
@@ -212,7 +341,7 @@ button {
 .meta-item.rev-block-meta {
   background: rgba(13, 148, 136, 0.04);
   border-color: rgba(13, 148, 136, 0.12);
-  color: #0f766e;
+  color: var(--success-text);
 }
 .meta-item.rev-block-meta .meta-icon {
   color: #0d9488;
@@ -270,7 +399,7 @@ button {
   width: 32px;
   height: 32px;
   border-radius: 50%;
-  background: linear-gradient(135deg, var(--accent-blue) 0%, #1d4ed8 100%);
+  background: linear-gradient(135deg, var(--accent-blue) 0%, var(--link-text) 100%);
   color: white;
   display: flex;
   align-items: center;
@@ -445,7 +574,7 @@ button {
   letter-spacing: 0.6px;
   color: var(--text-secondary);
   border-bottom: 1px solid var(--border-color);
-  background: #f8fafc;
+  background: var(--surface-subtle);
   /* Stay visible while a long list scrolls underneath. */
   position: sticky;
   top: 0;
@@ -478,7 +607,7 @@ button {
 }
 
 .custom-table tbody tr:hover td {
-  background: #f8fafc;
+  background: var(--surface-subtle);
 }
 
 /* Give the first column a little more presence — it is the identifier the
@@ -506,7 +635,7 @@ button {
   background-color: #ffffff !important; /* White */
 }
 .custom-table tr.status-pending:hover td {
-  background-color: #f8fafc !important;
+  background-color: var(--surface-subtle) !important;
 }
 
 .custom-table tr.status-rejected td {
@@ -535,10 +664,10 @@ button {
 
 /* Vertical left accents for tables */
 .custom-table tr.renewable td:first-child, .custom-table tr.RE td:first-child {
-  border-left: 4px solid #0f766e;
+  border-left: 4px solid var(--success-text);
 }
 .custom-table tr.conventional td:first-child, .custom-table tr.ISGS td:first-child {
-  border-left: 4px solid #1d4ed8;
+  border-left: 4px solid var(--link-text);
 }
 .custom-table tr.both td:first-child {
   border-left: 4px solid #6d28d9;
@@ -547,7 +676,7 @@ button {
   border-left: 4px solid #059669;
 }
 .custom-table tr.QCA td:first-child {
-  border-left: 4px solid #d97706;
+  border-left: 4px solid var(--warn-strong);
 }
 
 /* Hover states for tinted rows to maintain high contrast and color identity */
@@ -602,7 +731,7 @@ button {
 .status-badge.returned {
   background: rgba(245, 158, 11, 0.1);
   border-color: rgba(245, 158, 11, 0.2);
-  color: #d97706;
+  color: var(--warn-strong);
 }
 
 .energy-badge {
@@ -617,12 +746,12 @@ button {
 
 .energy-badge.conventional, .energy-badge.ISGS {
   background: rgba(37, 99, 235, 0.08);
-  color: #1d4ed8;
+  color: var(--link-text);
 }
 
 .energy-badge.renewable, .energy-badge.RE {
   background: rgba(13, 148, 136, 0.08);
-  color: #0f766e;
+  color: var(--success-text);
 }
 
 .energy-badge.both {
@@ -642,7 +771,7 @@ button {
 
 .energy-badge.QCA {
   background: rgba(245, 158, 11, 0.08);
-  color: #d97706;
+  color: var(--warn-strong);
 }
 
 /* Forms & Inputs */
@@ -688,7 +817,7 @@ button {
   font-weight: 700;
 }
 .password-rules li.met {
-  color: #047857;
+  color: var(--status-resolved-text);
 }
 
 .form-control {
@@ -760,7 +889,7 @@ button {
 .btn-danger {
   background: #fee2e2;
   border: 1px solid #fecaca;
-  color: #b91c1c;
+  color: var(--danger-strong);
 }
 .btn-danger:hover:not(:disabled) {
   background: #fca5a5;
@@ -870,7 +999,7 @@ button {
 }
 
 .log-item.error {
-  border-color: #ef4444;
+  border-color: var(--danger-text);
   color: #fca5a5;
 }
 
@@ -904,7 +1033,7 @@ button {
 /* File Upload drag area */
 .file-upload-zone {
   border: 2px dashed #cbd5e1;
-  background: #f8fafc;
+  background: var(--surface-subtle);
   border-radius: 12px;
   padding: 30px;
   text-align: center;
@@ -928,7 +1057,7 @@ button {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  background: #f8fafc;
+  background: var(--surface-subtle);
   padding: 8px 12px;
   border-radius: 6px;
   border: 1px solid var(--border-color);
@@ -937,7 +1066,7 @@ button {
 
 .file-remove {
   background: transparent;
-  color: #ef4444;
+  color: var(--danger-text);
   font-size: 0.9rem;
 }
 
@@ -956,7 +1085,7 @@ button {
 }
 
 .lock-icon-btn.locked {
-  color: #ef4444;
+  color: var(--danger-text);
 }
 .lock-icon-btn.unlocked {
   color: #10b981;
@@ -990,10 +1119,10 @@ button {
   border: 1px solid transparent;
 }
 .banner svg { flex-shrink: 0; margin-top: 1px; }
-.banner-error   { background: rgba(239, 68, 68, 0.10); border-color: rgba(239, 68, 68, 0.22); color: #b91c1c; }
-.banner-success { background: rgba(16, 185, 129, 0.10); border-color: rgba(16, 185, 129, 0.22); color: #047857; }
-.banner-warn    { background: rgba(245, 158, 11, 0.10); border-color: rgba(245, 158, 11, 0.25); color: #b45309; }
-.banner-info    { background: rgba(37, 99, 235, 0.08);  border-color: rgba(37, 99, 235, 0.20); color: #1d4ed8; }
+.banner-error   { background: rgba(239, 68, 68, 0.10); border-color: rgba(239, 68, 68, 0.22); color: var(--danger-strong); }
+.banner-success { background: rgba(16, 185, 129, 0.10); border-color: rgba(16, 185, 129, 0.22); color: var(--status-resolved-text); }
+.banner-warn    { background: rgba(245, 158, 11, 0.10); border-color: rgba(245, 158, 11, 0.25); color: var(--warn-text); }
+.banner-info    { background: rgba(37, 99, 235, 0.08);  border-color: rgba(37, 99, 235, 0.20); color: var(--link-text); }
 .banner-actions { margin-left: auto; display: flex; gap: 8px; align-items: center; }
 
 /* --- Empty state, shown when a list genuinely has no rows --- */
@@ -1041,8 +1170,8 @@ button {
   gap: 10px;
   margin-top: 22px;
 }
-.modal-icon-danger { color: #dc2626; }
-.modal-icon-warn   { color: #d97706; }
+.modal-icon-danger { color: var(--danger-text); }
+.modal-icon-warn   { color: var(--warn-strong); }
 
 /* --- Focus visibility: keyboard users must be able to see where they are --- */
 :where(button, a, input, select, textarea, [tabindex]):focus-visible {
@@ -1077,10 +1206,10 @@ button {
 /* .btn-warning was used in four places but never defined, so each call site
    patched the colours inline. Defined once here instead. */
 .btn-warning {
-  background: #d97706;
+  background: var(--warn-strong);
   color: #fff;
 }
-.btn-warning:hover { background: #b45309; }
+.btn-warning:hover { background: var(--warn-text); }
 
 /* Laptops and small desktops: three to a row rather than four. */
 @media (max-width: 1200px) {
@@ -1187,8 +1316,8 @@ button {
   font-variant-numeric: tabular-nums;
   color: var(--text-secondary);
 }
-.mail-usage.is-low .mail-usage-remaining   { color: #b45309; font-weight: 600; }
-.mail-usage.is-spent .mail-usage-remaining { color: #dc2626; font-weight: 600; }
+.mail-usage.is-low .mail-usage-remaining   { color: var(--warn-text); font-weight: 600; }
+.mail-usage.is-spent .mail-usage-remaining { color: var(--danger-text); font-weight: 600; }
 
 .mail-usage-bar {
   height: 5px;
@@ -1202,8 +1331,8 @@ button {
   background: var(--accent-teal);
   transition: width 0.3s ease;
 }
-.mail-usage.is-low .mail-usage-bar > span   { background: #d97706; }
-.mail-usage.is-spent .mail-usage-bar > span { background: #dc2626; }
+.mail-usage.is-low .mail-usage-bar > span   { background: var(--warn-strong); }
+.mail-usage.is-spent .mail-usage-bar > span { background: var(--danger-text); }
 
 @media (prefers-reduced-motion: reduce) {
   .mail-usage-bar > span { transition: none; }
@@ -1412,6 +1541,16 @@ button {
   color: var(--text-muted);
 }
 
+/* The appearance control. Square, so it reads as an icon button beside the
+   text buttons rather than competing with them. */
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  flex-shrink: 0;
+}
+
 .region-badge {
   display: inline-block;
   font-family: ui-monospace, Menlo, monospace;
@@ -1421,7 +1560,7 @@ button {
   padding: 2px 7px;
   border-radius: 4px;
   background: rgba(15, 118, 110, 0.1);
-  color: #0f766e;
+  color: var(--success-text);
   border: 1px solid rgba(15, 118, 110, 0.22);
   white-space: nowrap;
 }
@@ -1491,7 +1630,7 @@ button {
   display: block;
   margin-top: 3px;
   font-size: 0.72rem;
-  color: #b45309;
+  color: var(--warn-text);
 }
 .review-changed::before {
   content: '✎ ';

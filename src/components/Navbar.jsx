@@ -1,8 +1,10 @@
+import { useTheme } from '../hooks/useTheme';
 import { useState, useEffect } from 'react';
-import { Calendar, Clock, LogOut } from 'lucide-react';
+import { Calendar, Clock, LogOut, Sun, Moon, Monitor } from 'lucide-react';
 import { getConfig } from '../services/db';
 
 export default function Navbar({ currentUser, onLogout, activeTab, setActiveTab }) {
+  const { mode: themeMode, resolved, cycle } = useTheme();
   const [serverTime, setServerTime] = useState(new Date());
   const [config, setConfig] = useState({ outage_ISGS: true, outage_RE: true, outage_States: false, feature_cycle_data: true });
 
@@ -207,6 +209,16 @@ export default function Navbar({ currentUser, onLogout, activeTab, setActiveTab 
                     : `👤 ${currentUser.region} User`}
               </span>
             </div>
+            <button
+              type="button"
+              className="btn btn-secondary theme-toggle"
+              style={{ padding: '5px 8px', marginLeft: '6px' }}
+              onClick={cycle}
+              title={`Appearance: ${themeMode}${themeMode === 'system' ? ` (following your device — currently ${resolved})` : ''}. Click to change.`}
+              aria-label={`Appearance: ${themeMode}. Click to change.`}
+            >
+              {themeMode === 'system' ? <Monitor size={15} /> : themeMode === 'dark' ? <Moon size={15} /> : <Sun size={15} />}
+            </button>
             <button
               className="btn btn-secondary"
               style={{ padding: '5px 8px', display: 'flex', alignItems: 'center', gap: '4px', marginLeft: '6px' }}

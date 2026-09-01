@@ -203,7 +203,7 @@ export default function Login({ onLoginSuccess }) {
             border: '1px solid rgba(239, 68, 68, 0.2)',
             padding: '12px',
             borderRadius: '8px',
-            color: '#dc2626',
+            color: 'var(--danger-text)',
             fontSize: '0.85rem',
             marginBottom: '20px'
           }}>
@@ -221,7 +221,7 @@ export default function Login({ onLoginSuccess }) {
             border: '1px solid rgba(16, 185, 129, 0.2)',
             padding: '12px',
             borderRadius: '8px',
-            color: '#047857',
+            color: 'var(--status-resolved-text)',
             fontSize: '0.85rem',
             marginBottom: '20px'
           }}>
@@ -285,7 +285,7 @@ export default function Login({ onLoginSuccess }) {
                 value={confirmNewPassword} autoComplete="new-password" disabled={loading}
                 onChange={(e) => setConfirmNewPassword(e.target.value)} />
               {confirmNewPassword && newPassword !== confirmNewPassword && (
-                <small style={{ color: '#dc2626', fontSize: '0.75rem' }}>The two passwords do not match.</small>
+                <small style={{ color: 'var(--danger-text)', fontSize: '0.75rem' }}>The two passwords do not match.</small>
               )}
             </div>
 
@@ -300,7 +300,7 @@ export default function Login({ onLoginSuccess }) {
         ) : forgotMode ? (
           <form onSubmit={handleRecoverySubmit}>
             <div style={{ textAlign: 'center', marginBottom: '20px' }}>
-              <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '40px', height: '40px', borderRadius: '50%', background: 'rgba(245, 158, 11, 0.1)', color: '#d97706', marginBottom: '10px' }}>
+              <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '40px', height: '40px', borderRadius: '50%', background: 'rgba(245, 158, 11, 0.1)', color: 'var(--warn-strong)', marginBottom: '10px' }}>
                 <HelpCircle size={20} />
               </div>
               <h3 style={{ fontSize: '1.1rem', color: 'var(--text-primary)' }}>Password Recovery</h3>

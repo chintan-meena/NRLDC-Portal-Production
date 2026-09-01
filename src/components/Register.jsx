@@ -4,6 +4,7 @@ import { RULES as PASSWORD_RULES, validatePassword } from '../utils/password';
 import { defaultUsernameFor } from '../utils/usernames';
 import { REGIONS } from '../utils/regions';
 import { Banner } from './Feedback';
+import { categoryLabel } from '../utils/categories';
 import { UserPlus, ArrowLeft, CheckCircle2, Building2, Lock } from 'lucide-react';
 
 /**
@@ -99,7 +100,7 @@ export default function Register({ onBackToLogin }) {
       <div className="login-container">
         <div className="login-card glass-panel">
           <div style={{ textAlign: 'center', marginBottom: '22px' }}>
-            <CheckCircle2 size={44} style={{ color: '#047857' }} />
+            <CheckCircle2 size={44} style={{ color: 'var(--status-resolved-text)' }} />
             <h2 style={{ fontSize: '1.3rem', fontFamily: 'var(--font-display)', fontWeight: 800, marginTop: '10px' }}>
               Registration submitted
             </h2>
@@ -203,8 +204,8 @@ export default function Register({ onBackToLogin }) {
                 <label htmlFor="reg-category">Energy category</label>
                 <select id="reg-category" className="form-control" value={energyCategory}
                   onChange={(e) => setEnergyCategory(e.target.value)}>
-                  <option value="ISGS">ISGS</option>
-                  <option value="RE">RE — Renewable Energy</option>
+                  <option value="ISGS">{categoryLabel('ISGS')}</option>
+                  <option value="RE">{categoryLabel('RE')} — Renewable Energy</option>
                   <option value="States">States</option>
                 </select>
               </div>
@@ -286,7 +287,7 @@ export default function Register({ onBackToLogin }) {
               <input id="reg-confirm" type="password" className="form-control" value={confirmPassword}
                 autoComplete="new-password" onChange={(e) => setConfirmPassword(e.target.value)} required />
               {confirmPassword && password !== confirmPassword && (
-                <small style={{ color: '#dc2626', fontSize: '0.75rem' }}>The two passwords do not match.</small>
+                <small style={{ color: 'var(--danger-text)', fontSize: '0.75rem' }}>The two passwords do not match.</small>
               )}
             </div>
           </fieldset>

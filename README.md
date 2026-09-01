@@ -24,16 +24,18 @@ This document outlines the complete setup and startup guide for the **NRLDC Sche
 8. [File Uploads](#-file-uploads) — *how to allow a new file type*
 9. [Time Blocks](#-time-blocks)
 10. [If Users Cannot Receive Their OTP](#-if-users-cannot-receive-their-otp)
-11. [Financial-Year Week Filter](#-financial-year-week-filter)
-12. [Load Testing Behind the Balancer](#-load-testing-behind-the-balancer)
-13. [Regions](#%EF%B8%8F-regions)
-14. [Email Budget](#-email-budget)
-15. [Deploying to Production](DEPLOYMENT.md) — *the go-live runbook*
-16. [Deploying](#-deploying)
-17. [Self-Service Registration](#-self-service-registration)
-18. [Password Resets](#-password-resets)
-19. [Turning Features On and Off](#%EF%B8%8F-turning-features-on-and-off)
-20. [Troubleshooting Common Issues](#%EF%B8%8F-troubleshooting-common-issues)
+11. [Appearance](#-appearance)
+12. [Category Labels](#%EF%B8%8F-category-labels)
+13. [Financial-Year Week Filter](#-financial-year-week-filter)
+14. [Load Testing Behind the Balancer](#-load-testing-behind-the-balancer)
+15. [Regions](#%EF%B8%8F-regions)
+16. [Email Budget](#-email-budget)
+17. [Deploying to Production](DEPLOYMENT.md) — *the go-live runbook*
+18. [Deploying](#-deploying)
+19. [Self-Service Registration](#-self-service-registration)
+20. [Password Resets](#-password-resets)
+21. [Turning Features On and Off](#%EF%B8%8F-turning-features-on-and-off)
+22. [Troubleshooting Common Issues](#%EF%B8%8F-troubleshooting-common-issues)
 
 ---
 
@@ -465,6 +467,42 @@ changes, or when it is revoked.
 A user can see and revoke their own trusted browsers, and an admin can revoke
 anyone's — useful for a lost or shared machine, and it does not require changing
 the password.
+
+## 🎨 Appearance
+
+A control beside sign-out cycles **System → Light → Dark**. The choice is stored
+per browser, not per account: it belongs to where you are sitting — a control
+room screen at night, a laptop in daylight — so it needs no server round trip
+and works on the sign-in screen before anyone is signed in.
+
+"System" is the default and follows the operating system. The theme is applied
+before React renders (`applyStoredThemeEarly` in `src/main.jsx`), or the page
+would paint light and correct itself a moment later — the flash a dark theme
+exists to avoid.
+
+Both themes are defined as CSS custom properties in one place; components read
+through tokens rather than naming colours, so a third theme would be another
+token block and nothing else. If you add a colour, take it from a token — a
+literal hex will look right in one theme and wrong in the other.
+
+## 🏷️ Category Labels
+
+The three filing categories are stored as `ISGS`, `RE` and `States` and shown as:
+
+| Stored | Displayed | In badges |
+| --- | --- | --- |
+| `ISGS` | Regional Entity | Reg. Entity |
+| `RE` | Regional Entity (RE) | Reg. Entity (RE) |
+| `States` | States | States |
+
+**Display only.** Every API payload, database column, CSV export and CHECK
+constraint still uses the stored values, and nothing about the data model
+changed. `src/utils/categories.js` is the single place the wording lives.
+
+> The two labels differ only by the `(RE)` suffix, so keep the suffix if you
+> reword them. Under the IEGC both inter-state generating stations and renewable
+> generators are regional entities, which is why they share a stem — but a label
+> that differs only in a suffix is easy to misread in a dense table.
 
 ## 📅 Financial-Year Week Filter
 

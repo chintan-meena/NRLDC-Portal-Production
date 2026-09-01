@@ -49,12 +49,31 @@ async function config(key, region = null) {
   // ── Environment ──────────────────────────────────────────────────────────
   head('Environment');
 
-  if (process.env.NODE_ENV === 'production') {
-    ok('NODE_ENV is "production" — CSP and HSTS are on');
+  // Ask the running server, not this shell. ./nrldc.sh start launches the
+  // server with NODE_ENV=production, so checking our own environment reported
+  // "unset" while the server was correctly hardened — a false alarm that would
+  // have sent someone chasing a problem that did not exist.
+  let serverEnv = null;
+  try {
+    const res = await fetch(`http://localhost:${process.env.PORT || 3001}/api/health`);
+    if (res.ok) serverEnv = await res.json();
+  } catch { /* not running — fall back to this process's own environment */ }
+
+  if (serverEnv) {
+    if (serverEnv.production) {
+      ok(`The running server is in production mode — CSP and HSTS are on (${serverEnv.node})`);
+    } else {
+      bad(`The running server is NOT in production mode (${serverEnv.node})`);
+      note('The Content-Security-Policy and HSTS are off, and a missing');
+      note('SESSION_SECRET is only a warning instead of a refusal to start.');
+    }
+  } else if (process.env.NODE_ENV === 'production') {
+    ok('NODE_ENV is "production" here — start the server to confirm it is applied');
   } else {
-    bad(`NODE_ENV is ${process.env.NODE_ENV ? `"${process.env.NODE_ENV}"` : 'unset'}, not "production"`);
-    note('Without it the Content-Security-Policy and HSTS are off, and a missing');
-    note('SESSION_SECRET is only a warning instead of a refusal to start.');
+    warn('Could not reach a running server; checked this shell instead');
+    note(`NODE_ENV is ${process.env.NODE_ENV ? `"${process.env.NODE_ENV}"` : 'unset'} here.`);
+    note('./nrldc.sh start sets NODE_ENV=production for the server itself, so');
+    note('start it and re-run this to see what the server actually has.');
   }
 
   const secret = process.env.SESSION_SECRET;
