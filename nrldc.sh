@@ -159,18 +159,41 @@ cmd_setup() {
   if [ ! -f server/.env ]; then
     [ -f server/.env.example ] || die "server/.env.example is missing."
     cp server/.env.example server/.env
-    warn "Created server/.env from the template."
-    say  "    Set PGPASSWORD and SESSION_SECRET in it, then run setup again."
-    say  "    ${DIM}node -e \"console.log(require('crypto').randomBytes(48).toString('hex'))\"${OFF}"
-    exit 1
+    ok "created server/.env from the template"
+  else
+    ok "server/.env present"
   fi
-  ok "server/.env present"
+
+  # Generate the session secret rather than asking a human to paste random hex.
+  # It has no meaning to anyone, there is nothing to decide about it, and the
+  # step existing at all is how installs end up running on the shipped default.
   local secret; secret="$(env_get SESSION_SECRET)"
   if [ -z "$secret" ] || [ "$secret" = "replace_with_a_long_random_string" ] || [ "$secret" = "nrldc_secret_key_2026" ]; then
-    warn "SESSION_SECRET is unset or still the default — everyone is logged out on each restart."
+    local generated; generated="$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")"
+    # BSD and GNU sed disagree about -i, so write through a temp file.
+    if grep -q '^SESSION_SECRET=' server/.env; then
+      awk -v v="$generated" '/^SESSION_SECRET=/{print "SESSION_SECRET=" v; next} {print}' server/.env > server/.env.tmp
+    else
+      cp server/.env server/.env.tmp
+      printf '\nSESSION_SECRET=%s\n' "$generated" >> server/.env.tmp
+    fi
+    mv server/.env.tmp server/.env
+    ok "generated a SESSION_SECRET"
+    say "  ${DIM}Behind a load balancer, copy this same value to every server.${OFF}"
   else
     ok "SESSION_SECRET set"
   fi
+
+  # The database password is the one thing only you know.
+  local pgpass; pgpass="$(env_get PGPASSWORD)"
+  if [ -z "$pgpass" ] || [ "$pgpass" = "your_postgres_password_here" ]; then
+    warn "PGPASSWORD is still the placeholder in server/.env"
+    say  "  Set it to your PostgreSQL password, then run setup again:"
+    say  "      ${BOLD}\$EDITOR server/.env${OFF}"
+    say  "  ${DIM}If your local PostgreSQL trusts local connections, an empty value works.${OFF}"
+    exit 1
+  fi
+  ok "PGPASSWORD set"
 
   step "[3/4] Database"
   if command -v pg_isready >/dev/null 2>&1; then

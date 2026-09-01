@@ -1,0 +1,62 @@
+# Copy this file to server/.env and fill in real values.
+# server/.env is git-ignored — never commit real credentials.
+
+# ─── PostgreSQL ──────────────────────────────────────────────────────────────
+PGHOST=localhost
+PGPORT=5432
+PGDATABASE=nrldc_db
+PGUSER=postgres
+PGPASSWORD=your_postgres_password_here
+# Connections in the pool. Raise it only alongside Postgres's own max_connections.
+PGPOOL_MAX=10
+
+# ─── Server ──────────────────────────────────────────────────────────────────
+PORT=3001
+
+# Set to "production" on the live server. This is not cosmetic: it turns on the
+# Content-Security-Policy and HSTS, and makes a missing SESSION_SECRET a refusal
+# to start rather than a warning.
+NODE_ENV=production
+
+# Signs the session tokens issued at login. Must be long and random — anyone who
+# knows it can mint a token for any account, including an admin.
+#
+# Behind a load balancer, EVERY process must be given the SAME value. Each
+# process otherwise invents its own and rejects tokens issued by its siblings,
+# which signs users out at random with nothing in the log to explain it.
+#
+# Generate one with:  openssl rand -hex 32
+SESSION_SECRET=replace_with_a_long_random_string
+
+# How many reverse proxies sit in front. One nginx or load balancer is 1. This
+# decides which address the rate limiter treats as the client's.
+TRUST_PROXY_HOPS=1
+
+# Only needed if the frontend is served from a different origin than the API.
+# Left empty in the normal single-origin deployment, where this server serves
+# the built frontend itself.
+# CORS_ORIGINS=https://portal.example.in
+
+# ─── SMTP (login OTP and password recovery) ─────────────────────────────────
+# These are fallbacks. The values in the database's config table win, and are
+# what System Parameters edits — so change them there, not here, once running.
+SMTP_HOST=smtp-relay.brevo.com
+SMTP_PORT=587
+SMTP_SECURE=false
+SMTP_USER=your_brevo_login@smtp-brevo.com
+SMTP_PASS=your_brevo_smtp_key_here
+
+# The From address decides whether mail is delivered at all.
+#
+# It must be on a domain whose DNS authorises your mail provider — that means
+# adding the provider's SPF entry and DKIM key to that domain. Sending as a
+# domain you have not authorised (a @gmail.com address relayed through Brevo,
+# say) fails SPF and DKIM alignment, and receiving servers quarantine it as
+# spoofing. The portal will report such a message as sent; it will not arrive.
+SMTP_FROM=NRLDC Schedule Portal <noreply@your-domain.example>
+
+# ─── Rate limits (requests per 15 minutes, per signed-in user or IP) ─────────
+# The defaults suit ~200 users. Reads are generous because dashboards poll.
+# RATE_LIMIT_READ=3000
+# RATE_LIMIT_WRITE=600
+# RATE_LIMIT_AUTH=20
