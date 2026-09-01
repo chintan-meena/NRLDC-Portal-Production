@@ -15,6 +15,7 @@ export default function ConfirmDialog({
   open,
   title = 'Please confirm',
   message,
+  details,
   confirmLabel = 'Confirm',
   cancelLabel = 'Cancel',
   tone = 'danger',          // 'danger' | 'warn'
@@ -57,6 +58,20 @@ export default function ConfirmDialog({
         </div>
 
         <p className="modal-message">{message}</p>
+
+        {/* A confirmation that only asks "are you sure?" gives the reader
+            nothing to be sure about. Where an action has specifics, they are
+            shown here — above the checkbox, not behind a tooltip. */}
+        {Array.isArray(details) && details.length > 0 && (
+          <dl className="confirm-details">
+            {details.map(([label, value]) => (
+              <div key={label}>
+                <dt>{label}</dt>
+                <dd>{value}</dd>
+              </div>
+            ))}
+          </dl>
+        )}
 
         <div className="modal-actions">
           <button type="button" className="btn btn-secondary" onClick={onCancel} disabled={busy}>

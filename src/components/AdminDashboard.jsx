@@ -327,14 +327,34 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
     }
   };
 
-  const handleProcessTransfer = (id, status) => {
+  /**
+   * Approving a transfer moves a plant between coordinating agencies. The
+   * dialog used to ask only "are you sure?", which gives the reader nothing to
+   * be sure about — so it now shows what is actually being moved, and from and
+   * to whom, above the confirmation.
+   */
+  const handleProcessTransfer = (tr, status) => {
+    const qca = (short, full) => (short && full && short !== full ? `${short} (${full})` : short || full || '—');
     askConfirm({
-      title: `${status} transfer request`,
-      message: `Are you sure you want to ${status.toLowerCase()} this plant transfer request?`,
+      title: `${status} plant transfer`,
+      message: status === 'Approved'
+        ? 'Approving moves this plant to the destination QCA from the effective date. '
+          + 'The outgoing assignment is closed and the incoming one opened together.'
+        : 'Rejecting leaves the plant with its current QCA. The requester is not notified automatically.',
+      details: [
+        ['Plant', `${tr.plant_name || '—'} · ${tr.wbes_acronym}`],
+        ['Category', tr.energy_category || '—'],
+        ['From QCA', tr.from_username ? qca(tr.from_qca_name, tr.from_qca_full_name) : 'Unassigned'],
+        ['To QCA', qca(tr.to_qca_name, tr.to_qca_full_name)],
+        ['Effective from', formatDateDMY(tr.effective_date)],
+        ['Requested by', `${tr.requested_by_name || tr.requested_by}`],
+        ['Requested on', formatDateDMY(tr.created_at)],
+        ['Region', tr.region || '—'],
+      ],
       confirmLabel: status,
       tone: status === 'Approved' ? 'warn' : 'danger',
       action: async () => {
-        const res = await processTransferRequest(id, status);
+        const res = await processTransferRequest(tr.id, status);
         await loadData();
         if (res.success) notify('success', res.message);
       },
@@ -1534,8 +1554,8 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
                         <td>
                           {tr.status === 'Pending' ? (
                             <div style={{ display: 'flex', gap: '6px' }}>
-                              <button className="btn btn-teal" style={{ padding: '4px 8px', fontSize: '0.75rem' }} onClick={() => handleProcessTransfer(tr.id, 'Approved')}>Approve</button>
-                              <button className="btn btn-danger" style={{ padding: '4px 8px', fontSize: '0.75rem' }} onClick={() => handleProcessTransfer(tr.id, 'Rejected')}>Reject</button>
+                              <button className="btn btn-teal" style={{ padding: '4px 8px', fontSize: '0.75rem' }} onClick={() => handleProcessTransfer(tr, 'Approved')}>Approve</button>
+                              <button className="btn btn-danger" style={{ padding: '4px 8px', fontSize: '0.75rem' }} onClick={() => handleProcessTransfer(tr, 'Rejected')}>Reject</button>
                             </div>
                           ) : (
                             <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>Processed</span>

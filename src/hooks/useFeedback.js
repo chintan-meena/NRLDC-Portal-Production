@@ -55,6 +55,7 @@ export function useFeedback() {
     open: !!request,
     title: request?.title,
     message: request?.message,
+    details: request?.details,
     confirmLabel: request?.confirmLabel,
     tone: request?.tone,
     busy,

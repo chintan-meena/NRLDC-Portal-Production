@@ -120,7 +120,9 @@ function crossRegionError(req) {
  * region is opened — see regionForNewAccount.
  */
 function regionForNewRow(req) {
-  return req.auth?.region ?? 'NRLDC';
+  // Null for a national account, which belongs to no region. Callers that
+  // create rows must refuse rather than invent one.
+  return req.auth?.region ?? null;
 }
 
 /**
@@ -141,7 +143,7 @@ function regionForNewRow(req) {
  * account making the request, so there is no field to tamper with.
  */
 function regionForNewAccount(req, role, requestedRegion) {
-  const home = req.auth?.region ?? null;
+  const home = req.auth?.region ?? null;   // null for the national account
   const national = isSuperAdmin(req);
   const wanted = requestedRegion ? String(requestedRegion).toUpperCase() : null;
 

@@ -32,11 +32,41 @@ export const DISCREPANCY_TYPES = [
  * supplied text, and "<Miscellaneous>" when they did not, so the shared prefix
  * is what a filter has to match.
  */
+/**
+ * Categories added for the 2026 filing rules. They are *additional* to the
+ * list above, not a replacement: 1,000 existing records carry the older tags,
+ * and dropping those would leave historical filings unfilterable.
+ *
+ * Whether the older eight should be retired is a stakeholder decision — see the
+ * note in the README. Retiring one only means removing it from this list;
+ * stored records keep their tags either way, and typeMatchPattern still finds
+ * them.
+ */
+export const FILING_CATEGORIES_2026 = [
+  'Type or contract missing',
+  'Requisition Value incorrect (REMC)',
+  'AVC correction',
+  'Post facto revisions',
+  'Schedule visible in REMC but not reflecting in WBES',
+  'NOC breach issue - needs correction',
+  'TRAS not applied',
+];
+
+/**
+ * The category the day 6-15 restricted window still admits.
+ *
+ * Kept as a named list rather than a string comparison so the restricted set
+ * can grow without hunting for the check. See the filing-window rules in
+ * server/routes/discrepancies.js.
+ */
+export const RESTRICTED_WINDOW_CATEGORIES = ['Post facto revisions'];
+
 export const MISC_TYPE = 'Miscellaneous';
 export const MISC_PREFIX = '<Misc';
 
 /** Everything a filter dropdown should offer. */
-export const FILTERABLE_TYPES = [...DISCREPANCY_TYPES, MISC_TYPE];
+export const ALL_FILING_TYPES = [...DISCREPANCY_TYPES, ...FILING_CATEGORIES_2026];
+export const FILTERABLE_TYPES = [...ALL_FILING_TYPES, MISC_TYPE];
 
 /**
  * The SQL pattern that matches one type inside the stored tag string.

@@ -51,7 +51,8 @@ CREATE TABLE IF NOT EXISTS users (
   -- Which load despatch centre this account belongs to. An ADMIN administers
   -- exactly this region; a USER or QCA is a station within it. A SUPERADMIN
   -- sees every region, and its own value here is only a home label.
-  region VARCHAR(10) NOT NULL DEFAULT 'NRLDC' REFERENCES regions(acronym) ON UPDATE CASCADE,
+  -- NULL for the national administrator, which belongs to no single region.
+  region VARCHAR(10) REFERENCES regions(acronym) ON UPDATE CASCADE,
   email VARCHAR(200) NOT NULL,
   email2 VARCHAR(200),
   email3 VARCHAR(200),
@@ -292,6 +293,25 @@ CREATE TABLE IF NOT EXISTS password_reset_requests (
 );
 
 -- ─── Migrations for pre-existing databases ──────────────────────────────────
+
+-- ─── The national role is not a region ──────────────────────────────────────
+-- SUPERADMIN sits above the regions, so it belongs to none of them. Its region
+-- is NULL, and the constraint below makes that the only valid shape: a
+-- national account cannot carry a region, and every other account must.
+--
+-- This was previously conflated — the NRLDC administrator had been promoted to
+-- SUPERADMIN, which made one region's admin silently national.
+ALTER TABLE users ALTER COLUMN region DROP NOT NULL;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'national_role_has_no_region') THEN
+    ALTER TABLE users ADD CONSTRAINT national_role_has_no_region CHECK (
+      (role = 'SUPERADMIN' AND region IS NULL) OR
+      (role <> 'SUPERADMIN' AND region IS NOT NULL)
+    ) NOT VALID;
+  END IF;
+END $$;
 
 -- ─── Regions become a table ─────────────────────────────────────────────────
 -- Regions used to be a CHECK constraint listing five fixed values, so adding

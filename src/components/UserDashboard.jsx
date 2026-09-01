@@ -11,11 +11,12 @@ import { categoryLabel } from '../utils/categories';
 import { useFeedback } from '../hooks/useFeedback';
 import { useModalDismiss } from '../hooks/useModalDismiss';
 import { originalFilename } from '../utils/filenames';
-import { FILTERABLE_TYPES, DISCREPANCY_TYPES, MISC_TYPE } from '../utils/discrepancyTypes';
+import { FILTERABLE_TYPES, ALL_FILING_TYPES, MISC_TYPE } from '../utils/discrepancyTypes';
 import { ACCEPT_ATTRIBUTE, ALLOWED_DESCRIPTION, MAX_UPLOAD_MB, validateFiles } from '../utils/uploads';
 import { parseTimeBlocks } from '../utils/timeBlocks';
 import { formatDateDMY, formatDateDMYHM, getStatusPriority, todayISO, daysAgoISO, nowDatetimeLocal } from '../utils/format';
-import { AlertCircle, Plus, ClipboardList, Settings, CheckCircle2, XCircle, FileText, Upload, Calendar, RefreshCw, Download, User, Mail, Phone, Lock, Zap, Database, Search } from 'lucide-react';
+import { AlertCircle, Plus, ClipboardList, Settings, CheckCircle2, XCircle, FileText, Upload, Calendar, RefreshCw, Download, User, Mail, Phone, Lock, Zap, Database, Search, AlertTriangle
+} from 'lucide-react';
 
 export default function UserDashboard({ currentUser, onUserUpdate, activeTab, setActiveTab }) {
   // QCA coordination applies to Renewable Energy plants only. ISGS and States
@@ -113,7 +114,7 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
 
   // One shared vocabulary, so a filter can never name a type nothing can be
   // filed under. See src/utils/discrepancyTypes.js.
-  const availableReasons = [...DISCREPANCY_TYPES, MISC_TYPE];
+  const availableReasons = [...ALL_FILING_TYPES, MISC_TYPE];
 
   /** Which tabs display the discrepancy list or its statistics. */
   const TABS_NEEDING_DISCREPANCIES = ['dashboard', 'raise_request'];
@@ -1041,6 +1042,17 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
               {/* Checkbox Discrepancy Type */}
               <div className="form-group">
                 <label>Type of Discrepancy (Select applicable categories)</label>
+                {/* On the form itself, not in a tooltip: this is the rule the
+                    filing will be judged against, so it belongs where the
+                    selection is made. */}
+                <div className="filing-warning">
+                  <AlertTriangle size={15} />
+                  <span>
+                    Incorrect selection of the discrepancy type is
+                    <strong> liable for rejection at the RLDC end</strong>. Select only the
+                    categories that genuinely apply to this filing.
+                  </span>
+                </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '8px', background: 'var(--bg-tertiary)', padding: '15px', borderRadius: '8px', border: '1px solid var(--border-color)', marginTop: '6px' }}>
                 {availableReasons.map((reasonOpt, idx) => {
                   const isChecked = selectedReasons.includes(reasonOpt);

@@ -20,6 +20,7 @@
 #   ./nrldc.sh harden --fix    ...and turn OTP on for every account
 #   ./nrldc.sh regions         accounts, plants and admins per region
 #   ./nrldc.sh promote <user>  make an account the national administrator
+#   ./nrldc.sh national        create a fresh national administrator account
 #
 # restart is the one to use after pulling changes: it stops the running
 # instance, rebuilds, and starts again.
@@ -373,42 +374,99 @@ cmd_promote() {
 
   step "Promoting $user to national administrator"
   local out
+  # The national role belongs to no region, so promoting clears it. A database
+  # constraint enforces the same thing — a SUPERADMIN carrying a region is the
+  # exact conflation this command exists to avoid.
   out=$(psql -d "${PGDATABASE:-nrldc_db}" -tAqc "
-    UPDATE users SET role = 'SUPERADMIN'
+    UPDATE users SET role = 'SUPERADMIN', region = NULL
      WHERE LOWER(username) = LOWER('${user//\'/\'\'}')
-    RETURNING username || ' | ' || region;
+    RETURNING username || ' | national, no region';
   " 2>&1) || die "Could not reach the database: $out"
 
   [ -n "$out" ] || die "No account called \"$user\"."
 
   say "  ${GREEN}OK${OFF} $out"
-  say "  ${DIM}still sees only its own region — this grants no extra visibility${OFF}"
   say ""
-  say "  ${DIM}What it gains: it can create an administrator for another region,${OFF}"
-  say "  ${DIM}which is how a new despatch centre is opened, and it owns the${OFF}"
-  say "  ${DIM}settings shared by all of them — SMTP, the mail allowance, the${OFF}"
-  say "  ${DIM}OTP trust window.${OFF}"
+  say "  ${DIM}This account now sits above the regions: it belongs to none of them,${OFF}"
+  say "  ${DIM}sees across all of them, and creates regions and their admins. It${OFF}"
+  say "  ${DIM}does NOT create ordinary users — that is each region's own job.${OFF}"
+  say ""
+  say "  ${DIM}If it was a region's administrator, that region now has one fewer.${OFF}"
+  say "  ${DIM}Check with: ./nrldc.sh regions${OFF}"
+}
+
+# Create a national administrator from scratch.
+#
+# Promoting a region's admin takes that region's administrator away, which is
+# rarely what is wanted: the national role is meant to be a separate account.
+cmd_national() {
+  local user="${1:-national@grid}"
+  step "Creating national administrator $user"
+
+  local exists
+  exists=$(psql -d "${PGDATABASE:-nrldc_db}" -tAqc \
+    "SELECT 1 FROM users WHERE LOWER(username)=LOWER('${user//\'/\'\'}')" 2>&1)
+  [ -z "$exists" ] || die "\"$user\" already exists. Use ./nrldc.sh promote to change its role."
+
+  local pass; pass="$(cd server && node -e "
+    const { generateCompliantPassword } = require('./utils/password');
+    console.log(generateCompliantPassword(16));
+  ")"
+  local hash; hash="$(cd server && node -e "
+    console.log(require('bcryptjs').hashSync(process.argv[1], 10));
+  " "$pass")"
+
+  local out
+  out=$(psql -d "${PGDATABASE:-nrldc_db}" -tAqc "
+    INSERT INTO users (username, name, role, region, email, password_hash,
+                       energy_category, locked, failed_attempts, bypass_2fa, wbes_acronym)
+    VALUES ('${user//\'/\'\'}', 'National Administrator', 'SUPERADMIN', NULL,
+            '${user//\'/\'\'}', '$hash', 'ISGS', FALSE, 0, TRUE, '')
+    RETURNING username;
+  " 2>&1) || die "Could not create the account: $out"
+
+  say "  ${GREEN}OK${OFF} $out"
+  say ""
+  say "  ${BOLD}username${OFF}  $user"
+  say "  ${BOLD}password${OFF}  $pass"
+  say ""
+  say "  ${DIM}Shown once. Sign in and change it from Profile Settings.${OFF}"
+  say "  ${DIM}OTP is bypassed on this account so it cannot be locked out while${OFF}"
+  say "  ${DIM}mail is still being set up — turn it on once mail is proven.${OFF}"
 }
 
 # What each region actually holds. Useful before and after adding one.
 cmd_regions() {
   step "Regions"
   psql -d "${PGDATABASE:-nrldc_db}" -c "
-    SELECT u.region,
-           count(*)                                                       AS accounts,
-           count(*) FILTER (WHERE u.role IN ('ADMIN', 'SUPERADMIN'))      AS admins,
-           count(*) FILTER (WHERE u.role = 'SUPERADMIN')                  AS national,
-           count(*) FILTER (WHERE u.role = 'QCA')                         AS qcas,
-           (SELECT count(*) FROM wbes_entities w WHERE w.region = u.region) AS plants
-      FROM users u
-     GROUP BY u.region
-     ORDER BY u.region;" 2>&1 || die "Could not reach the database."
+    SELECT r.acronym AS region,
+           r.status,
+           (SELECT count(*) FROM users u WHERE u.region = r.acronym)                      AS accounts,
+           (SELECT count(*) FROM users u WHERE u.region = r.acronym AND u.role='ADMIN')   AS admins,
+           (SELECT count(*) FROM users u WHERE u.region = r.acronym AND u.role='QCA')     AS qcas,
+           (SELECT count(*) FROM wbes_entities w WHERE w.region = r.acronym)              AS plants
+      FROM regions r
+     ORDER BY r.acronym;" 2>&1 || die "Could not reach the database."
   psql -d "${PGDATABASE:-nrldc_db}" -tAc "
-    SELECT '  national administrator: ' || COALESCE(string_agg(username || ' (' || region || ')', ', '), 'none — run ./nrldc.sh promote <user>')
+    SELECT '  national administrator: ' ||
+           COALESCE(string_agg(username, ', ' ORDER BY username),
+                    'none — run ./nrldc.sh national')
       FROM users WHERE role = 'SUPERADMIN';
     " 2>&1
-  say "  ${DIM}An admin, national or not, sees only its own region. 'national' is the${OFF}"
-  say "  ${DIM}count that can additionally open a new region.${OFF}"
+  say "  ${DIM}A region admin sees only its own region. The national administrator${OFF}"
+  say "  ${DIM}belongs to no region, sees across all of them, and is the only role${OFF}"
+  say "  ${DIM}that can create regions and their admins.${OFF}"
+
+  local orphans
+  orphans=$(psql -d "${PGDATABASE:-nrldc_db}" -tAc "
+    SELECT string_agg(r.acronym, ', ') FROM regions r
+     WHERE NOT EXISTS (SELECT 1 FROM users u WHERE u.region = r.acronym AND u.role = 'ADMIN');" 2>&1)
+  if [ -n "$orphans" ]; then
+    say ""
+    say "  ${YELLOW}!${OFF} no administrator for: $orphans"
+    say "  ${DIM}Nobody can manage those regions — not even the national account,${OFF}"
+    say "  ${DIM}which cannot create ordinary users. Give each one an admin.${OFF}"
+  fi
 }
 
 cmd_logs() {
@@ -432,10 +490,11 @@ case "${1:-}" in
   unlock)  shift; cmd_unlock "${1:-}" ;;
   mail)    cmd_mail ;;
   harden)  shift; cmd_harden "$@" ;;
-  promote) shift; cmd_promote "${1:-}" ;;
+  promote)  shift; cmd_promote "${1:-}" ;;
+  national) shift; cmd_national "${1:-}" ;;
   regions) cmd_regions ;;
   ""|-h|--help|help)
-    sed -n '2,23p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'
     ;;
   *) die "Unknown command: $1 (try ./nrldc.sh help)" ;;
 esac

@@ -45,7 +45,11 @@ function redactSecrets(updates) {
 // no way to read another region's — not for any role.
 router.get('/', async (req, res) => {
   try {
-    const region = req.auth?.region || 'NRLDC';
+    // A national account has no region of its own. It reads the global
+    // settings plus, optionally, one region's — never a silent default.
+    const asked = req.query?.region;
+    const region = req.auth?.region
+      || (isSuperAdmin(req) && asked ? String(asked).toUpperCase() : null);
     const result = await pool.query(
       'SELECT key, value FROM config WHERE region = $1 OR region = $2',
       [region, GLOBAL_REGION]
@@ -91,8 +95,17 @@ router.patch('/', requireAdmin, async (req, res) => {
     });
   }
 
-  // Settings are written to the caller's own region, always.
-  const region = req.auth?.region || 'NRLDC';
+  // Settings are written to the caller's own region. A national account has
+  // none, so it must name the region it means.
+  const asked = req.body?.region;
+  const region = req.auth?.region
+    || (isSuperAdmin(req) && asked ? String(asked).toUpperCase() : null);
+  const regionalKeys = Object.keys(updates).filter(k => !isGlobalKey(k));
+  if (regionalKeys.length > 0 && !region) {
+    return res.status(400).json({
+      error: `Name the region these settings apply to: ${regionalKeys.join(', ')} are set per region.`,
+    });
+  }
 
   try {
     for (const [key, value] of Object.entries(updates)) {

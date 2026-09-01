@@ -453,6 +453,11 @@ router.post('/bulk-import', requireAdmin, async (req, res) => {
     // rollback deletes accounts that are not in the backup: an unscoped one
     // would delete every other region's users.
     const importRegion = regionForNewRow(req);
+    if (!importRegion) {
+      return res.status(400).json({
+        error: 'A bulk import belongs to one region. Sign in as that region\'s administrator to run it.',
+      });
+    }
     const currentUsers = await pool.query('SELECT * FROM users WHERE region = $1', [importRegion]);
     await setSetting('last_users_backup', importRegion, JSON.stringify(currentUsers.rows));
 
@@ -527,6 +532,11 @@ router.post('/bulk-import', requireAdmin, async (req, res) => {
 router.post('/rollback-import', requireAdmin, async (req, res) => {
   try {
     const rollbackRegion = regionForNewRow(req);
+    if (!rollbackRegion) {
+      return res.status(400).json({
+        error: 'A rollback belongs to one region. Sign in as that region\'s administrator to run it.',
+      });
+    }
     const backup = await getSetting('last_users_backup', rollbackRegion, null);
     if (!backup) {
       return res.status(400).json({ error: `No user registry backup found for ${rollbackRegion}.` });
@@ -879,9 +889,15 @@ router.post('/:username/assignments', requireSelfOrAdmin('username'), requireSam
 // are a party to.
 router.get('/transfer-requests', async (req, res) => {
   try {
-    const baseQuery = `SELECT tr.*, p.name as plant_name
+    const baseQuery = `SELECT tr.*, p.name AS plant_name, p.energy_category, p.region,
+              f.qca_name AS from_qca_name, f.name AS from_qca_full_name,
+              t.qca_name AS to_qca_name,   t.name AS to_qca_full_name,
+              rq.name AS requested_by_name
        FROM transfer_requests tr
-       JOIN wbes_entities p ON tr.wbes_acronym = p.wbes_acronym`;
+       JOIN wbes_entities p ON tr.wbes_acronym = p.wbes_acronym
+       LEFT JOIN users f  ON LOWER(f.username)  = LOWER(tr.from_username)
+       LEFT JOIN users t  ON LOWER(t.username)  = LOWER(tr.to_username)
+       LEFT JOIN users rq ON LOWER(rq.username) = LOWER(tr.requested_by)`;
 
     // An admin sees the transfers for plants in their own region.
     const adminParams = [];
