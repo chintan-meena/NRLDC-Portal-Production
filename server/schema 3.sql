@@ -2,39 +2,12 @@
 -- Run this file to create all tables (idempotent)
 
 -- Users table (roles: ADMIN or USER only)
--- ─── Regions ────────────────────────────────────────────────────────────────
--- The load despatch centres this deployment serves. A region is created by the
--- national administrator and is the organisational namespace everything else
--- hangs off.
---
--- The acronym is the primary key rather than a surrogate integer. It is a
--- natural key that is already the namespace users are named in
--- (<name>@<acronym>), it already appears as a VARCHAR in five tables, and using
--- it means existing rows need no renumbering — an integer id would have meant
--- rewriting every region column in the database for no gain in meaning.
-CREATE TABLE IF NOT EXISTS regions (
-  acronym VARCHAR(10) PRIMARY KEY,
-  name VARCHAR(200) NOT NULL,
-  status VARCHAR(20) NOT NULL DEFAULT 'Active' CHECK (status IN ('Active', 'Suspended')),
-  created_by VARCHAR(100),
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
--- The five Indian RLDCs, so an existing deployment keeps working unchanged.
--- Further regions are created through the portal, not here.
-INSERT INTO regions (acronym, name) VALUES
-  ('NRLDC',  'Northern Regional Load Despatch Centre'),
-  ('ERLDC',  'Eastern Regional Load Despatch Centre'),
-  ('WRLDC',  'Western Regional Load Despatch Centre'),
-  ('SRLDC',  'Southern Regional Load Despatch Centre'),
-  ('NERLDC', 'North Eastern Regional Load Despatch Centre')
-ON CONFLICT (acronym) DO NOTHING;
-
 CREATE TABLE IF NOT EXISTS wbes_entities (
   wbes_acronym VARCHAR(50) PRIMARY KEY,
   -- The region that despatches this plant. Acronyms are unique nationally, so
   -- this decides which admin administers it, not which name it may hold.
-  region VARCHAR(10) NOT NULL DEFAULT 'NRLDC' REFERENCES regions(acronym) ON UPDATE CASCADE,
+  region VARCHAR(10) NOT NULL DEFAULT 'NRLDC'
+    CHECK (region IN ('NRLDC', 'ERLDC', 'WRLDC', 'SRLDC', 'NERLDC')),
   name VARCHAR(200) NOT NULL,
   -- A plant's energy category is a property of the plant itself, not of
   -- whichever user currently holds the acronym. QCA management is permitted
@@ -51,7 +24,8 @@ CREATE TABLE IF NOT EXISTS users (
   -- Which load despatch centre this account belongs to. An ADMIN administers
   -- exactly this region; a USER or QCA is a station within it. A SUPERADMIN
   -- sees every region, and its own value here is only a home label.
-  region VARCHAR(10) NOT NULL DEFAULT 'NRLDC' REFERENCES regions(acronym) ON UPDATE CASCADE,
+  region VARCHAR(10) NOT NULL DEFAULT 'NRLDC'
+    CHECK (region IN ('NRLDC', 'ERLDC', 'WRLDC', 'SRLDC', 'NERLDC')),
   email VARCHAR(200) NOT NULL,
   email2 VARCHAR(200),
   email3 VARCHAR(200),
@@ -73,10 +47,6 @@ CREATE TABLE IF NOT EXISTS users (
 -- Discrepancies table
 CREATE TABLE IF NOT EXISTS discrepancies (
   req_no SERIAL PRIMARY KEY,
-  -- Stamped when the record is filed rather than derived from the filer's
-  -- account. A user moving between regions must not drag their filing history
-  -- with them: the record belongs to the region that despatched it.
-  region VARCHAR(10) NOT NULL DEFAULT 'NRLDC',
   request_by VARCHAR(100) NOT NULL REFERENCES users(username) ON UPDATE CASCADE ON DELETE CASCADE,
   request_date DATE NOT NULL DEFAULT CURRENT_DATE,
   correction_for_date DATE NOT NULL,
@@ -256,7 +226,8 @@ CREATE TABLE IF NOT EXISTS revoked_tokens (
 -- recorded in review_note, so the application and the decision stay separable.
 CREATE TABLE IF NOT EXISTS registration_requests (
   id SERIAL PRIMARY KEY,
-  region VARCHAR(10) NOT NULL DEFAULT 'NRLDC' REFERENCES regions(acronym) ON UPDATE CASCADE,
+  region VARCHAR(10) NOT NULL DEFAULT 'NRLDC'
+    CHECK (region IN ('NRLDC', 'ERLDC', 'WRLDC', 'SRLDC', 'NERLDC')),
   username VARCHAR(100) NOT NULL,
   name VARCHAR(200) NOT NULL,
   role VARCHAR(20) NOT NULL CHECK (role IN ('USER', 'QCA')),
@@ -293,81 +264,6 @@ CREATE TABLE IF NOT EXISTS password_reset_requests (
 
 -- ─── Migrations for pre-existing databases ──────────────────────────────────
 
--- ─── Regions become a table ─────────────────────────────────────────────────
--- Regions used to be a CHECK constraint listing five fixed values, so adding
--- one meant a schema change. They are rows now, created through the portal.
---
--- Every step below is additive and safe to re-run. The CHECK constraints are
--- replaced by foreign keys, which say the same thing but against live data.
-
-CREATE TABLE IF NOT EXISTS regions (
-  acronym VARCHAR(10) PRIMARY KEY,
-  name VARCHAR(200) NOT NULL,
-  status VARCHAR(20) NOT NULL DEFAULT 'Active' CHECK (status IN ('Active', 'Suspended')),
-  created_by VARCHAR(100),
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-INSERT INTO regions (acronym, name) VALUES
-  ('NRLDC',  'Northern Regional Load Despatch Centre'),
-  ('ERLDC',  'Eastern Regional Load Despatch Centre'),
-  ('WRLDC',  'Western Regional Load Despatch Centre'),
-  ('SRLDC',  'Southern Regional Load Despatch Centre'),
-  ('NERLDC', 'North Eastern Regional Load Despatch Centre')
-ON CONFLICT (acronym) DO NOTHING;
-
--- Any region already referenced by data but missing from the table is adopted
--- rather than rejected, so a deployment that added one by hand still migrates.
-INSERT INTO regions (acronym, name)
-SELECT DISTINCT region, region || ' Regional Load Despatch Centre'
-  FROM users WHERE region IS NOT NULL
-ON CONFLICT (acronym) DO NOTHING;
-
--- Discrepancies gain their own region, backfilled from whoever filed them.
-ALTER TABLE discrepancies ADD COLUMN IF NOT EXISTS region VARCHAR(10);
-UPDATE discrepancies d
-   SET region = u.region
-  FROM users u
- WHERE d.request_by = u.username AND d.region IS DISTINCT FROM u.region;
-UPDATE discrepancies SET region = 'NRLDC' WHERE region IS NULL;
-ALTER TABLE discrepancies ALTER COLUMN region SET NOT NULL;
-ALTER TABLE discrepancies ALTER COLUMN region SET DEFAULT 'NRLDC';
-
--- Swap the fixed CHECK constraints for foreign keys.
-DO $$
-DECLARE
-  c text;
-BEGIN
-  FOR c IN
-    SELECT conname FROM pg_constraint
-     WHERE contype = 'c'
-       AND conrelid IN ('users'::regclass, 'wbes_entities'::regclass, 'registration_requests'::regclass)
-       AND pg_get_constraintdef(oid) LIKE '%NERLDC%'
-  LOOP
-    EXECUTE format('ALTER TABLE %s DROP CONSTRAINT %I',
-      (SELECT conrelid::regclass FROM pg_constraint WHERE conname = c LIMIT 1), c);
-  END LOOP;
-
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'users_region_fkey') THEN
-    ALTER TABLE users ADD CONSTRAINT users_region_fkey
-      FOREIGN KEY (region) REFERENCES regions(acronym) ON UPDATE CASCADE;
-  END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'wbes_entities_region_fkey') THEN
-    ALTER TABLE wbes_entities ADD CONSTRAINT wbes_entities_region_fkey
-      FOREIGN KEY (region) REFERENCES regions(acronym) ON UPDATE CASCADE;
-  END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'registration_requests_region_fkey') THEN
-    ALTER TABLE registration_requests ADD CONSTRAINT registration_requests_region_fkey
-      FOREIGN KEY (region) REFERENCES regions(acronym) ON UPDATE CASCADE;
-  END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'discrepancies_region_fkey') THEN
-    ALTER TABLE discrepancies ADD CONSTRAINT discrepancies_region_fkey
-      FOREIGN KEY (region) REFERENCES regions(acronym) ON UPDATE CASCADE;
-  END IF;
-END $$;
-
-CREATE INDEX IF NOT EXISTS idx_disc_region ON discrepancies (region);
-
 -- ─── Regions ────────────────────────────────────────────────────────────────
 -- Everything that existed before regions belongs to NRLDC, which is what the
 -- defaults below say. Nothing here loses data: each step is additive, and the
@@ -378,14 +274,20 @@ ALTER TABLE wbes_entities    ADD COLUMN IF NOT EXISTS region VARCHAR(10) NOT NUL
 ALTER TABLE system_logs      ADD COLUMN IF NOT EXISTS region VARCHAR(10);
 ALTER TABLE registration_requests ADD COLUMN IF NOT EXISTS region VARCHAR(10) NOT NULL DEFAULT 'NRLDC';
 
--- The fixed-list CHECKs that used to live here are gone: regions are rows now,
--- and the foreign keys added above enforce the same thing against live data.
--- Re-adding them would undo that and make a sixth region impossible.
 DO $$
 BEGIN
-  ALTER TABLE users DROP CONSTRAINT IF EXISTS users_region_check;
-  ALTER TABLE wbes_entities DROP CONSTRAINT IF EXISTS wbes_entities_region_check;
-  ALTER TABLE registration_requests DROP CONSTRAINT IF EXISTS registration_requests_region_check;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'users_region_check') THEN
+    ALTER TABLE users ADD CONSTRAINT users_region_check
+      CHECK (region IN ('NRLDC', 'ERLDC', 'WRLDC', 'SRLDC', 'NERLDC'));
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'wbes_entities_region_check') THEN
+    ALTER TABLE wbes_entities ADD CONSTRAINT wbes_entities_region_check
+      CHECK (region IN ('NRLDC', 'ERLDC', 'WRLDC', 'SRLDC', 'NERLDC'));
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'registration_requests_region_check') THEN
+    ALTER TABLE registration_requests ADD CONSTRAINT registration_requests_region_check
+      CHECK (region IN ('NRLDC', 'ERLDC', 'WRLDC', 'SRLDC', 'NERLDC'));
+  END IF;
 END $$;
 
 -- SUPERADMIN did not exist before, so the role constraint has to be replaced

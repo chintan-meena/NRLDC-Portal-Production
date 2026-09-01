@@ -10,7 +10,6 @@ const cors = require('cors');
 const helmet = require('helmet');
 const { apiLimiter, authLimiter } = require('./middleware/rateLimit');
 const { requestContext } = require('./utils/requestContext');
-const { refresh: refreshRegions } = require('./utils/regionRegistry');
 const pool = require('./db');
 const { requireAuth, requireAdmin } = require('./middleware/auth');
 const { checkSchema, reportSchemaProblem } = require('./schemaCheck');
@@ -23,7 +22,6 @@ const outagesRoutes       = require('./routes/outages');
 const cycleDataRoutes     = require('./routes/cycleData');
 const configRoutes        = require('./routes/config');
 const logsRoutes          = require('./routes/logs');
-const regionsRoutes       = require('./routes/regions');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -187,7 +185,6 @@ app.use('/api/outages',       requireAuth, outagesRoutes);
 app.use('/api/cycle-data',    requireAuth, cycleDataRoutes);
 app.use('/api/config',        requireAuth, configRoutes);
 app.use('/api/logs',          requireAuth, requireAdmin, logsRoutes);
-app.use('/api/regions',       requireAuth, regionsRoutes);   // national level only
 
 // ─── Serving the built frontend ─────────────────────────────────────────────
 // In production this process serves the app as well as the API, from one
@@ -235,39 +232,24 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: 'Internal server error.' });
 });
 
-/**
- * Top up any setting that has no row yet.
- *
- * Settings are keyed on (key, region): the SMTP ones live under the reserved
- * GLOBAL region because one mail account serves everybody, and the rest belong
- * to each region separately. This used to insert with ON CONFLICT (key), which
- * stopped matching an index the moment the key widened — and because the error
- * was logged rather than thrown, nothing said so.
- */
+// Ensure default config values are present in DB on start
 async function ensureDefaultConfig() {
-  const globalDefaults = {
-    smtpHost: process.env.SMTP_HOST || 'smtp-relay.brevo.com',
+  const defaults = {
+    maxDays: '5',
+    lockoutAttempts: '3',
+    smtpHost: process.env.SMTP_HOST || 'smtp.gmail.com',
     smtpPort: process.env.SMTP_PORT || '587',
     smtpSecure: process.env.SMTP_SECURE || 'false',
-    smtpUser: process.env.SMTP_USER || '',
-    smtpPass: process.env.SMTP_PASS || '',
-    smtpFrom: process.env.SMTP_FROM || 'NRLDC Schedule Portal <noreply@example.invalid>',
+    smtpUser: process.env.SMTP_USER || 'centralized.testing@gmail.com',
+    smtpPass: process.env.SMTP_PASS || 'your_app_password_here',
+    smtpFrom: process.env.SMTP_FROM || 'NRLDC Schedule Portal <centralized.testing@gmail.com>'
   };
-  const regionalDefaults = { maxDays: '5', lockoutAttempts: '3' };
 
   try {
-    for (const [key, value] of Object.entries(globalDefaults)) {
+    for (const [key, value] of Object.entries(defaults)) {
       await pool.query(
-        `INSERT INTO config (key, region, value) VALUES ($1, 'GLOBAL', $2)
-         ON CONFLICT (key, region) DO NOTHING`, [key, value]
-      );
-    }
-    // Every region gets its own row, including any created after this ran last.
-    for (const [key, value] of Object.entries(regionalDefaults)) {
-      await pool.query(
-        `INSERT INTO config (key, region, value)
-         SELECT $1, r.acronym, $2 FROM regions r
-         ON CONFLICT (key, region) DO NOTHING`, [key, value]
+        'INSERT INTO config (key, value) VALUES ($1, $2) ON CONFLICT (key) DO NOTHING',
+        [key, value]
       );
     }
     console.log('[CONFIG] Default system and SMTP parameters verified in DB.');
@@ -301,9 +283,6 @@ async function start() {
   }
 
   await ensureDefaultConfig();
-  // The region list is consulted on nearly every request. The foreign keys are
-  // what enforce it; this is the cache that validation and menus read.
-  await refreshRegions();
 
   server = app.listen(PORT, () => {
     console.log('');

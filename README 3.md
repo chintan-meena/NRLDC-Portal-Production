@@ -480,32 +480,10 @@ before React renders (`applyStoredThemeEarly` in `src/main.jsx`), or the page
 would paint light and correct itself a moment later — the flash a dark theme
 exists to avoid.
 
-Both themes are defined as CSS custom properties; components read through
-tokens rather than naming colours, so a third theme would be another token block
-and nothing else.
-
-**If you add a colour, take it from a token.** A literal hex looks right in one
-theme and wrong in the other — that is exactly how the first dark pass ended up
-with a white table: `tr.status-pending td` was `#ffffff !important`.
-
-The dark surfaces form a deliberate ladder, each a visible step in perceptual
-lightness above the one below:
-
-| Surface | Token | Role |
-| --- | --- | --- |
-| Page | `--body-bg` | darkest |
-| Table rows | `--row-bg` | recessed content |
-| Cards, panels | `--bg-secondary` | raised |
-| Inputs, table header, hover | `--bg-tertiary`, `--row-hover` | elevated / interactive |
-
-Text tones (`--text-primary`, `--text-secondary`, `--text-muted`) all clear
-WCAG AA on **every** one of those surfaces, including a hovered row, which is
-the lightest thing text lands on.
-
-The dark palette is declared twice — once in a `prefers-color-scheme` media
-query and once under `[data-theme="dark"]` — because a media query cannot be
-merged into a plain selector. They must stay identical, so a test asserts it
-rather than relying on anyone remembering.
+Both themes are defined as CSS custom properties in one place; components read
+through tokens rather than naming colours, so a third theme would be another
+token block and nothing else. If you add a colour, take it from a token — a
+literal hex will look right in one theme and wrong in the other.
 
 ## 🏷️ Category Labels
 
@@ -595,94 +573,85 @@ Verified against two backends behind a round-robin proxy: with a **shared**
 not required**. With mismatched secrets the same run produced 258 rejected
 sessions, which is the failure this test exists to catch.
 
-## 🗺️ Regions and the Administration Hierarchy
+## 🗺️ Regions
 
-Three levels, and each stops where the next begins.
+One deployment serves several load despatch centres. **Every account is
+confined to its own region — administrators included.** Nobody reads another
+centre's accounts, filings, outages, log or settings.
 
-```
-                    NATIONAL ADMIN            role SUPERADMIN
-                          |
-             +------------+------------+
-             |            |            |
-           NRLDC        ERLDC        SRLDC      regions table
-             |            |            |
-           Admin        Admin        Admin      role ADMIN, one region each
-             |            |            |
-           Users        Users        Users      role USER / QCA
-```
+| Role | Sees | Can create |
+| --- | --- | --- |
+| `USER` / `QCA` | Their own filings, within their region | — |
+| `ADMIN` | Everything in **their own** region | Users, QCAs and further admins — in their own region |
+| `SUPERADMIN` | Everything in **their own** region — no more than an admin | The same, **plus** an admin for a *different* region |
 
-| Function | National | RLDC Admin | User |
-| --- | :--: | :--: | :--: |
-| Create / modify a region | ✅ | ❌ | ❌ |
-| Create / modify an RLDC admin | ✅ | ❌ | ❌ |
-| **Create ordinary users** | **❌** | ✅ own region | ❌ |
-| Manage users | ✅ any region | ✅ own region | ❌ |
-| View discrepancies | ✅ all regions | ✅ own region | own filings |
-| Manage data | ✅ any region | ✅ own region | existing rules |
+So `admin@nrldc` administers NRLDC and `admin@erldc` administers ERLDC, and
+neither appears in the other's user registry, log, plant list or discrepancy
+queue.
 
-The national administrator **deliberately cannot create ordinary users**. A
-region's users are its own administrator's responsibility, and giving the
-national account that power would blur the level it sits at. The server refuses
-it, and the *Register User* button is absent from that account's view — the
-interface agreeing with the rule rather than hiding it.
+### What the national administrator is for
 
-### Creating a region
+It is **not** a wider view. A `SUPERADMIN` sees exactly what an admin of the
+same region sees, and asking for another region changes nothing. It has two
+jobs that belong to no single region:
 
-*National Admin* → **Create Region**. The region and its first administrator are
-created **together**, in one transaction: a region with no administrator is one
-nobody can manage, since the national account cannot create its users either.
+1. **Opening a new one.** Creating an admin whose region is not its own is how
+   a despatch centre gets its first administrator. That admin then runs it
+   independently — adding its own stations, QCAs and further admins.
+2. **The settings that are shared.** Three of them, plus SMTP, because there is
+   one mail account and one daily allowance behind them all.
 
-```
-Acronym: SRLDC          →  becomes the namespace
-Name:    Southern Regional Load Despatch Centre
-Admin:   admin@srldc    →  created with it, role ADMIN, region SRLDC
-```
+Ordinary accounts can never be created in another region — only administrators,
+and only by the national administrator. Naming another region for a station is
+refused rather than quietly ignored.
 
-Regions are **rows**, not a fixed list — `./nrldc.sh regions` shows them, and a
-sixth is created through the portal without a schema change.
+### What is per region, and what is not
 
-### The namespace is enforced, not suggested
+Almost everything is regional: accounts, plants, discrepancies, outages, cycle
+data, registrations, password resets, the system log, and the filing rules
+(filing window, re-raise limits, lockout threshold, outage categories, Cycle
+Data on/off, whether OTP is required).
 
-A region's acronym names its users: `<name>@<acronym>`. This is applied on the
-server, so there is no input that produces an account named for a region it does
-not belong to:
+Four things cannot be, because there is only one of the underlying thing:
 
-| NRLDC admin types | Account created |
-| --- | --- |
-| `user1` | `user1@nrldc` |
-| `user1@erldc` | `user1@nrldc` |
-| `USER1@NRLDC` | `user1@nrldc` |
+* `otpTrustDays` · `resetOtpMinutes` · `mailDailyCap`
+* the SMTP server settings
 
-**Authorisation never reads the name.** It reads `role` and `region`, both
-columns on the account, re-read from the database on every request. Renaming an
-account grants nothing.
+Those live under a reserved `GLOBAL` region. Every admin sees them; only the
+national administrator can change them.
 
-### Isolation is enforced in the queries
+> The mail allowance is **shared**. Every region's login codes come out of the
+> same 300 a day, so adding a region does not add headroom — see
+> [Email Budget](#-email-budget).
 
-Not by hiding controls. Every admin listing goes through `scopeToRegion()`, every
-single-record route through `canActOnRegion()`, and the single-account routes
-through `requireSameRegion()` middleware. A hand-crafted request gets the same
-refusal as a click.
+One thing deliberately crosses the boundary in the other direction: log entries
+that belong to *no* region — a failed login for a username that does not exist,
+an SMTP failure — are shown to every admin. Hiding them would leave them
+visible to nobody.
 
-Records carry their own `region`, stamped when filed rather than derived from
-the filer — a user moving between regions does not drag their filing history
-with them. The `regions` table is referenced by foreign keys from `users`,
-`wbes_entities`, `registration_requests` and `discrepancies`, so an unknown
-region is impossible at the database level whatever the application does.
-
-Log entries belonging to no region — a failed login for a username that does not
-exist — are shown to every admin, since hiding them would leave them visible to
-nobody.
-
-### Bootstrapping
+### Adding a region
 
 ```bash
-./nrldc.sh promote <username>   # appoint the national administrator
-./nrldc.sh regions              # what each region holds
+./nrldc.sh regions           # accounts, plants and admins per region
+./nrldc.sh promote <user>    # make an account the national administrator
 ```
 
-`promote` exists because creating administrators is reserved to the national
-account, and the first one has nowhere to come from.
+`promote` is the bootstrap: creating an admin for another region is reserved to
+a national administrator, and the first one has nowhere to come from.
+
+Then sign in as that account, open *User Registry → Add User*, choose role
+**ADMIN**, and pick the region. That account becomes the new centre's first
+administrator and takes it from there.
+
+Everything that existed before regions is NRLDC. Adding one needs no migration —
+the settings for all five are seeded already, and an unused region simply has
+nothing in it.
+
+### The registration form asks which centre
+
+Self-registration has a **Load despatch centre** field, and it decides which
+admin reviews the request. A registration for ERLDC never appears in the NRLDC
+queue, and an NRLDC admin who somehow reaches it is refused.
 
 ## 📧 Email Budget
 

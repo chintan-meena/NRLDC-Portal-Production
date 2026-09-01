@@ -290,6 +290,19 @@ export const revokeTrustedDevices = async (username) => {
   return result;
 };
 
+// ─── Regions (national level) ────────────────────────────────────────────────
+
+export const getRegions = async () => apiFetch('/regions');
+
+export const createRegion = async (payload) =>
+  apiFetch('/regions', { method: 'POST', body: payload });
+
+export const updateRegion = async (acronym, changes) =>
+  apiFetch(`/regions/${encodeURIComponent(acronym)}`, { method: 'PATCH', body: changes });
+
+export const getRegionUsers = async (acronym) =>
+  apiFetch(`/regions/${encodeURIComponent(acronym)}/users`);
+
 export const getMailUsage = async () => {
   return apiFetch('/config/mail-usage');
 };

@@ -30,4 +30,42 @@ function defaultUsernameFor(acronym) {
   return slug ? `${slug}${DOMAIN}` : '';
 }
 
-module.exports = { DOMAIN, defaultUsernameFor };
+/**
+ * An acronym that can serve as a namespace: letters and digits, 2–10 of them.
+ * Anything else would produce usernames that are awkward to type or ambiguous.
+ */
+const ACRONYM_RULE = /^[A-Za-z0-9]{2,10}$/;
+
+/**
+ * Put a username inside a region's namespace: <name>@<acronym>, lowercased.
+ *
+ * This is enforced rather than suggested. A region's acronym is its
+ * organisational identity, so an account belonging to it is named for it —
+ * "user1" and "user1@erldc" and "USER1@NRLDC" all become "user1@nrldc" when
+ * created by NRLDC's administrator, and there is no input that produces an
+ * account named for a region it does not belong to.
+ *
+ * Authorisation never reads this. The account's role and region columns decide
+ * what it may do; the name is for people.
+ */
+function usernameForRegion(name, acronym) {
+  const local = String(name || '')
+    .trim()
+    .toLowerCase()
+    .split('@')[0]                      // drop any namespace that was typed
+    .replace(/[^a-z0-9._-]+/g, '.')
+    .replace(/^[.\-_]+|[.\-_]+$/g, '');
+  const ns = String(acronym || '').trim().toLowerCase();
+  if (!local || !ns) return '';
+  return `${local}@${ns}`;
+}
+
+/** Does this username sit inside the region's namespace? */
+function isInRegionNamespace(username, acronym) {
+  if (!username || !acronym) return false;
+  return String(username).trim().toLowerCase().endsWith(`@${String(acronym).trim().toLowerCase()}`);
+}
+
+module.exports = {
+  DOMAIN, defaultUsernameFor, usernameForRegion, isInRegionNamespace, ACRONYM_RULE,
+};

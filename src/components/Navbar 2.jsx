@@ -86,14 +86,6 @@ export default function Navbar({ currentUser, onLogout, activeTab, setActiveTab 
             >
               Overview Dashboard
             </button>
-            {currentUser.role === 'SUPERADMIN' && (
-              <button
-                className={`category-tab ${activeTab === 'national' ? 'active' : ''}`}
-                onClick={() => setActiveTab('national')} title="National Administration — regions and their administrators"
-              >
-                National Admin
-              </button>
-            )}
             <button
               className={`category-tab ${activeTab === 'requests' ? 'active' : ''}`}
               onClick={() => setActiveTab('requests')} title="Discrepancy Requests"

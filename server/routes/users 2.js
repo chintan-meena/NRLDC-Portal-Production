@@ -28,7 +28,6 @@ const {
 const { previousDayString } = require('../utils/dates');
 const { DEFAULT_PASSWORD, validatePassword } = require('../utils/password');
 const { setSetting, getSetting } = require('../utils/settings');
-const { usernameForRegion } = require('../utils/usernames');
 const { sendMail, mailUsage } = require('../utils/mailer');
 const { forgetDevices, listDevices } = require('../auth/devices');
 
@@ -144,23 +143,13 @@ router.post('/', requireAdmin, async (req, res) => {
     return res.status(400).json({ error: 'Role must be ADMIN, USER, or QCA.' });
   }
 
-  // Who may create what, and where. See regionForNewAccount: the national
-  // administrator creates administrators in any region and no ordinary users;
-  // a regional administrator creates ordinary users in its own region and no
-  // administrators.
+  // Who may create what, and where. An admin may create further admins for
+  // their own region; only a national administrator may open another region.
   const placement = regionForNewAccount(req, role, req.body.region);
   if (!placement.ok) {
     return res.status(403).json({ error: placement.error });
   }
   const newRegion = placement.region;
-
-  // The account is named inside its region's namespace, whatever was typed.
-  // An NRLDC administrator sending "user1@erldc" gets "user1@nrldc" — there is
-  // no input that produces an account named for a region it does not belong to.
-  const namespacedUsername = usernameForRegion(username, newRegion);
-  if (!namespacedUsername) {
-    return res.status(400).json({ error: 'That username cannot be used. Use letters, digits, dots or hyphens.' });
-  }
 
   const validCategories = ['ISGS', 'RE', 'States'];
   const category = validCategories.includes(energy_category) ? energy_category : 'ISGS';
@@ -179,7 +168,7 @@ router.post('/', requireAdmin, async (req, res) => {
 
   // Perform uniqueness checks
   const emailsToCheck = [email, email2, email3].filter(Boolean).map(e => e.trim());
-  const uniqueErrors = await checkUniqueness(namespacedUsername, emailsToCheck, mobile, wbes_acronym);
+  const uniqueErrors = await checkUniqueness(username.trim(), emailsToCheck, mobile, wbes_acronym);
   if (uniqueErrors.length > 0) {
     return res.status(400).json({ error: uniqueErrors.join(' ') });
   }
@@ -191,7 +180,7 @@ router.post('/', requireAdmin, async (req, res) => {
        VALUES ($1, $2, $3, $14, $4, $5, $6, $7, $8, $9, FALSE, 0, $10, $11, $12, $13)
        RETURNING id, username, name, role, region, email, email2, email3, mobile, energy_category, locked, bypass_2fa, can_upload_cycle_data, wbes_acronym, qca_name`,
       [
-        namespacedUsername,
+        username.trim(), 
         name.trim(), 
         role, 
         email.trim(), 
@@ -217,7 +206,7 @@ router.post('/', requireAdmin, async (req, res) => {
       [wbes_acronym.trim().toUpperCase(), name.trim(), category, newRegion]
     );
 
-    await logEvent('success', `New user registered: ${namespacedUsername} (${newRegion}, ${category} category, role: ${role}, wbes: ${wbes_acronym}, qca: ${qca_name || 'None'})`, newRegion);
+    await logEvent('success', `New user registered: ${username} (${newRegion}, ${category} category, role: ${role}, wbes: ${wbes_acronym}, qca: ${qca_name || 'None'})`, newRegion);
     res.status(201).json(result.rows[0]);
   } catch (err) {
     if (err.code === '23505') {

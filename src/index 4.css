@@ -56,46 +56,6 @@
   --link-text: #1d4ed8;
   --surface-subtle: #f8fafc;
 
-  /* ── Surfaces that were written as literals ──────────────────────────────
-     Every one of these was a hardcoded colour somewhere below. They are the
-     difference between a theme and a repaint: a rule that names a colour looks
-     right in one theme and wrong in the other. */
-  --navbar-bg: rgba(255, 255, 255, 0.85);
-  --navbar-border: rgba(226, 232, 240, 0.8);
-
-  --input-bg: var(--bg-secondary);
-  --input-border: #cbd5e1;
-  --input-placeholder: #94a3b8;
-  --input-disabled-bg: #f1f5f9;
-
-  --table-head-bg: var(--surface-subtle);
-  --row-bg: #ffffff;
-  --row-hover: #f8fafc;
-  --row-resolved: #ecfdf5;
-  --row-resolved-hover: #d1fae5;
-  --row-returned: #fff7ed;
-  --row-returned-hover: #ffedd5;
-  --row-rejected: #fef2f2;
-  --row-rejected-hover: #fee2e2;
-
-  --on-accent: #ffffff;
-  --btn-secondary-border: #cbd5e1;
-  --btn-danger-bg: #fee2e2;
-  --btn-danger-border: #fecaca;
-  --btn-danger-hover: #fca5a5;
-
-  --scrollbar-thumb: #cbd5e1;
-  --scrollbar-thumb-hover: #94a3b8;
-  --dashed-border: #cbd5e1;
-  --skeleton-sheen: #e8edf4;
-  --login-wash-a: #f0fdf4;
-  --login-wash-b: #ecfeff;
-  --log-warn-text: #b45309;
-  --log-error-text: #b91c1c;
-
-  --tab-bg: rgba(15, 23, 42, 0.03);
-  --tab-hover-bg: rgba(15, 23, 42, 0.07);
-  --accent-amber: #f59e0b;
   color-scheme: light;
 }
 
@@ -109,19 +69,19 @@
    an explicit light choice win on a dark OS. */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg-primary: #0f1620;
-    --bg-secondary: #1a2330;
-    --bg-tertiary: #212c3a;
-    --bg-glass: rgba(26, 35, 48, 0.88);
-    --border-color: rgba(51, 65, 83, 0.9);
-    --border-focus: #7ab3fb;
+    --bg-primary: #0f141b;
+    --bg-secondary: #161d26;
+    --bg-tertiary: #1c242f;
+    --bg-glass: rgba(22, 29, 38, 0.85);
+    --border-color: #2a3441;
+    --border-focus: #60a5fa;
 
-    --text-primary: #e8edf4;
-    --text-secondary: #b0bcca;
-    --text-muted: #8d9bac;
+    --text-primary: #e6ebf2;
+    --text-secondary: #a8b3c1;
+    --text-muted: #7d8896;
 
-    --accent-blue: #7ab3fb;
-    --accent-blue-hover: #a5cbfd;
+    --accent-blue: #60a5fa;
+    --accent-blue-hover: #93c5fd;
     --accent-teal: #2dd4bf;
     --accent-teal-hover: #5eead4;
 
@@ -144,7 +104,7 @@
     --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.5), 0 4px 6px -2px rgba(0, 0, 0, 0.35);
     --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.55), 0 10px 10px -5px rgba(0, 0, 0, 0.4);
 
-    --body-bg: #0a0e14;
+    --body-bg: #0b0f14;
     --body-wash-1: rgba(37, 99, 235, 0.14);
     --body-wash-2: rgba(13, 148, 136, 0.12);
 
@@ -154,67 +114,27 @@
     --danger-strong: #fca5a5;
     --success-text: #2dd4bf;
     --link-text: #93c5fd;
-    --surface-subtle: #212c3a;
+    --surface-subtle: #1c242f;
 
-    /* Surface hierarchy, darkest to lightest: page → card → input/row.
-       Rows sit above the card so the table reads as a distinct plane. */
-    --navbar-bg: rgba(26, 35, 48, 0.92);
-    --navbar-border: rgba(58, 73, 94, 0.9);
-
-    --input-bg: #212c3a;
-    --input-border: rgba(65, 80, 100, 0.95);
-    --input-placeholder: #94a2b4;
-    --input-disabled-bg: #161e28;
-
-    --table-head-bg: #212c3a;
-    --row-bg: #141b25;
-    --row-hover: #26323f;
-    /* Status tints: dark grounds carrying the same hue as the light theme,
-       kept close to the row colour so the text on them stays legible. */
-    --row-resolved: #132420;
-    --row-resolved-hover: #1b322b;
-    --row-returned: #241f15;
-    --row-returned-hover: #332c1c;
-    --row-rejected: #251719;
-    --row-rejected-hover: #331f22;
-
-    --on-accent: #08111c;
-    --btn-secondary-border: rgba(65, 80, 100, 0.95);
-    --btn-danger-bg: #2c1a19;
-    --btn-danger-border: #4d2523;
-    --btn-danger-hover: #5c2c2a;
-
-    --scrollbar-thumb: #3a4759;
-    --scrollbar-thumb-hover: #4d5d73;
-    --dashed-border: #415064;
-    --skeleton-sheen: #2a3646;
-    --login-wash-a: #0d1a17;
-    --login-wash-b: #0c1720;
-    --log-warn-text: #fbbf24;
-    --log-error-text: #fca5a5;
-
-    --tab-bg: rgba(255, 255, 255, 0.05);
-    --tab-hover-bg: rgba(255, 255, 255, 0.10);
-    --accent-amber: #f0b429;
     color-scheme: dark;
   }
 }
 
 /* An explicit dark choice wins over a light OS, so the toggle works both ways. */
 :root[data-theme="dark"] {
-  --bg-primary: #0f1620;
-  --bg-secondary: #1a2330;
-  --bg-tertiary: #212c3a;
-  --bg-glass: rgba(26, 35, 48, 0.88);
-  --border-color: rgba(51, 65, 83, 0.9);
-  --border-focus: #7ab3fb;
+  --bg-primary: #0f141b;
+  --bg-secondary: #161d26;
+  --bg-tertiary: #1c242f;
+  --bg-glass: rgba(22, 29, 38, 0.85);
+  --border-color: #2a3441;
+  --border-focus: #60a5fa;
 
-  --text-primary: #e8edf4;
-  --text-secondary: #b0bcca;
-  --text-muted: #8d9bac;
+  --text-primary: #e6ebf2;
+  --text-secondary: #a8b3c1;
+  --text-muted: #7d8896;
 
-  --accent-blue: #7ab3fb;
-  --accent-blue-hover: #a5cbfd;
+  --accent-blue: #60a5fa;
+  --accent-blue-hover: #93c5fd;
   --accent-teal: #2dd4bf;
   --accent-teal-hover: #5eead4;
 
@@ -235,7 +155,7 @@
   --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.5), 0 4px 6px -2px rgba(0, 0, 0, 0.35);
   --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.55), 0 10px 10px -5px rgba(0, 0, 0, 0.4);
 
-  --body-bg: #0a0e14;
+  --body-bg: #0b0f14;
   --body-wash-1: rgba(37, 99, 235, 0.14);
   --body-wash-2: rgba(13, 148, 136, 0.12);
 
@@ -245,48 +165,8 @@
   --danger-strong: #fca5a5;
   --success-text: #2dd4bf;
   --link-text: #93c5fd;
-  --surface-subtle: #212c3a;
+  --surface-subtle: #1c242f;
 
-  /* Surface hierarchy, darkest to lightest: page → card → input/row.
-     Rows sit above the card so the table reads as a distinct plane. */
-  --navbar-bg: rgba(26, 35, 48, 0.92);
-  --navbar-border: rgba(58, 73, 94, 0.9);
-
-  --input-bg: #212c3a;
-  --input-border: rgba(65, 80, 100, 0.95);
-  --input-placeholder: #94a2b4;
-  --input-disabled-bg: #161e28;
-
-  --table-head-bg: #212c3a;
-  --row-bg: #141b25;
-  --row-hover: #26323f;
-  /* Status tints: dark grounds carrying the same hue as the light theme,
-     kept close to the row colour so the text on them stays legible. */
-  --row-resolved: #132420;
-  --row-resolved-hover: #1b322b;
-  --row-returned: #241f15;
-  --row-returned-hover: #332c1c;
-  --row-rejected: #251719;
-  --row-rejected-hover: #331f22;
-
-  --on-accent: #08111c;
-  --btn-secondary-border: rgba(65, 80, 100, 0.95);
-  --btn-danger-bg: #2c1a19;
-  --btn-danger-border: #4d2523;
-  --btn-danger-hover: #5c2c2a;
-
-  --scrollbar-thumb: #3a4759;
-  --scrollbar-thumb-hover: #4d5d73;
-  --dashed-border: #415064;
-  --skeleton-sheen: #2a3646;
-  --login-wash-a: #0d1a17;
-  --login-wash-b: #0c1720;
-  --log-warn-text: #fbbf24;
-  --log-error-text: #fca5a5;
-
-  --tab-bg: rgba(255, 255, 255, 0.05);
-  --tab-hover-bg: rgba(255, 255, 255, 0.10);
-  --accent-amber: #f0b429;
   color-scheme: dark;
 }
 
@@ -317,11 +197,11 @@ body {
   background: var(--bg-primary);
 }
 ::-webkit-scrollbar-thumb {
-  background: var(--scrollbar-thumb);
+  background: #cbd5e1;
   border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--scrollbar-thumb-hover);
+  background: #94a3b8;
 }
 
 /* Base Styles */
@@ -377,10 +257,10 @@ button {
 
 /* Navigation */
 .navbar {
-  background: var(--navbar-bg);
+  background: rgba(255, 255, 255, 0.85);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
-  border: 1px solid var(--navbar-border);
+  border: 1px solid rgba(226, 232, 240, 0.8);
   border-radius: 16px;
   padding: 12px 20px;
   position: sticky;
@@ -520,7 +400,7 @@ button {
   height: 32px;
   border-radius: 50%;
   background: linear-gradient(135deg, var(--accent-blue) 0%, var(--link-text) 100%);
-  color: var(--on-accent);
+  color: white;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -581,18 +461,18 @@ button {
   text-overflow: ellipsis;
   color: var(--text-secondary);
   transition: all 0.2s ease;
-  background: var(--tab-bg);
+  background: rgba(15, 23, 42, 0.03);
   border: 1px solid var(--border-color);
 }
 
 .category-tab:hover {
   color: var(--text-primary);
-  background: var(--tab-hover-bg);
-  border-color: var(--border-color);
+  background: rgba(15, 23, 42, 0.07);
+  border-color: #cbd5e1;
 }
 
 .category-tab.active {
-  color: var(--on-accent);
+  color: #ffffff;
   background: var(--accent-blue);
   border-color: var(--accent-blue);
   box-shadow: 0 2px 4px rgba(37, 99, 235, 0.2);
@@ -617,7 +497,7 @@ button {
   border-radius: 6px;
   margin: 0;
   box-shadow: none;
-  border: 1px solid var(--navbar-border);
+  border: 1px solid rgba(226, 232, 240, 0.8);
 }
 
 /* Cards & Statistics */
@@ -638,7 +518,7 @@ button {
 
 .stat-card:hover {
   transform: translateY(-2px);
-  border-color: var(--border-color);
+  border-color: #cbd5e1;
 }
 
 .stat-value {
@@ -720,13 +600,6 @@ button {
   color: var(--text-primary);
   border-bottom: 1px solid var(--border-color);
   vertical-align: middle;
-  background-color: var(--row-bg);
-}
-
-/* Hover was never defined. The status rows below override it with their own
-   tints, so each state keeps its own hover rather than losing it here. */
-.custom-table tbody tr:hover td {
-  background-color: var(--row-hover);
 }
 
 .custom-table tr:last-child td {
@@ -745,31 +618,31 @@ button {
 
 /* Custom Table Row Tints based on discrepancy status */
 .custom-table tr.status-resolved td {
-  background-color: var(--row-resolved) !important;
+  background-color: #ecfdf5 !important; /* Soft light green */
 }
 .custom-table tr.status-resolved:hover td {
   background-color: #dcfce7 !important;
 }
 
 .custom-table tr.status-returned td {
-  background-color: var(--row-returned) !important;
+  background-color: #fff7ed !important; /* Soft light orange/amber */
 }
 .custom-table tr.status-returned:hover td {
-  background-color: var(--row-returned-hover) !important;
+  background-color: #ffedd5 !important;
 }
 
 .custom-table tr.status-pending td {
-  background-color: var(--row-bg) !important;
+  background-color: #ffffff !important; /* White */
 }
 .custom-table tr.status-pending:hover td {
   background-color: var(--surface-subtle) !important;
 }
 
 .custom-table tr.status-rejected td {
-  background-color: var(--row-rejected) !important;
+  background-color: #fef2f2 !important; /* Soft light red */
 }
 .custom-table tr.status-rejected:hover td {
-  background-color: var(--row-rejected-hover) !important;
+  background-color: #fee2e2 !important;
 }
 
 /* Custom Table Row Tints based on energy category (renewable = green, conventional = yellowish) - default if no status */
@@ -949,7 +822,7 @@ button {
 
 .form-control {
   background: var(--bg-secondary);
-  border: 1px solid var(--input-border);
+  border: 1px solid #cbd5e1;
   color: var(--text-primary);
   padding: 10px 14px;
   border-radius: 8px;
@@ -965,11 +838,11 @@ button {
 }
 
 .form-control::placeholder {
-  color: var(--input-placeholder);
+  color: #94a3b8;
 }
 
 .form-control:disabled {
-  background: var(--input-disabled-bg);
+  background: #f1f5f9;
   color: #64748b;
   cursor: not-allowed;
 }
@@ -989,7 +862,7 @@ button {
 
 .btn-primary {
   background: var(--accent-blue);
-  color: var(--on-accent);
+  color: white;
 }
 .btn-primary:hover:not(:disabled) {
   background: var(--accent-blue-hover);
@@ -997,7 +870,7 @@ button {
 
 .btn-teal {
   background: var(--accent-teal);
-  color: var(--on-accent);
+  color: white;
 }
 .btn-teal:hover:not(:disabled) {
   background: var(--accent-teal-hover);
@@ -1006,7 +879,7 @@ button {
 .btn-secondary {
   background: var(--bg-secondary);
   color: var(--text-secondary);
-  border: 1px solid var(--btn-secondary-border);
+  border: 1px solid #cbd5e1;
 }
 .btn-secondary:hover:not(:disabled) {
   background: var(--bg-tertiary);
@@ -1014,12 +887,12 @@ button {
 }
 
 .btn-danger {
-  background: var(--btn-danger-bg);
-  border: 1px solid var(--btn-danger-border);
+  background: #fee2e2;
+  border: 1px solid #fecaca;
   color: var(--danger-strong);
 }
 .btn-danger:hover:not(:disabled) {
-  background: var(--btn-danger-hover);
+  background: #fca5a5;
   color: #991b1b;
 }
 
@@ -1092,7 +965,7 @@ button {
   justify-content: center;
   min-height: 100vh;
   width: 100vw;
-  background-image: linear-gradient(135deg, var(--login-wash-a) 0%, var(--login-wash-b) 100%);
+  background-image: linear-gradient(135deg, #f0fdf4 0%, #ecfeff 100%);
 }
 
 .login-card {
@@ -1121,13 +994,13 @@ button {
 }
 
 .log-item.warn {
-  border-color: var(--accent-amber);
-  color: var(--log-warn-text);
+  border-color: #f59e0b;
+  color: #fde047;
 }
 
 .log-item.error {
   border-color: var(--danger-text);
-  color: var(--log-error-text);
+  color: #fca5a5;
 }
 
 .log-time {
@@ -1159,7 +1032,7 @@ button {
 
 /* File Upload drag area */
 .file-upload-zone {
-  border: 2px dashed var(--dashed-border);
+  border: 2px dashed #cbd5e1;
   background: var(--surface-subtle);
   border-radius: 12px;
   padding: 30px;
@@ -1279,7 +1152,7 @@ button {
 .skeleton-line {
   height: 11px;
   border-radius: 5px;
-  background: linear-gradient(90deg, var(--bg-tertiary), var(--skeleton-sheen), var(--bg-tertiary));
+  background: linear-gradient(90deg, var(--bg-tertiary), #e8edf4, var(--bg-tertiary));
   animation: skeleton-pulse 1.4s ease-in-out infinite;
 }
 
@@ -1334,7 +1207,7 @@ button {
    patched the colours inline. Defined once here instead. */
 .btn-warning {
   background: var(--warn-strong);
-  color: var(--on-accent);
+  color: #fff;
 }
 .btn-warning:hover { background: var(--warn-text); }
 
@@ -1676,49 +1549,6 @@ button {
   justify-content: center;
   width: 32px;
   flex-shrink: 0;
-}
-
-/* A quick read of the whole hierarchy, above the region table. */
-/* Why a control is absent, rather than an unexplained gap. */
-.national-note {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 12px 16px;
-  border-radius: 10px;
-  border: 1px solid var(--border-color);
-  background: var(--bg-tertiary);
-  font-size: 0.82rem;
-  color: var(--text-secondary);
-  line-height: 1.5;
-}
-.national-note > svg { flex-shrink: 0; margin-top: 2px; color: var(--accent-blue); }
-
-.national-totals {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px 32px;
-  padding: 14px 18px;
-  border-radius: 12px;
-  border: 1px solid var(--border-color);
-  background: var(--bg-tertiary);
-}
-.national-totals > div {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.national-totals strong {
-  font-size: 1.25rem;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  line-height: 1;
-}
-.national-totals span {
-  font-size: 0.74rem;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
 }
 
 .region-badge {

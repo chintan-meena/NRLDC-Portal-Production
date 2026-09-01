@@ -12,7 +12,7 @@ import { useFeedback } from '../hooks/useFeedback';
 import { useModalDismiss } from '../hooks/useModalDismiss';
 import {
   Users, UserPlus, FileUp, Download, Lock, Unlock, Search,
-  CheckCircle2, Edit, X, Check, Key, Undo2, KeyRound, ShieldCheck
+  CheckCircle2, Edit, X, Check, Key, Undo2, KeyRound
 } from 'lucide-react';
 import { formatDateDMYHM } from '../utils/format';
 
@@ -886,17 +886,15 @@ HARYANA_UTILITY,usr_HARYANA,scheduling@haryana.gov.in,States,HARYANA`);
         </div>
 
         <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-          {!isNational(currentUser) && (
-            <button className="btn btn-secondary" onClick={() => { setShowAddForm(!showAddForm); setShowImport(false); }}>
-              <UserPlus size={16} />
-              {showAddForm ? 'Close Add Form' : 'Register User'}
-            </button>
-          )}
+          <button className="btn btn-secondary" onClick={() => { setShowAddForm(!showAddForm); setShowImport(false); }}>
+            <UserPlus size={16} />
+            {showAddForm ? 'Close Add Form' : 'Register User'}
+          </button>
           <button className="btn btn-secondary" onClick={() => { setShowImport(!showImport); setShowAddForm(false); }}>
             <FileUp size={16} />
             {showImport ? 'Close Importer' : 'Bulk CSV Upload'}
           </button>
-          <button className="btn btn-warning" onClick={handleRollback} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'var(--warn-strong)', color: 'var(--on-accent)' }}>
+          <button className="btn btn-warning" onClick={handleRollback} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'var(--warn-strong)', color: '#fff' }}>
             <Undo2 size={16} />
             Revert Last CSV Import
           </button>
@@ -906,17 +904,6 @@ HARYANA_UTILITY,usr_HARYANA,scheduling@haryana.gov.in,States,HARYANA`);
           </button>
         </div>
       </div>
-
-      {isNational(currentUser) && (
-        <div className="national-note">
-          <ShieldCheck size={15} />
-          <span>
-            You are the national administrator. Regions and their administrators are managed on
-            the <strong>National Admin</strong> page; a region’s users are created by that
-            region’s own administrator. You can view and manage every account here.
-          </span>
-        </div>
-      )}
 
       {/* Register Individual Form */}
       {showAddForm && (

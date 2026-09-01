@@ -36,8 +36,6 @@ const { upload, handleUploadErrors } = createUploader(uploadsDir);
  * it was raised against for the relevant date.
  */
 async function canAccessDiscrepancy(req, disc) {
-  // A record from another region is not theirs whatever else matches.
-  if (disc.region && req.auth.region && disc.region !== req.auth.region) return false;
   const me = req.auth.username.toLowerCase();
   if (disc.request_by.toLowerCase() === me) return true;
 
@@ -80,15 +78,9 @@ router.get('/', async (req, res) => {
     const params = [];
     const conditions = [];
 
-    // An admin's view stops at their own region; the national administrator
-    // has none, and may narrow to one with ?region=. A station's view is
-    // already narrower than that — its own rows — so this is the admin's
-    // boundary.
-    //
-    // The filter is on the record's own region rather than the filer's current
-    // one: a user moving between regions must not drag their filing history
-    // across with them.
-    if (isAdmin(req)) scopeToRegion(req, 'd.region', conditions, params);
+    // An admin's view stops at their own region. A station's view is already
+    // narrower than that — its own rows — so this is the admin's boundary.
+    if (isAdmin(req)) scopeToRegion(req, 'u.region', conditions, params);
 
     // Role-based visibility
     if (username) {
@@ -190,7 +182,7 @@ router.get('/', async (req, res) => {
     const countResult = await pool.query(`SELECT COUNT(*) AS count ${fromClause}${whereClause}`, params);
     const total = parseInt(countResult.rows[0].count);
 
-    let baseQuery = `SELECT d.*, u.name AS request_by_name ${fromClause}${whereClause}`;
+    let baseQuery = `SELECT d.*, u.name AS request_by_name, u.region ${fromClause}${whereClause}`;
     baseQuery += ` ORDER BY 
       CASE d.status 
         WHEN 'Pending' THEN 1 
@@ -328,13 +320,10 @@ router.post('/', async (req, res) => {
     }
 
     const result = await pool.query(
-      `INSERT INTO discrepancies (request_by, region, request_date, correction_for_date, days_diff, time_blocks, request_content, discrepancy_type, status, energy_category, files, admin_comment, admin_files, rejection_reason, resolved_time, wbes_acronym)
-       VALUES ($1, $10, CURRENT_DATE, $2, $3, $4, $5, $6, 'Pending', $7, $8::jsonb, '', '[]'::jsonb, '', NULL, $9)
+      `INSERT INTO discrepancies (request_by, request_date, correction_for_date, days_diff, time_blocks, request_content, discrepancy_type, status, energy_category, files, admin_comment, admin_files, rejection_reason, resolved_time, wbes_acronym)
+       VALUES ($1, CURRENT_DATE, $2, $3, $4, $5, $6, 'Pending', $7, $8::jsonb, '', '[]'::jsonb, '', NULL, $9)
        RETURNING *`,
-      [username, correctionDate, diff >= 0 ? diff : 0, parsedBlocks.normalised, requestContent, discrepancyType || '', energy_category, JSON.stringify(files || []), targetAcronym,
-       // Stamped from the filer's account at the moment of filing, so the
-       // record keeps the region that despatched it.
-       req.auth.region]
+      [username, correctionDate, diff >= 0 ? diff : 0, parsedBlocks.normalised, requestContent, discrepancyType || '', energy_category, JSON.stringify(files || []), targetAcronym]
     );
 
     await logEvent('success', `Discrepancy raised: Req No ${result.rows[0].req_no} for ${correctionDate} (${energy_category})`);
@@ -355,7 +344,12 @@ router.patch('/:reqNo/process', requireAdmin, async (req, res) => {
   }
 
   try {
-    const discRes = await pool.query('SELECT * FROM discrepancies WHERE req_no = $1', [reqNo]);
+    const discRes = await pool.query(
+      `SELECT d.*, u.region FROM discrepancies d
+         JOIN users u ON d.request_by = u.username
+        WHERE d.req_no = $1`,
+      [reqNo]
+    );
     if (discRes.rows.length === 0) return res.status(404).json({ error: 'Discrepancy not found.' });
 
     const disc = discRes.rows[0];
@@ -409,9 +403,7 @@ router.patch('/:reqNo/reraise', async (req, res) => {
 
     const disc = discRes.rows[0];
 
-    if (isAdmin(req)) {
-      if (!canActOnRegion(req, disc.region)) return res.status(403).json(crossRegionError(req));
-    } else if (!(await canAccessDiscrepancy(req, disc))) {
+    if (!isAdmin(req) && !(await canAccessDiscrepancy(req, disc))) {
       return res.status(403).json({ error: 'You may only re-raise your own discrepancies.' });
     }
 
@@ -465,9 +457,7 @@ router.get('/:reqNo/export-excel', async (req, res) => {
     }
     const disc = discRes.rows[0];
 
-    if (isAdmin(req)) {
-      if (!canActOnRegion(req, disc.region)) return res.status(403).json(crossRegionError(req));
-    } else if (!(await canAccessDiscrepancy(req, disc))) {
+    if (!isAdmin(req) && !(await canAccessDiscrepancy(req, disc))) {
       return res.status(403).json({ error: 'You do not have access to this discrepancy.' });
     }
 
