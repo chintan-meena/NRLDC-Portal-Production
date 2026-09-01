@@ -201,7 +201,7 @@ export default function Navbar({ currentUser, onLogout, activeTab, setActiveTab 
               <span className="username-label">{currentUser.username}</span>
               <span className="user-role-badge">
                 {currentUser.role === 'SUPERADMIN'
-                  ? '⚡ National Admin'
+                  ? `⚡ ${currentUser.region} Admin · National`
                   : currentUser.role === 'ADMIN'
                     ? `⚡ ${currentUser.region} Admin`
                     : `👤 ${currentUser.region} User`}

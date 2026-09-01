@@ -120,27 +120,14 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
   const [smtpTestError, setSmtpTestError] = useState('');
   const [isTestingSmtp, setIsTestingSmtp] = useState(false);
 
-  async function loadData() {
-    setLoadError('');
-    setIsLoading(true);
+  /**
+   * Settings, fetched once. These drive the filing rules shown against each
+   * request (config.maxDays and friends), not the table contents, so refetching
+   * them on every tab switch and every page of results was pure overhead.
+   */
+  async function loadConfig() {
     try {
-      const params = {
-        fromDate: fromDate || undefined,
-        toDate: toDate || undefined,
-        category: categoryFilter !== 'both' ? categoryFilter : undefined,
-        search: searchQuery || undefined,
-        status: statusFilter !== 'ALL' ? statusFilter : undefined,
-        type: typeFilter !== 'ALL' ? typeFilter : undefined,
-        page: currentPage,
-        limit: pageSize
-      };
-
-      const [discsRes, cfg] = await Promise.all([
-        getDiscrepancies(params),
-        getConfig()
-      ]);
-      setDiscrepancies(discsRes.data || []);
-      setTotalRecords(discsRes.total || 0);
+      const cfg = await getConfig();
       setConfig(cfg);
       setMaxDays(cfg.maxDays);
       setLockoutAttempts(cfg.lockoutAttempts);
@@ -156,26 +143,60 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
       setOtpTrustDays(cfg.otpTrustDays ?? 7);
       setResetOtpMinutes(cfg.resetOtpMinutes ?? 20);
       setMailDailyCap(cfg.mailDailyCap ?? 280);
-      // Usage is informational — a failure here must not stop settings loading.
-      getMailUsage().then(setMailUsage).catch(() => setMailUsage(null));
       setSmtpHost(cfg.smtpHost || 'smtp.gmail.com');
       setSmtpPort(cfg.smtpPort || '587');
       setSmtpSecure(cfg.smtpSecure === true || cfg.smtpSecure === 'true');
       setSmtpUser(cfg.smtpUser || '');
       setSmtpPass(cfg.smtpPass || '');
       setSmtpFrom(cfg.smtpFrom || '');
+    } catch (err) {
+      console.error('[AdminDashboard] loadConfig error:', err.message);
+      setLoadError(err.message || 'Could not load system settings.');
+    }
+  }
+
+  /** Which tabs actually display the discrepancy list or its statistics. */
+  const TABS_NEEDING_DISCREPANCIES = ['requests', 'dashboard'];
+
+  /**
+   * Fetch what the current tab shows, and nothing else.
+   *
+   * This used to fetch the discrepancy list, the settings and the mail usage on
+   * every load regardless of tab — so opening Unit Outages made four requests
+   * where one was needed, and the slowest of them (the discrepancy query) was
+   * for a table that tab does not contain.
+   */
+  async function loadData() {
+    setLoadError('');
+    setIsLoading(true);
+    try {
+      if (TABS_NEEDING_DISCREPANCIES.includes(activeTab)) {
+        const discsRes = await getDiscrepancies({
+          fromDate: fromDate || undefined,
+          toDate: toDate || undefined,
+          category: categoryFilter !== 'both' ? categoryFilter : undefined,
+          search: searchQuery || undefined,
+          status: statusFilter !== 'ALL' ? statusFilter : undefined,
+          type: typeFilter !== 'ALL' ? typeFilter : undefined,
+          page: currentPage,
+          limit: pageSize,
+        });
+        setDiscrepancies(discsRes.data || []);
+        setTotalRecords(discsRes.total || 0);
+      }
 
       if (activeTab === 'outages') {
-        const outList = await getOutages(null, fromDate, toDate);
-        setOutagesList(outList);
+        setOutagesList(await getOutages(null, fromDate, toDate));
       }
       if (activeTab === 'cycle_downloads') {
-        const cycleList = await getAdminCycleUploads(fromDate, toDate);
-        setCycleList(cycleList);
+        setCycleList(await getAdminCycleUploads(fromDate, toDate));
       }
       if (activeTab === 'transfers') {
-        const trList = await getTransferRequests();
-        setTransferRequests(trList || []);
+        setTransferRequests((await getTransferRequests()) || []);
+      }
+      if (activeTab === 'settings') {
+        // Only the settings page shows the gauge, so only it pays for the call.
+        getMailUsage().then(setMailUsage).catch(() => setMailUsage(null));
       }
     } catch (err) {
       // Surface the failure rather than leaving an unexplained empty table.
@@ -196,11 +217,25 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
     }
   }, [currentUser]);
 
+  // Settings are fetched once, not on every navigation.
   useEffect(() => {
-    const timer = setTimeout(() => {
-      loadData();
-    }, 400); // 400ms debounce
-    return () => clearTimeout(timer);
+    Promise.resolve().then(() => loadConfig());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Fetch immediately on entry.
+  //
+  // This was wrapped in a 400ms debounce, which is what produced the
+  // "loads, then reloads a moment later" flash: switching tab re-rendered at
+  // once with the previous tab's data and isLoading already false, so the page
+  // painted as though it were ready — then 400ms later the deferred fetch set
+  // isLoading and the table swapped to a skeleton and painted a second time.
+  //
+  // The debounce was there to stop the old search-as-you-type firing a request
+  // per keystroke. Search is now applied by a button, so nothing here changes
+  // faster than a click and there is nothing left to debounce.
+  useEffect(() => {
+    Promise.resolve().then(() => loadData());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, fromDate, toDate, categoryFilter, searchQuery, typeFilter, statusFilter, currentPage, pageSize]);
 
@@ -340,6 +375,7 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
         smtpFrom
       });
       await updateAdminPreference(currentUser.username, landingPref);
+      await loadConfig();   // settings are no longer refetched by loadData
       if (onUserUpdate) {
         const updatedUser = { ...currentUser, preferred_landing: landingPref };
         onUserUpdate(updatedUser);
@@ -545,6 +581,9 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
   useModalDismiss(!!editingOutage, () => setEditingOutage(null));
 
   // Filter Logic is performed on the server side, but status sorting is client-side
+  // Skeletons are for a first load, not a refresh — see the render sites below.
+  const showSkeleton = (list) => isLoading && list.length === 0;
+
   const filteredRequests = [...discrepancies].sort((a, b) => {
     const pA = getStatusPriority(a.status);
     const pB = getStatusPriority(b.status);
@@ -829,7 +868,7 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
                 </tr>
               </thead>
               <tbody>
-                {isLoading ? (
+                {showSkeleton(filteredRequests) ? (
                   <SkeletonRows rows={7} columns={11} />
                 ) : filteredRequests.length === 0 ? (
                   <tr>
@@ -1008,7 +1047,7 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
                 </tr>
               </thead>
               <tbody>
-                {isLoading ? (
+                {showSkeleton(outagesList) ? (
                   <SkeletonRows rows={5} columns={9} />
                 ) : outagesList.filter(o => outageTypeFilter === 'All' || o.outage_type === outageTypeFilter).length === 0 ? (
                   <tr>
@@ -1124,7 +1163,7 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
                 </tr>
               </thead>
               <tbody>
-                {isLoading ? (
+                {showSkeleton(cycleList) ? (
                   <SkeletonRows rows={4} columns={5} />
                 ) : cycleList.length === 0 ? (
                   <tr>
@@ -1468,7 +1507,7 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
                   </tr>
                 </thead>
                 <tbody>
-                  {isLoading ? (
+                  {showSkeleton(transferRequests) ? (
                     <SkeletonRows rows={4} columns={8} />
                   ) : transferRequests.length === 0 ? (
                     <tr>

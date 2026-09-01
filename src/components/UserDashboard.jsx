@@ -114,6 +114,21 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
   // filed under. See src/utils/discrepancyTypes.js.
   const availableReasons = [...DISCREPANCY_TYPES, MISC_TYPE];
 
+  /** Which tabs display the discrepancy list or its statistics. */
+  const TABS_NEEDING_DISCREPANCIES = ['dashboard', 'raise_request'];
+
+  /**
+   * Filing rules, fetched once. They govern what the raise-request form will
+   * accept; they do not change when the user switches tab or turns a page.
+   */
+  async function loadConfig() {
+    try {
+      setConfig(await getConfig());
+    } catch (err) {
+      console.error('[UserDashboard] loadConfig error:', err.message);
+    }
+  }
+
   async function loadData() {
     setLoadError('');
     setIsLoading(true);
@@ -129,13 +144,14 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
         params.type = typeFilter;
       }
 
-      const [discsRes, cfg] = await Promise.all([
-        getDiscrepancies(params),
-        getConfig()
-      ]);
-      setDiscrepancies(discsRes.data || []);
-      setTotalRecords(discsRes.total || 0);
-      setConfig(cfg);
+      // Only the tabs that show the list pay for the query. Opening Unit
+      // Outages used to fetch every discrepancy as well, which is the slowest
+      // call on the page and nothing on that tab displays it.
+      if (TABS_NEEDING_DISCREPANCIES.includes(activeTab)) {
+        const discsRes = await getDiscrepancies(params);
+        setDiscrepancies(discsRes.data || []);
+        setTotalRecords(discsRes.total || 0);
+      }
 
       if (isQcaUser) {
         const assignments = await getUserAssignments(currentUser.username);
@@ -181,11 +197,17 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
     }
   }
 
+  // Fetch immediately on entry. The 300ms debounce here caused the same
+  // "loads, then reloads" flash as the admin dashboard: the tab painted with
+  // the previous tab's data, then swapped to a skeleton a moment later. None of
+  // these dependencies changes faster than a click.
   useEffect(() => {
-    const timer = setTimeout(() => {
-      loadData();
-    }, 300);
-    return () => clearTimeout(timer);
+    Promise.resolve().then(() => loadConfig());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    Promise.resolve().then(() => loadData());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, currentPage, pageSize, fromDateFilter, toDateFilter, typeFilter]);
 
@@ -671,7 +693,7 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
                 </tr>
               </thead>
               <tbody>
-                {isLoading ? (
+                {isLoading && filteredDiscrepancies.length === 0 ? (
                   <SkeletonRows rows={6} columns={10} />
                 ) : filteredDiscrepancies.length === 0 ? (
                   <tr>

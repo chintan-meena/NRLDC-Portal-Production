@@ -21,5 +21,14 @@ export function regionLabel(code) {
   return found ? `${found.name} (${found.code})` : code;
 }
 
-/** True when this account administers every region rather than one. */
+/**
+ * True for the national administrator.
+ *
+ * It does NOT mean "sees every region" — every account, this one included, is
+ * confined to its own. It means the one extra power: creating an administrator
+ * for another region, which is how a new despatch centre is opened.
+ */
 export const isNational = (user) => user?.role === 'SUPERADMIN';
+
+/** True when this account administers a region. */
+export const isAdminRole = (user) => ['ADMIN', 'SUPERADMIN'].includes(user?.role);

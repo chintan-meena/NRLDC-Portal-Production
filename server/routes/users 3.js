@@ -20,10 +20,10 @@ const bcrypt = require('bcryptjs');
 const pool = require('../db');
 const { logEvent } = require('../utils/log');
 const { withTransaction } = require('../db');
-const { requireAdmin, requireSelfOrAdmin, isAdmin, isSuperAdmin } = require('../middleware/auth');
+const { requireAdmin, requireSelfOrAdmin, isAdmin } = require('../middleware/auth');
 const {
-  requireSameRegion, scopeToRegion, regionScope, regionForNewRow,
-  canActOnRegion, crossRegionError, isValidRegion,
+  requireSameRegion, scopeToRegion, regionForNewRow, regionForNewAccount,
+  canActOnRegion, crossRegionError,
 } = require('../middleware/region');
 const { previousDayString } = require('../utils/dates');
 const { DEFAULT_PASSWORD, validatePassword } = require('../utils/password');
@@ -143,17 +143,13 @@ router.post('/', requireAdmin, async (req, res) => {
     return res.status(400).json({ error: 'Role must be ADMIN, USER, or QCA.' });
   }
 
-  // Only a national administrator creates administrators. Otherwise a regional
-  // admin could mint peers, or a super-admin, and the boundary would mean
-  // nothing.
-  if (['ADMIN', 'SUPERADMIN'].includes(role) && !isSuperAdmin(req)) {
-    return res.status(403).json({
-      error: 'Only a national administrator can create administrator accounts.',
-    });
+  // Who may create what, and where. An admin may create further admins for
+  // their own region; only a national administrator may open another region.
+  const placement = regionForNewAccount(req, role, req.body.region);
+  if (!placement.ok) {
+    return res.status(403).json({ error: placement.error });
   }
-
-  // A regional admin creates accounts in their own region and nowhere else.
-  const newRegion = regionForNewRow(req, req.body.region);
+  const newRegion = placement.region;
 
   const validCategories = ['ISGS', 'RE', 'States'];
   const category = validCategories.includes(energy_category) ? energy_category : 'ISGS';
@@ -445,7 +441,7 @@ router.post('/bulk-import', requireAdmin, async (req, res) => {
     // The backup and the rollback that reads it are both scoped, because
     // rollback deletes accounts that are not in the backup: an unscoped one
     // would delete every other region's users.
-    const importRegion = regionForNewRow(req, req.body.region);
+    const importRegion = regionForNewRow(req);
     const currentUsers = await pool.query('SELECT * FROM users WHERE region = $1', [importRegion]);
     await setSetting('last_users_backup', importRegion, JSON.stringify(currentUsers.rows));
 
@@ -519,7 +515,7 @@ router.post('/bulk-import', requireAdmin, async (req, res) => {
 // POST /api/users/rollback-import — Roll back last CSV import
 router.post('/rollback-import', requireAdmin, async (req, res) => {
   try {
-    const rollbackRegion = regionForNewRow(req, req.body?.region);
+    const rollbackRegion = regionForNewRow(req);
     const backup = await getSetting('last_users_backup', rollbackRegion, null);
     if (!backup) {
       return res.status(400).json({ error: `No user registry backup found for ${rollbackRegion}.` });
@@ -740,13 +736,7 @@ router.get('/wbes-entities', async (req, res) => {
 
   // The plant register is per region: a station only ever picks from plants
   // its own despatch centre operates.
-  if (!isSuperAdmin(req)) {
-    params.push(req.auth.region);
-    conditions.push(`w.region = $${params.length}`);
-  } else if (req.query.region && isValidRegion(req.query.region)) {
-    params.push(req.query.region);
-    conditions.push(`w.region = $${params.length}`);
-  }
+  scopeToRegion(req, 'w.region', conditions, params);
 
   const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
