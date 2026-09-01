@@ -76,8 +76,8 @@ CREATE TABLE IF NOT EXISTS discrepancies (
   req_no SERIAL PRIMARY KEY,
   -- Set by the RLDC when rejecting, to mark a filer repeatedly raising the
   -- same thing. Never inferred — see the migration block below.
-  habitual BOOLEAN NOT NULL DEFAULT FALSE,
-  habitual_note TEXT NOT NULL DEFAULT '',
+  flagged BOOLEAN NOT NULL DEFAULT FALSE,
+  flag_note TEXT NOT NULL DEFAULT '',
   -- Stamped when the record is filed rather than derived from the filer's
   -- account. A user moving between regions must not drag their filing history
   -- with them: the record belongs to the region that despatched it.
@@ -298,17 +298,17 @@ CREATE TABLE IF NOT EXISTS password_reset_requests (
 
 -- ─── Migrations for pre-existing databases ──────────────────────────────────
 
--- ─── Habitual filing ────────────────────────────────────────────────────────
+-- ─── Flagged filing ────────────────────────────────────────────────────────
 -- Marked by the RLDC at the moment of rejection, not inferred by the system.
 -- The judgement of whether a filer is repeatedly raising the same thing is the
 -- despatch centre's to make; the portal counts what they marked, and reports
 -- the proportion against a per-region threshold.
-ALTER TABLE discrepancies ADD COLUMN IF NOT EXISTS habitual BOOLEAN NOT NULL DEFAULT FALSE;
-ALTER TABLE discrepancies ADD COLUMN IF NOT EXISTS habitual_note TEXT NOT NULL DEFAULT '';
+ALTER TABLE discrepancies ADD COLUMN IF NOT EXISTS flagged BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE discrepancies ADD COLUMN IF NOT EXISTS flag_note TEXT NOT NULL DEFAULT '';
 
 -- The tracker counts marked rejections per filer over a rolling window.
-CREATE INDEX IF NOT EXISTS idx_disc_habitual
-  ON discrepancies (region, habitual, resolved_time DESC) WHERE habitual;
+CREATE INDEX IF NOT EXISTS idx_disc_flagged
+  ON discrepancies (region, flagged, resolved_time DESC) WHERE flagged;
 
 -- ─── The national role is not a region ──────────────────────────────────────
 -- SUPERADMIN sits above the regions, so it belongs to none of them. Its region
@@ -615,9 +615,9 @@ SELECT d.key, r.region, d.value
     -- for good. 15 means "the 15th of the month after". Absolute: nothing may
     -- be filed for that period afterwards, whatever the day count allows.
     ('postFactoCutoffDay', '15'),
-    -- What share of a filer's discrepancies being marked habitual by the RLDC
+    -- What share of a filer's discrepancies being marked flagged by the RLDC
     -- flags them in the tracker. 40 = 40%.
-    ('habitualThresholdPercent', '40')
+    ('flaggedThresholdPercent', '40')
   ) AS d(key, value)
   CROSS JOIN (VALUES ('NRLDC'), ('ERLDC'), ('WRLDC'), ('SRLDC'), ('NERLDC')) AS r(region)
 ON CONFLICT (key, region) DO NOTHING;

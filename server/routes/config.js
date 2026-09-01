@@ -23,9 +23,9 @@ const WRITABLE_KEYS = new Set([
   'require2FA',
   'feature_cycle_data',
   // Filing-window rules. postFactoCutoffDay is the day of the following month
-  // after which a correction period closes for good; habitualThresholdPercent
-  // is the share of a filer's discrepancies marked habitual that flags them.
-  'postFactoCutoffDay', 'habitualThresholdPercent',
+  // after which a correction period closes for good; flaggedThresholdPercent
+  // is the share of a filer's discrepancies marked flagged that flags them.
+  'postFactoCutoffDay', 'flaggedThresholdPercent',
   // Mail budget controls. otpTrustDays is the lever that matters: it decides
   // how often a user is asked for a code, and so how much mail the portal
   // needs. See auth/devices.js.

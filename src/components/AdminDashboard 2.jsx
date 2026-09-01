@@ -8,11 +8,10 @@ import {
 import {
   BarChart3, FileText, LayoutDashboard, Search,
   CheckCircle2, XCircle, Download, Check, Save, Zap, Undo2,
-  Edit, Trash2, Mail, Repeat
+  Edit, Trash2, Mail
 } from 'lucide-react';
 import UserManagement from './UserManagement';
 import NationalAdmin from './NationalAdmin';
-import FlaggedTracker from './FlaggedTracker';
 import { isNational, regionLabel } from '../utils/regions';
 import ConfirmDialog from './ConfirmDialog';
 import { Banner, EmptyState, SkeletonRows } from './Feedback';
@@ -86,11 +85,8 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
   // The RLDC's judgement that this filer keeps raising the same thing. Set at
   // the moment of rejection, because that is when the reviewer has the
   // evidence in front of them.
-  // The tracker is a report about these filings, so it lives on this page
-  // rather than taking a ninth nav tab.
-  const [showTracker, setShowTracker] = useState(false);
-  const [markFlagged, setMarkFlagged] = useState(false);
-  const [flagNote, setFlaggedNote] = useState('');
+  const [markHabitual, setMarkHabitual] = useState(false);
+  const [habitualNote, setHabitualNote] = useState('');
   const [adminAttachments, setAdminAttachments] = useState([]);
   const [modalMode, setModalMode] = useState('');
 
@@ -259,8 +255,8 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
   };
 
   const handleCloseModal = () => {
-    setMarkFlagged(false);
-    setFlaggedNote('');
+    setMarkHabitual(false);
+    setHabitualNote('');
     setSelectedRequest(null);
     setModalMode('');
     setCorrectiveAction('Approved and Resolved');
@@ -330,7 +326,7 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
     e.preventDefault();
     if (!rejectionReason.trim()) { notify('error', 'Please specify the rejection reason.'); return; }
     try {
-      await processDiscrepancy(selectedRequest.req_no, 'Rejected', '', [], rejectionReason, markFlagged, flagNote);
+      await processDiscrepancy(selectedRequest.req_no, 'Rejected', '', [], rejectionReason, markHabitual, habitualNote);
       await loadData();
       handleCloseModal();
     } catch (err) {
@@ -750,13 +746,6 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
                 Manage energy station discrepancy filings, review details, and resolve/reject/return records.
               </p>
             </div>
-            {/* The flagged report is about these filings, so it opens here
-                rather than taking a ninth tab and breaking the 4 + 4 row. */}
-            <button type="button" className={`btn ${showTracker ? 'btn-primary' : 'btn-secondary'}`}
-              onClick={() => setShowTracker(v => !v)}
-              title="Filers your reviewers marked as flagged when rejecting">
-              <Repeat size={15} /> {showTracker ? 'Hide' : 'Flagged Filing'}
-            </button>
             <div className="category-tabs">
               <button className={`category-tab ${categoryFilter === 'both' ? 'active' : ''}`} onClick={() => setCategoryFilter('both')}>All Categories</button>
               <button className={`category-tab ${categoryFilter === 'ISGS' ? 'active' : ''}`} onClick={() => setCategoryFilter('ISGS')}>{categoryLabel('ISGS')}</button>
@@ -764,8 +753,6 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
               <button className={`category-tab ${categoryFilter === 'States' ? 'active' : ''}`} onClick={() => setCategoryFilter('States')}>States</button>
             </div>
           </div>
-
-          {showTracker && <FlaggedTracker />}
 
           <div className="glass-panel" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '15px' }}>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px', alignItems: 'end' }}>
@@ -1777,23 +1764,23 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
                 {/* Marked here rather than inferred: whether a filer is
                     repeatedly raising the same thing is the RLDC's judgement,
                     and this is the moment they have the evidence to hand. */}
-                <div className={`flag-mark${markFlagged ? ' is-set' : ''}`}>
-                  <label htmlFor="ad-mark-flagged">
-                    <input id="ad-mark-flagged" type="checkbox" checked={markFlagged}
-                      onChange={(e) => setMarkFlagged(e.target.checked)} />
+                <div className={`habitual-mark${markHabitual ? ' is-set' : ''}`}>
+                  <label htmlFor="ad-mark-habitual">
+                    <input id="ad-mark-habitual" type="checkbox" checked={markHabitual}
+                      onChange={(e) => setMarkHabitual(e.target.checked)} />
                     <span>
-                      <strong>Mark as flagged</strong> — this filer keeps raising this
+                      <strong>Mark as habitual</strong> — this filer keeps raising this
                       type of discrepancy
                     </span>
                   </label>
-                  {markFlagged && (
+                  {markHabitual && (
                     <>
-                      <textarea className="form-control" rows="2" value={flagNote}
-                        placeholder="What makes this flagged? e.g. third AVC correction filed this month."
-                        onChange={(e) => setFlaggedNote(e.target.value)}
+                      <textarea className="form-control" rows="2" value={habitualNote}
+                        placeholder="What makes this habitual? e.g. third AVC correction filed this month."
+                        onChange={(e) => setHabitualNote(e.target.value)}
                         style={{ fontSize: '0.8rem', marginTop: '8px' }} />
-                      <p className="flag-mark-note">
-                        Counts toward this filer&rsquo;s share in the Flagged Filing report,
+                      <p className="habitual-mark-note">
+                        Counts toward this filer&rsquo;s share in the Habitual Filing report,
                         which the RLDC uses for its monthly return.
                       </p>
                     </>

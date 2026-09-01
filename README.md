@@ -709,26 +709,26 @@ rolling forward: 31 set against a January correction means 28 February.
 The restricted set is one named list, `RESTRICTED_WINDOW_CATEGORIES` in
 `utils/discrepancyTypes.js`. Widening it later is a one-line change.
 
-## 🔁 Habitual Filing
+## 🔁 Flagged Filing
 
 A filer repeatedly raising the same thing is **marked by the RLDC when
 rejecting**, never inferred. The reviewer has the evidence in front of them at
 that moment, and the judgement is theirs — the portal only counts what they
 marked.
 
-Rejecting a filing offers **Mark as habitual** with a note. It is honoured on a
+Rejecting a filing offers **Mark as flagged** with a note. It is honoured on a
 rejection and nowhere else, so the count cannot be diluted by marks on resolved
 filings.
 
-**Habitual Filing** opens from the *Discrepancy Requests* page — it is a report
+**Flagged Filing** opens from the *Discrepancy Requests* page — it is a report
 about those filings, and putting it there keeps the navigation at the four-plus-four
 row rather than adding a ninth tab. It reports, per filer:
 
 ```
-habitual-marked filings ÷ total filings, over a rolling 30 days
+flag-marked filings ÷ total filings, over a rolling 30 days
 ```
 
-against `habitualThresholdPercent` (40 by default, per region). A row above the
+against `flaggedThresholdPercent` (40 by default, per region). A row above the
 threshold is flagged. The report also carries the categories that were marked
 and the reviewers' notes, and takes an explicit date range for the monthly
 return the RLDC sends on.

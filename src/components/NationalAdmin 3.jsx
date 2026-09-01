@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { getRegions, createRegion, updateRegion, getRegionUsers, toggleUserLock } from '../services/db';
+import { getRegions, createRegion, updateRegion, getRegionUsers } from '../services/db';
 import { DEFAULT_PASSWORD } from '../utils/password';
 import { Banner, EmptyState, SkeletonRows } from './Feedback';
 import { useFeedback } from '../hooks/useFeedback';
 import ConfirmDialog from './ConfirmDialog';
-import { Globe2, Plus, Users, ShieldCheck, X, Pause, Play, Unlock, Lock } from 'lucide-react';
+import { Globe2, Plus, Users, ShieldCheck, X, Pause, Play } from 'lucide-react';
 import { formatDateDMY } from '../utils/format';
 
 /**
@@ -104,32 +104,6 @@ export default function NationalAdmin({ currentUser }) {
     });
   };
 
-  /**
-   * Unlock a region's administrator.
-   *
-   * The one thing only this account can do for a region it does not otherwise
-   * touch: a locked admin cannot unlock themselves, and nobody inside their
-   * region outranks them, so without this the region is stuck.
-   */
-  const handleUnlockAdmin = (username, region) => {
-    askConfirm({
-      title: 'Unlock this administrator',
-      message: `Let "${username}" sign in again?`,
-      details: [
-        ['Account', username],
-        ['Region', region],
-        ['Currently', 'Locked out after too many failed sign-ins'],
-      ],
-      confirmLabel: 'Unlock',
-      tone: 'warn',
-      action: async () => {
-        await toggleUserLock(username);
-        await load();
-        notify('success', `"${username}" can sign in again. Their failed-attempt count is reset.`);
-      },
-    });
-  };
-
   const handleViewUsers = async (region) => {
     if (openRegion === region.acronym) { setOpenRegion(null); return; }
     setOpenRegion(region.acronym);
@@ -152,7 +126,7 @@ export default function NationalAdmin({ currentUser }) {
 
   return (
     <div className="dashboard-layout">
-      {notice && <Banner type={notice.type} message={notice.message} onDismiss={clearNotice} />}
+      <Banner type={notice.type} message={notice.message} onDismiss={clearNotice} />
       <Banner type="error" message={loadError} onRetry={load} />
       <ConfirmDialog {...confirmProps} />
 
@@ -178,30 +152,6 @@ export default function NationalAdmin({ currentUser }) {
           <div><strong>{totals.admins}</strong><span>administrator{totals.admins === 1 ? '' : 's'}</span></div>
           <div><strong>{totals.users}</strong><span>users</span></div>
           <div><strong>{totals.discrepancies.toLocaleString()}</strong><span>discrepancies</span></div>
-        </div>
-      )}
-
-      {regions.some(r => r.locked_admins) && (
-        <div className="locked-admins">
-          <Lock size={16} />
-          <div>
-            <strong>Administrators locked out</strong>
-            <p>
-              A locked region administrator cannot unlock themselves, and nobody inside
-              their region outranks them. Unlocking is yours to do.
-            </p>
-            <div className="locked-admin-list">
-              {regions.filter(r => r.locked_admins).flatMap(r =>
-                r.locked_admins.split(', ').map(u => (
-                  <button key={u} type="button" className="btn btn-secondary"
-                    onClick={() => handleUnlockAdmin(u, r.acronym)}>
-                    <Unlock size={13} /> {u}
-                    <span className="region-badge">{r.acronym}</span>
-                  </button>
-                ))
-              )}
-            </div>
-          </div>
         </div>
       )}
 
@@ -291,13 +241,6 @@ export default function NationalAdmin({ currentUser }) {
                   <td><span className="region-badge">{r.acronym}</span></td>
                   <td className="mono" style={{ fontSize: '0.78rem' }}>
                     {r.administrators || <span style={{ color: 'var(--danger-text)' }}>none — unmanaged</span>}
-                    {r.locked_admins && (
-                      <div style={{ marginTop: '3px' }}>
-                        <span className="status-badge rejected" style={{ fontSize: '0.68rem' }}>
-                          <Lock size={10} /> {r.locked_admins} locked
-                        </span>
-                      </div>
-                    )}
                   </td>
                   <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{r.user_count}</td>
                   <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{r.plant_count}</td>

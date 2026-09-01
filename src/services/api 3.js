@@ -366,23 +366,23 @@ export const createDiscrepancy = async (username, correctionDate, timeBlocks, re
 };
 
 /**
- * Decide a filing. `flagged` is honoured only on a rejection — it records the
+ * Decide a filing. `habitual` is honoured only on a rejection — it records the
  * RLDC's judgement that this filer keeps raising the same thing, and feeds the
- * flagged tracker.
+ * habitual tracker.
  */
-export const processDiscrepancy = async (reqNo, status, comment, adminFiles, rejectionReason, flagged = false, flagNote = '') => {
+export const processDiscrepancy = async (reqNo, status, comment, adminFiles, rejectionReason, habitual = false, habitualNote = '') => {
   return apiFetch(`/discrepancies/${reqNo}/process`, {
     method: 'PATCH',
-    body: { status, comment, adminFiles, rejectionReason, flagged, flagNote },
+    body: { status, comment, adminFiles, rejectionReason, habitual, habitualNote },
   });
 };
 
 /** Filers the RLDC has repeatedly marked, over a rolling window or a month. */
-export const getFlaggedTracker = async ({ days = 30, fromDate, toDate } = {}) => {
+export const getHabitualTracker = async ({ days = 30, fromDate, toDate } = {}) => {
   const q = fromDate && toDate
     ? `fromDate=${encodeURIComponent(fromDate)}&toDate=${encodeURIComponent(toDate)}`
     : `days=${days}`;
-  return apiFetch(`/discrepancies/flagged-tracker?${q}`);
+  return apiFetch(`/discrepancies/habitual-tracker?${q}`);
 };
 
 export const reRaiseDiscrepancy = async (reqNo, username, requestContent, discrepancyType, files) => {

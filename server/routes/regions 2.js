@@ -40,12 +40,7 @@ router.get('/', async (req, res) => {
              (SELECT count(*)::int FROM wbes_entities w WHERE w.region = r.acronym) AS plant_count,
              (SELECT count(*)::int FROM discrepancies d WHERE d.region = r.acronym) AS discrepancy_count,
              (SELECT string_agg(u.username, ', ' ORDER BY u.username) FROM users u
-               WHERE u.region = r.acronym AND u.role = 'ADMIN')                 AS administrators,
-             -- A locked region administrator cannot unlock themselves, and no
-             -- one else in their region outranks them. Surfacing it here is
-             -- what makes the national account's second job doable.
-             (SELECT string_agg(u.username, ', ' ORDER BY u.username) FROM users u
-               WHERE u.region = r.acronym AND u.role = 'ADMIN' AND u.locked)    AS locked_admins
+               WHERE u.region = r.acronym AND u.role = 'ADMIN')                 AS administrators
         FROM regions r
        ORDER BY r.acronym
     `);

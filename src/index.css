@@ -1724,7 +1724,7 @@ button {
 .custom-table tr.is-flagged td { background-color: var(--row-rejected) !important; }
 .custom-table tr.is-flagged:hover td { background-color: var(--row-rejected-hover) !important; }
 
-.habitual-mark {
+.flag-mark {
   margin-bottom: 15px;
   padding: 12px 14px;
   border-radius: 8px;
@@ -1732,11 +1732,11 @@ button {
   background: var(--bg-tertiary);
   transition: border-color 0.15s ease, background 0.15s ease;
 }
-.habitual-mark.is-set {
+.flag-mark.is-set {
   border-color: var(--status-pending-border);
   background: var(--status-pending-bg);
 }
-.habitual-mark label {
+.flag-mark label {
   display: flex;
   align-items: flex-start;
   gap: 10px;
@@ -1747,8 +1747,8 @@ button {
   line-height: 1.5;
   color: var(--text-primary);
 }
-.habitual-mark input { width: 16px; height: 16px; margin-top: 1px; flex-shrink: 0; cursor: pointer; }
-.habitual-mark-note {
+.flag-mark input { width: 16px; height: 16px; margin-top: 1px; flex-shrink: 0; cursor: pointer; }
+.flag-mark-note {
   margin: 8px 0 0;
   font-size: 0.75rem;
   color: var(--text-muted);
@@ -1813,6 +1813,28 @@ button {
   line-height: 1.5;
 }
 .national-note > svg { flex-shrink: 0; margin-top: 2px; color: var(--accent-blue); }
+
+/* The national account's other job, made visible without hunting for it. */
+.locked-admins {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 10px;
+  border: 1px solid var(--status-rejected-border);
+  background: var(--status-rejected-bg);
+}
+.locked-admins > svg { flex-shrink: 0; margin-top: 2px; color: var(--status-rejected-text); }
+.locked-admins strong { font-size: 0.88rem; color: var(--status-rejected-text); }
+.locked-admins p {
+  margin: 3px 0 10px;
+  font-size: 0.79rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  max-width: 68ch;
+}
+.locked-admin-list { display: flex; flex-wrap: wrap; gap: 8px; }
+.locked-admin-list .btn { font-size: 0.78rem; padding: 5px 10px; gap: 7px; }
 
 .national-totals {
   display: flex;

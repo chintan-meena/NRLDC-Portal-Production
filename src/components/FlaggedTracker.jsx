@@ -1,13 +1,13 @@
 import { useState, useEffect, useCallback } from 'react';
-import { getHabitualTracker } from '../services/db';
+import { getFlaggedTracker } from '../services/db';
 import { Banner, EmptyState, SkeletonRows } from './Feedback';
 import { Repeat, Download, AlertTriangle } from 'lucide-react';
 import { formatDateDMY, todayISO, daysAgoISO } from '../utils/format';
 
 /**
- * HabitualTracker — who keeps raising the same thing.
+ * FlaggedTracker — who keeps raising the same thing.
  *
- * The proportion is (filings this RLDC marked habitual when rejecting) over
+ * The proportion is (filings this RLDC marked flagged when rejecting) over
  * (that filer's total filings) in the window. Nothing is inferred: the
  * numerator counts only what a reviewer actually marked, so the report says
  * what the despatch centre decided rather than what the portal guessed.
@@ -15,7 +15,7 @@ import { formatDateDMY, todayISO, daysAgoISO } from '../utils/format';
  * Region-scoped by the server like every other admin listing — an RLDC sees
  * only its own filers.
  */
-export default function HabitualTracker() {
+export default function FlaggedTracker() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -30,11 +30,11 @@ export default function HabitualTracker() {
     setError('');
     setLoading(true);
     try {
-      setData(await getHabitualTracker(
+      setData(await getFlaggedTracker(
         mode === 'rolling' ? { days } : { fromDate, toDate }
       ));
     } catch (e) {
-      setError(e.message || 'Could not build the habitual filing report.');
+      setError(e.message || 'Could not build the flagged filing report.');
     } finally {
       setLoading(false);
     }
@@ -48,20 +48,20 @@ export default function HabitualTracker() {
   /** The report as CSV, for the monthly return that goes out by email. */
   const exportCsv = () => {
     const head = ['Filer', 'Name', 'WBES Acronym', 'Category', 'Region',
-      'Total filings', 'Rejected', 'Marked habitual', 'Habitual %', 'Above threshold',
+      'Total filings', 'Rejected', 'Marked flagged', 'Flagged %', 'Above threshold',
       'Marked categories', 'Reviewer notes', 'Last filed'];
     const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
     const csv = [
       head.map(esc).join(','),
       ...rows.map(r => [r.username, r.filer_name, r.wbes_acronym, r.energy_category, r.region,
-        r.total_filings, r.rejected_count, r.habitual_count, r.habitual_percent,
-        r.flagged ? 'YES' : 'no', r.habitual_types, r.habitual_notes,
+        r.total_filings, r.rejected_count, r.flagged_count, r.flagged_percent,
+        r.flagged ? 'YES' : 'no', r.flagged_types, r.flag_notes,
         formatDateDMY(r.last_filed)].map(esc).join(',')),
     ].join('\n');
     const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }));
     const a = document.createElement('a');
     a.href = url;
-    a.download = `habitual-filing-${data?.from || `last-${days}-days`}.csv`;
+    a.download = `flagged-filing-${data?.from || `last-${days}-days`}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -72,13 +72,13 @@ export default function HabitualTracker() {
         <div>
           <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '1rem' }}>
             <Repeat size={17} />
-            <span>Habitual Filing</span>
+            <span>Flagged Filing</span>
             {flagged.length > 0 && (
               <span className="queue-count">{flagged.length} above threshold</span>
             )}
           </h3>
           <p style={{ color: 'var(--text-secondary)', fontSize: '0.78rem', marginTop: '4px', maxWidth: '72ch' }}>
-            Filers your reviewers marked as habitual when rejecting, as a share of everything
+            Filers your reviewers marked as flagged when rejecting, as a share of everything
             they filed. Only marked rejections count — a rejection nobody marked does not
             appear here.
           </p>
@@ -150,7 +150,7 @@ export default function HabitualTracker() {
               <tr><td colSpan="8">
                 <EmptyState
                   title="Nobody marked in this period"
-                  hint="A filer appears here once a reviewer ticks “Mark as habitual” while rejecting one of their filings."
+                  hint="A filer appears here once a reviewer ticks “Mark as flagged” while rejecting one of their filings."
                   icon={Repeat}
                 />
               </td></tr>
@@ -170,16 +170,16 @@ export default function HabitualTracker() {
                 </td>
                 <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{r.total_filings}</td>
                 <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{r.rejected_count}</td>
-                <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{r.habitual_count}</td>
+                <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{r.flagged_count}</td>
                 <td style={{ textAlign: 'right' }}>
                   <span className={`share-badge${r.flagged ? ' is-over' : ''}`}>
                     {r.flagged && <AlertTriangle size={12} />}
-                    {r.habitual_percent}%
+                    {r.flagged_percent}%
                   </span>
                 </td>
-                <td style={{ fontSize: '0.76rem', maxWidth: '230px' }}>{r.habitual_types || '—'}</td>
+                <td style={{ fontSize: '0.76rem', maxWidth: '230px' }}>{r.flagged_types || '—'}</td>
                 <td style={{ fontSize: '0.76rem', maxWidth: '260px', color: 'var(--text-secondary)' }}>
-                  {r.habitual_notes || '—'}
+                  {r.flag_notes || '—'}
                 </td>
               </tr>
             ))}

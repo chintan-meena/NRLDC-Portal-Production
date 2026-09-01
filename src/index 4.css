@@ -1682,6 +1682,38 @@ button {
 /* Why a control is absent, rather than an unexplained gap. */
 /* The specifics of what is being confirmed, above the confirmation. */
 /* A rule the filing will be judged against, shown where the choice is made. */
+/* A judgement the reviewer makes, distinct from the rejection reason. */
+.habitual-mark {
+  margin-bottom: 15px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-tertiary);
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.habitual-mark.is-set {
+  border-color: var(--status-pending-border);
+  background: var(--status-pending-bg);
+}
+.habitual-mark label {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 0;
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 400;
+  line-height: 1.5;
+  color: var(--text-primary);
+}
+.habitual-mark input { width: 16px; height: 16px; margin-top: 1px; flex-shrink: 0; cursor: pointer; }
+.habitual-mark-note {
+  margin: 8px 0 0;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+
 .filing-warning {
   display: flex;
   align-items: flex-start;

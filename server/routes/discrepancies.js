@@ -346,7 +346,7 @@ router.post('/', async (req, res) => {
 // PATCH /api/discrepancies/:reqNo/process — Resolve, Reject, or Return
 router.patch('/:reqNo/process', requireAdmin, async (req, res) => {
   const { reqNo } = req.params;
-  const { status, comment, adminFiles, rejectionReason, habitual, habitualNote } = req.body;
+  const { status, comment, adminFiles, rejectionReason, flagged, flagNote } = req.body;
 
   if (!['Resolved', 'Rejected', 'Returned'].includes(status)) {
     return res.status(400).json({ error: 'Status must be Resolved, Rejected, or Returned.' });
@@ -363,24 +363,24 @@ router.patch('/:reqNo/process', requireAdmin, async (req, res) => {
       return res.status(403).json(crossRegionError(req));
     }
 
-    // Habitual is a rejection judgement: it says "this filer keeps raising
+    // Flagged is a rejection judgement: it says "this filer keeps raising
     // this". Marking it on anything else would make the tracker meaningless,
     // so it is only honoured on a rejection.
-    const markHabitual = status === 'Rejected' && habitual === true;
+    const markFlagged = status === 'Rejected' && flagged === true;
 
     const result = await pool.query(
       `UPDATE discrepancies
           SET status = $1, admin_comment = $2, admin_files = $3::jsonb,
               rejection_reason = $4, resolved_time = NOW(),
-              habitual = $6, habitual_note = $7
+              flagged = $6, flag_note = $7
         WHERE req_no = $5 RETURNING *`,
       [status, comment || '', JSON.stringify(adminFiles || []), rejectionReason || '', reqNo,
-       markHabitual, markHabitual ? String(habitualNote || '').slice(0, 500) : '']
+       markFlagged, markFlagged ? String(flagNote || '').slice(0, 500) : '']
     );
 
-    if (markHabitual) {
+    if (markFlagged) {
       await logEvent('warn',
-        `Req No ${reqNo} rejected by "${req.auth.username}" and marked HABITUAL for "${disc.request_by}".`,
+        `Req No ${reqNo} rejected by "${req.auth.username}" and marked FLAGGED for "${disc.request_by}".`,
         disc.region);
     }
 
@@ -623,23 +623,23 @@ router.get('/:reqNo/export-excel', async (req, res) => {
   }
 });
 
-// GET /api/discrepancies/habitual-tracker — who is repeatedly filing what
+// GET /api/discrepancies/flagged-tracker — who is repeatedly filing what
 //
-// The proportion is (filings the RLDC marked habitual when rejecting) over
+// The proportion is (filings the RLDC marked flagged when rejecting) over
 // (total filings), across a rolling window — 30 days by default. Nothing here
 // is inferred: the numerator counts only what a despatch centre actually
 // marked, so the report says what the RLDC decided rather than what the portal
 // guessed.
 //
 // Region-scoped like every other admin listing.
-router.get('/habitual-tracker', requireAdmin, async (req, res) => {
+router.get('/flagged-tracker', requireAdmin, async (req, res) => {
   const days = Math.min(365, Math.max(1, parseInt(req.query.days || '30', 10) || 30));
   const { fromDate, toDate } = req.query;
 
   try {
     const region = req.auth.region || null;
     const threshold = parseInt(
-      (await getSettings(['habitualThresholdPercent'], region)).habitualThresholdPercent || '40', 10
+      (await getSettings(['flaggedThresholdPercent'], region)).flaggedThresholdPercent || '40', 10
     );
 
     const params = [];
@@ -664,20 +664,20 @@ router.get('/habitual-tracker', requireAdmin, async (req, res) => {
              u.energy_category,
              d.region,
              count(*)::int                                            AS total_filings,
-             count(*) FILTER (WHERE d.habitual)::int                  AS habitual_count,
+             count(*) FILTER (WHERE d.flagged)::int                  AS flagged_count,
              count(*) FILTER (WHERE d.status = 'Rejected')::int        AS rejected_count,
-             ROUND(100.0 * count(*) FILTER (WHERE d.habitual) / NULLIF(count(*), 0), 1) AS habitual_percent,
+             ROUND(100.0 * count(*) FILTER (WHERE d.flagged) / NULLIF(count(*), 0), 1) AS flagged_percent,
              string_agg(DISTINCT d.discrepancy_type, ' | ')
-               FILTER (WHERE d.habitual)                              AS habitual_types,
-             string_agg(DISTINCT NULLIF(d.habitual_note, ''), ' | ')
-               FILTER (WHERE d.habitual)                              AS habitual_notes,
+               FILTER (WHERE d.flagged)                              AS flagged_types,
+             string_agg(DISTINCT NULLIF(d.flag_note, ''), ' | ')
+               FILTER (WHERE d.flagged)                              AS flag_notes,
              max(d.request_date)                                      AS last_filed
         FROM discrepancies d
         JOIN users u ON d.request_by = u.username
         ${where}
        GROUP BY d.request_by, u.name, u.wbes_acronym, u.energy_category, d.region
-      HAVING count(*) FILTER (WHERE d.habitual) > 0
-       ORDER BY habitual_percent DESC NULLS LAST, habitual_count DESC
+      HAVING count(*) FILTER (WHERE d.flagged) > 0
+       ORDER BY flagged_percent DESC NULLS LAST, flagged_count DESC
     `, params);
 
     res.json({
@@ -687,14 +687,14 @@ router.get('/habitual-tracker', requireAdmin, async (req, res) => {
       to: toDate || null,
       rows: result.rows.map(r => ({
         ...r,
-        habitual_percent: Number(r.habitual_percent),
+        flagged_percent: Number(r.flagged_percent),
         // Flagged is the report's judgement; marking is the RLDC's.
-        flagged: Number(r.habitual_percent) >= threshold,
+        flagged: Number(r.flagged_percent) >= threshold,
       })),
     });
   } catch (err) {
-    console.error('[HABITUAL TRACKER]', err);
-    res.status(500).json({ error: 'Failed to build the habitual filing report.' });
+    console.error('[FLAGGED TRACKER]', err);
+    res.status(500).json({ error: 'Failed to build the flagged filing report.' });
   }
 });
 
