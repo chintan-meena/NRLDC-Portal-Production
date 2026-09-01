@@ -8,10 +8,11 @@ import {
 import {
   BarChart3, FileText, LayoutDashboard, Search,
   CheckCircle2, XCircle, Download, Check, Save, Zap, Undo2,
-  Edit, Trash2, Mail
+  Edit, Trash2, Mail, Repeat
 } from 'lucide-react';
 import UserManagement from './UserManagement';
 import NationalAdmin from './NationalAdmin';
+import HabitualTracker from './HabitualTracker';
 import { isNational, regionLabel } from '../utils/regions';
 import ConfirmDialog from './ConfirmDialog';
 import { Banner, EmptyState, SkeletonRows } from './Feedback';
@@ -85,6 +86,9 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
   // The RLDC's judgement that this filer keeps raising the same thing. Set at
   // the moment of rejection, because that is when the reviewer has the
   // evidence in front of them.
+  // The tracker is a report about these filings, so it lives on this page
+  // rather than taking a ninth nav tab.
+  const [showTracker, setShowTracker] = useState(false);
   const [markHabitual, setMarkHabitual] = useState(false);
   const [habitualNote, setHabitualNote] = useState('');
   const [adminAttachments, setAdminAttachments] = useState([]);
@@ -746,6 +750,13 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
                 Manage energy station discrepancy filings, review details, and resolve/reject/return records.
               </p>
             </div>
+            {/* The habitual report is about these filings, so it opens here
+                rather than taking a ninth tab and breaking the 4 + 4 row. */}
+            <button type="button" className={`btn ${showTracker ? 'btn-primary' : 'btn-secondary'}`}
+              onClick={() => setShowTracker(v => !v)}
+              title="Filers your reviewers marked as habitual when rejecting">
+              <Repeat size={15} /> {showTracker ? 'Hide' : 'Habitual Filing'}
+            </button>
             <div className="category-tabs">
               <button className={`category-tab ${categoryFilter === 'both' ? 'active' : ''}`} onClick={() => setCategoryFilter('both')}>All Categories</button>
               <button className={`category-tab ${categoryFilter === 'ISGS' ? 'active' : ''}`} onClick={() => setCategoryFilter('ISGS')}>{categoryLabel('ISGS')}</button>
@@ -753,6 +764,8 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
               <button className={`category-tab ${categoryFilter === 'States' ? 'active' : ''}`} onClick={() => setCategoryFilter('States')}>States</button>
             </div>
           </div>
+
+          {showTracker && <HabitualTracker />}
 
           <div className="glass-panel" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '15px' }}>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px', alignItems: 'end' }}>

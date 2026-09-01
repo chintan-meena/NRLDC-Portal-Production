@@ -620,6 +620,10 @@ Three levels, and each stops where the next begins.
 | View discrepancies | ✅ all regions | ✅ own region | own filings |
 | Manage data | ✅ any region | ✅ own region | existing rules |
 
+The national administrator's job is deliberately narrow: regions, and the
+administrators who run them. Everything else — filings, users, reports — is
+regional work, so those pages belong to the RLDC administrator.
+
 The national administrator **deliberately cannot create ordinary users**. A
 region's users are its own administrator's responsibility, and giving the
 national account that power would blur the level it sits at. The server refuses
@@ -716,7 +720,9 @@ Rejecting a filing offers **Mark as habitual** with a note. It is honoured on a
 rejection and nowhere else, so the count cannot be diluted by marks on resolved
 filings.
 
-*Habitual Filing* under the admin area then reports, per filer:
+**Habitual Filing** opens from the *Discrepancy Requests* page — it is a report
+about those filings, and putting it there keeps the navigation at the four-plus-four
+row rather than adding a ninth tab. It reports, per filer:
 
 ```
 habitual-marked filings ÷ total filings, over a rolling 30 days
@@ -728,6 +734,9 @@ and the reviewers' notes, and takes an explicit date range for the monthly
 return the RLDC sends on.
 
 Region-scoped like every other admin listing: an RLDC sees only its own filers.
+It belongs to the **RLDC administrator**, not the national one — rejecting is
+what produces the marks, and rejecting is regional work. Export gives the CSV
+for the monthly return.
 
 ## 📧 Email Budget
 

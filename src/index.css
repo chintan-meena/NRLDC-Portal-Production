@@ -1683,6 +1683,47 @@ button {
 /* The specifics of what is being confirmed, above the confirmation. */
 /* A rule the filing will be judged against, shown where the choice is made. */
 /* A judgement the reviewer makes, distinct from the rejection reason. */
+/* Report controls: a rolling window for day to day, an explicit period for
+   the monthly return. */
+.tracker-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 18px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-tertiary);
+}
+.tracker-controls .form-control { padding: 6px 10px; font-size: 0.82rem; }
+.tracker-threshold {
+  margin-left: auto;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+/* The share against the threshold, so a row over it reads at a glance. */
+.share-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+}
+.share-badge.is-over {
+  background: var(--status-rejected-bg);
+  color: var(--status-rejected-text);
+  border-color: var(--status-rejected-border);
+}
+.custom-table tr.is-flagged td { background-color: var(--row-rejected) !important; }
+.custom-table tr.is-flagged:hover td { background-color: var(--row-rejected-hover) !important; }
+
 .habitual-mark {
   margin-bottom: 15px;
   padding: 12px 14px;
