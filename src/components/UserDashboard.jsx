@@ -1668,7 +1668,7 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
                           <strong style={{ fontSize: '0.85rem', color: 'var(--text-primary)' }}>{entity.wbes_acronym}</strong>
                           <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>{entity.plant_name} ({entity.energy_category})</div>
                           {entity.current_owner ? (
-                            <span style={{ fontSize: '0.7rem', color: 'var(--warn-text)', background: '#fef3c7', padding: '2px 6px', borderRadius: '4px', display: 'inline-block', marginTop: '4px' }}>
+                            <span style={{ fontSize: '0.7rem', color: 'var(--warn-text)', background: 'var(--status-pending-bg)', padding: '2px 6px', borderRadius: '4px', display: 'inline-block', marginTop: '4px' }}>
                               Owner: {entity.current_owner_qca || entity.current_owner}
                             </span>
                           ) : (

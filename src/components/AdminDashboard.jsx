@@ -932,7 +932,7 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
                         {req.status === 'Pending' ? (
                           <div style={{ display: 'flex', gap: '6px' }}>
                             <button className="btn btn-teal" style={{ padding: '4px 8px', fontSize: '0.75rem' }} onClick={(e) => { e.stopPropagation(); handleOpenActionModal(req, 'resolve'); }}>Resolve</button>
-                            <button className="btn btn-warning" style={{ padding: '4px 8px', fontSize: '0.75rem', background: 'var(--warn-strong)', color: '#fff' }} onClick={(e) => { e.stopPropagation(); handleOpenActionModal(req, 'return'); }}>Return</button>
+                            <button className="btn btn-warning" style={{ padding: '4px 8px', fontSize: '0.75rem', background: 'var(--warn-strong)', color: 'var(--on-accent)' }} onClick={(e) => { e.stopPropagation(); handleOpenActionModal(req, 'return'); }}>Return</button>
                             <button className="btn btn-danger" style={{ padding: '4px 8px', fontSize: '0.75rem' }} onClick={(e) => { e.stopPropagation(); handleOpenActionModal(req, 'reject'); }}>Reject</button>
                           </div>
                         ) : (
@@ -1716,7 +1716,7 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
                   <button type="button" className="btn btn-secondary" onClick={handleCloseModal}>Cancel</button>
-                  <button type="submit" className="btn btn-warning" style={{ background: 'var(--warn-strong)', color: '#fff' }}>Return to User</button>
+                  <button type="submit" className="btn btn-warning" style={{ background: 'var(--warn-strong)', color: 'var(--on-accent)' }}>Return to User</button>
                 </div>
               </form>
             )}
@@ -1748,7 +1748,7 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
                   {selectedRequest.status === 'Pending' && (
                     <>
                       <button className="btn btn-teal" onClick={() => setModalMode('resolve')}>Resolve</button>
-                      <button className="btn btn-warning" style={{ background: 'var(--warn-strong)', color: '#fff' }} onClick={() => setModalMode('return')}>Return</button>
+                      <button className="btn btn-warning" style={{ background: 'var(--warn-strong)', color: 'var(--on-accent)' }} onClick={() => setModalMode('return')}>Return</button>
                       <button className="btn btn-danger" onClick={() => setModalMode('reject')}>Reject</button>
                     </>
                   )}

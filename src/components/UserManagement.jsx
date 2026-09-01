@@ -894,7 +894,7 @@ HARYANA_UTILITY,usr_HARYANA,scheduling@haryana.gov.in,States,HARYANA`);
             <FileUp size={16} />
             {showImport ? 'Close Importer' : 'Bulk CSV Upload'}
           </button>
-          <button className="btn btn-warning" onClick={handleRollback} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'var(--warn-strong)', color: '#fff' }}>
+          <button className="btn btn-warning" onClick={handleRollback} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'var(--warn-strong)', color: 'var(--on-accent)' }}>
             <Undo2 size={16} />
             Revert Last CSV Import
           </button>

@@ -480,10 +480,32 @@ before React renders (`applyStoredThemeEarly` in `src/main.jsx`), or the page
 would paint light and correct itself a moment later — the flash a dark theme
 exists to avoid.
 
-Both themes are defined as CSS custom properties in one place; components read
-through tokens rather than naming colours, so a third theme would be another
-token block and nothing else. If you add a colour, take it from a token — a
-literal hex will look right in one theme and wrong in the other.
+Both themes are defined as CSS custom properties; components read through
+tokens rather than naming colours, so a third theme would be another token block
+and nothing else.
+
+**If you add a colour, take it from a token.** A literal hex looks right in one
+theme and wrong in the other — that is exactly how the first dark pass ended up
+with a white table: `tr.status-pending td` was `#ffffff !important`.
+
+The dark surfaces form a deliberate ladder, each a visible step in perceptual
+lightness above the one below:
+
+| Surface | Token | Role |
+| --- | --- | --- |
+| Page | `--body-bg` | darkest |
+| Table rows | `--row-bg` | recessed content |
+| Cards, panels | `--bg-secondary` | raised |
+| Inputs, table header, hover | `--bg-tertiary`, `--row-hover` | elevated / interactive |
+
+Text tones (`--text-primary`, `--text-secondary`, `--text-muted`) all clear
+WCAG AA on **every** one of those surfaces, including a hovered row, which is
+the lightest thing text lands on.
+
+The dark palette is declared twice — once in a `prefers-color-scheme` media
+query and once under `[data-theme="dark"]` — because a media query cannot be
+merged into a plain selector. They must stay identical, so a test asserts it
+rather than relying on anyone remembering.
 
 ## 🏷️ Category Labels
 
