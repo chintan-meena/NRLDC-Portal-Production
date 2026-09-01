@@ -365,24 +365,11 @@ export const createDiscrepancy = async (username, correctionDate, timeBlocks, re
   });
 };
 
-/**
- * Decide a filing. `habitual` is honoured only on a rejection — it records the
- * RLDC's judgement that this filer keeps raising the same thing, and feeds the
- * habitual tracker.
- */
-export const processDiscrepancy = async (reqNo, status, comment, adminFiles, rejectionReason, habitual = false, habitualNote = '') => {
+export const processDiscrepancy = async (reqNo, status, comment, adminFiles, rejectionReason) => {
   return apiFetch(`/discrepancies/${reqNo}/process`, {
     method: 'PATCH',
-    body: { status, comment, adminFiles, rejectionReason, habitual, habitualNote },
+    body: { status, comment, adminFiles, rejectionReason },
   });
-};
-
-/** Filers the RLDC has repeatedly marked, over a rolling window or a month. */
-export const getHabitualTracker = async ({ days = 30, fromDate, toDate } = {}) => {
-  const q = fromDate && toDate
-    ? `fromDate=${encodeURIComponent(fromDate)}&toDate=${encodeURIComponent(toDate)}`
-    : `days=${days}`;
-  return apiFetch(`/discrepancies/habitual-tracker?${q}`);
 };
 
 export const reRaiseDiscrepancy = async (reqNo, username, requestContent, discrepancyType, files) => {

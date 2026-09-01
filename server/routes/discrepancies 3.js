@@ -11,7 +11,6 @@ const router = express.Router();
 const pool = require('../db');
 const { logEvent } = require('../utils/log');
 const { getSettings } = require('../utils/settings');
-const { checkFilingWindow } = require('../utils/filingWindow');
 const { requireAdmin, isAdmin, isSuperAdmin } = require('../middleware/auth');
 const { scopeToRegion, canActOnRegion, crossRegionError } = require('../middleware/region');
 const { toDateString, daysSince } = require('../utils/dates');
@@ -259,27 +258,30 @@ router.post('/', async (req, res) => {
   try {
     // Filing rules belong to the filer's own region.
     const configResult = { rows: Object.entries(
-      await getSettings(['maxDays', 'allowExtended', 'extendedMaxDays', 'postFactoCutoffDay'], req.auth.region)
+      await getSettings(['maxDays', 'allowExtended', 'extendedMaxDays'], req.auth.region)
     ).map(([key, value]) => ({ key, value })) };
     const config = {};
     configResult.rows.forEach(row => {
       config[row.key] = row.value;
     });
 
+    const maxDays = parseInt(config.maxDays || '5');
+    const allowExtended = config.allowExtended === 'true';
+    const extendedMaxDays = parseInt(config.extendedMaxDays || '15');
     const diff = daysDiff(correctionDate);
 
-    // Every filing-window rule in one place: the calendar cutoff, the day
-    // limit, and which categories the window admits. See utils/filingWindow.js.
-    const windowCheck = checkFilingWindow({
-      correctionDate,
-      daysOld: diff,
-      selectedTypes: discrepancyType || '',
-      settings: config,
-    });
-    if (!windowCheck.ok) {
-      await logEvent('error',
-        `Discrepancy filing BLOCKED for "${username}" (${correctionDate}, ${diff} days old): ${windowCheck.error}`);
-      return res.status(400).json({ error: windowCheck.error });
+    const checkLimit = allowExtended ? extendedMaxDays : maxDays;
+
+    // A negative difference means the correction date is in the future, which
+    // cannot be a discrepancy in a schedule that has not been operated yet.
+    if (diff < 0) {
+      await logEvent('error', `Discrepancy filing BLOCKED: User "${username}" tried to file for the future date ${correctionDate}`);
+      return res.status(400).json({ error: 'The correction date cannot be in the future.' });
+    }
+
+    if (diff > checkLimit) {
+      await logEvent('error', `Discrepancy filing BLOCKED: User "${username}" tried to file for ${correctionDate} which is ${diff} days old (limit: ${checkLimit})`);
+      return res.status(400).json({ error: `Cannot file discrepancy older than ${checkLimit} days.` });
     }
 
     const userRes = await pool.query('SELECT role, energy_category, wbes_acronym FROM users WHERE username = $1', [username]);
@@ -346,7 +348,7 @@ router.post('/', async (req, res) => {
 // PATCH /api/discrepancies/:reqNo/process — Resolve, Reject, or Return
 router.patch('/:reqNo/process', requireAdmin, async (req, res) => {
   const { reqNo } = req.params;
-  const { status, comment, adminFiles, rejectionReason, habitual, habitualNote } = req.body;
+  const { status, comment, adminFiles, rejectionReason } = req.body;
 
   if (!['Resolved', 'Rejected', 'Returned'].includes(status)) {
     return res.status(400).json({ error: 'Status must be Resolved, Rejected, or Returned.' });
@@ -363,26 +365,11 @@ router.patch('/:reqNo/process', requireAdmin, async (req, res) => {
       return res.status(403).json(crossRegionError(req));
     }
 
-    // Habitual is a rejection judgement: it says "this filer keeps raising
-    // this". Marking it on anything else would make the tracker meaningless,
-    // so it is only honoured on a rejection.
-    const markHabitual = status === 'Rejected' && habitual === true;
-
     const result = await pool.query(
-      `UPDATE discrepancies
-          SET status = $1, admin_comment = $2, admin_files = $3::jsonb,
-              rejection_reason = $4, resolved_time = NOW(),
-              habitual = $6, habitual_note = $7
-        WHERE req_no = $5 RETURNING *`,
-      [status, comment || '', JSON.stringify(adminFiles || []), rejectionReason || '', reqNo,
-       markHabitual, markHabitual ? String(habitualNote || '').slice(0, 500) : '']
+      `UPDATE discrepancies SET status = $1, admin_comment = $2, admin_files = $3::jsonb, rejection_reason = $4, resolved_time = NOW()
+       WHERE req_no = $5 RETURNING *`,
+      [status, comment || '', JSON.stringify(adminFiles || []), rejectionReason || '', reqNo]
     );
-
-    if (markHabitual) {
-      await logEvent('warn',
-        `Req No ${reqNo} rejected by "${req.auth.username}" and marked HABITUAL for "${disc.request_by}".`,
-        disc.region);
-    }
 
     await logEvent('success', `Admin "${req.auth.username}" processed discrepancy Req No ${reqNo} as "${status.toUpperCase()}"`);
 
@@ -620,81 +607,6 @@ router.get('/:reqNo/export-excel', async (req, res) => {
   } catch (err) {
     console.error('[EXCEL EXPORT ERROR]', err);
     res.status(500).json({ error: 'Failed to generate Excel report: ' + err.message });
-  }
-});
-
-// GET /api/discrepancies/habitual-tracker — who is repeatedly filing what
-//
-// The proportion is (filings the RLDC marked habitual when rejecting) over
-// (total filings), across a rolling window — 30 days by default. Nothing here
-// is inferred: the numerator counts only what a despatch centre actually
-// marked, so the report says what the RLDC decided rather than what the portal
-// guessed.
-//
-// Region-scoped like every other admin listing.
-router.get('/habitual-tracker', requireAdmin, async (req, res) => {
-  const days = Math.min(365, Math.max(1, parseInt(req.query.days || '30', 10) || 30));
-  const { fromDate, toDate } = req.query;
-
-  try {
-    const region = req.auth.region || null;
-    const threshold = parseInt(
-      (await getSettings(['habitualThresholdPercent'], region)).habitualThresholdPercent || '40', 10
-    );
-
-    const params = [];
-    const conditions = [];
-    scopeToRegion(req, 'd.region', conditions, params);
-
-    // An explicit range wins over the rolling window, for the monthly report.
-    if (fromDate && toDate) {
-      params.push(fromDate); const f = params.length;
-      params.push(toDate);   const t = params.length;
-      conditions.push(`d.request_date BETWEEN $${f} AND $${t}`);
-    } else {
-      params.push(days);
-      conditions.push(`d.request_date >= CURRENT_DATE - ($${params.length} || ' days')::interval`);
-    }
-    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
-
-    const result = await pool.query(`
-      SELECT d.request_by                                             AS username,
-             u.name                                                   AS filer_name,
-             u.wbes_acronym,
-             u.energy_category,
-             d.region,
-             count(*)::int                                            AS total_filings,
-             count(*) FILTER (WHERE d.habitual)::int                  AS habitual_count,
-             count(*) FILTER (WHERE d.status = 'Rejected')::int        AS rejected_count,
-             ROUND(100.0 * count(*) FILTER (WHERE d.habitual) / NULLIF(count(*), 0), 1) AS habitual_percent,
-             string_agg(DISTINCT d.discrepancy_type, ' | ')
-               FILTER (WHERE d.habitual)                              AS habitual_types,
-             string_agg(DISTINCT NULLIF(d.habitual_note, ''), ' | ')
-               FILTER (WHERE d.habitual)                              AS habitual_notes,
-             max(d.request_date)                                      AS last_filed
-        FROM discrepancies d
-        JOIN users u ON d.request_by = u.username
-        ${where}
-       GROUP BY d.request_by, u.name, u.wbes_acronym, u.energy_category, d.region
-      HAVING count(*) FILTER (WHERE d.habitual) > 0
-       ORDER BY habitual_percent DESC NULLS LAST, habitual_count DESC
-    `, params);
-
-    res.json({
-      thresholdPercent: threshold,
-      windowDays: fromDate && toDate ? null : days,
-      from: fromDate || null,
-      to: toDate || null,
-      rows: result.rows.map(r => ({
-        ...r,
-        habitual_percent: Number(r.habitual_percent),
-        // Flagged is the report's judgement; marking is the RLDC's.
-        flagged: Number(r.habitual_percent) >= threshold,
-      })),
-    });
-  } catch (err) {
-    console.error('[HABITUAL TRACKER]', err);
-    res.status(500).json({ error: 'Failed to build the habitual filing report.' });
   }
 });
 

@@ -51,8 +51,7 @@ CREATE TABLE IF NOT EXISTS users (
   -- Which load despatch centre this account belongs to. An ADMIN administers
   -- exactly this region; a USER or QCA is a station within it. A SUPERADMIN
   -- sees every region, and its own value here is only a home label.
-  -- NULL for the national administrator, which belongs to no single region.
-  region VARCHAR(10) REFERENCES regions(acronym) ON UPDATE CASCADE,
+  region VARCHAR(10) NOT NULL DEFAULT 'NRLDC' REFERENCES regions(acronym) ON UPDATE CASCADE,
   email VARCHAR(200) NOT NULL,
   email2 VARCHAR(200),
   email3 VARCHAR(200),
@@ -74,10 +73,6 @@ CREATE TABLE IF NOT EXISTS users (
 -- Discrepancies table
 CREATE TABLE IF NOT EXISTS discrepancies (
   req_no SERIAL PRIMARY KEY,
-  -- Set by the RLDC when rejecting, to mark a filer repeatedly raising the
-  -- same thing. Never inferred — see the migration block below.
-  habitual BOOLEAN NOT NULL DEFAULT FALSE,
-  habitual_note TEXT NOT NULL DEFAULT '',
   -- Stamped when the record is filed rather than derived from the filer's
   -- account. A user moving between regions must not drag their filing history
   -- with them: the record belongs to the region that despatched it.
@@ -297,37 +292,6 @@ CREATE TABLE IF NOT EXISTS password_reset_requests (
 );
 
 -- ─── Migrations for pre-existing databases ──────────────────────────────────
-
--- ─── Habitual filing ────────────────────────────────────────────────────────
--- Marked by the RLDC at the moment of rejection, not inferred by the system.
--- The judgement of whether a filer is repeatedly raising the same thing is the
--- despatch centre's to make; the portal counts what they marked, and reports
--- the proportion against a per-region threshold.
-ALTER TABLE discrepancies ADD COLUMN IF NOT EXISTS habitual BOOLEAN NOT NULL DEFAULT FALSE;
-ALTER TABLE discrepancies ADD COLUMN IF NOT EXISTS habitual_note TEXT NOT NULL DEFAULT '';
-
--- The tracker counts marked rejections per filer over a rolling window.
-CREATE INDEX IF NOT EXISTS idx_disc_habitual
-  ON discrepancies (region, habitual, resolved_time DESC) WHERE habitual;
-
--- ─── The national role is not a region ──────────────────────────────────────
--- SUPERADMIN sits above the regions, so it belongs to none of them. Its region
--- is NULL, and the constraint below makes that the only valid shape: a
--- national account cannot carry a region, and every other account must.
---
--- This was previously conflated — the NRLDC administrator had been promoted to
--- SUPERADMIN, which made one region's admin silently national.
-ALTER TABLE users ALTER COLUMN region DROP NOT NULL;
-
-DO $$
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'national_role_has_no_region') THEN
-    ALTER TABLE users ADD CONSTRAINT national_role_has_no_region CHECK (
-      (role = 'SUPERADMIN' AND region IS NULL) OR
-      (role <> 'SUPERADMIN' AND region IS NOT NULL)
-    ) NOT VALID;
-  END IF;
-END $$;
 
 -- ─── Regions become a table ─────────────────────────────────────────────────
 -- Regions used to be a CHECK constraint listing five fixed values, so adding
@@ -610,14 +574,7 @@ SELECT d.key, r.region, d.value
     ('require2FA', 'true'),
     -- Cycle Data upload/download. Switch off to hide the feature entirely
     -- without deleting anything already uploaded.
-    ('feature_cycle_data', 'true'),
-    -- The day of the *following* month after which a correction period closes
-    -- for good. 15 means "the 15th of the month after". Absolute: nothing may
-    -- be filed for that period afterwards, whatever the day count allows.
-    ('postFactoCutoffDay', '15'),
-    -- What share of a filer's discrepancies being marked habitual by the RLDC
-    -- flags them in the tracker. 40 = 40%.
-    ('habitualThresholdPercent', '40')
+    ('feature_cycle_data', 'true')
   ) AS d(key, value)
   CROSS JOIN (VALUES ('NRLDC'), ('ERLDC'), ('WRLDC'), ('SRLDC'), ('NERLDC')) AS r(region)
 ON CONFLICT (key, region) DO NOTHING;

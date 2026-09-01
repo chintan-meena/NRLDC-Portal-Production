@@ -684,51 +684,6 @@ nobody.
 `promote` exists because creating administrators is reserved to the national
 account, and the first one has nowhere to come from.
 
-## 📆 Filing Windows
-
-Three gates, in order of severity, all enforced on the server and all settable
-per region under *System Parameters → Discrepancy Filing Rules*.
-
-| Gate | Setting | Effect |
-| --- | --- | --- |
-| Calendar cutoff | `postFactoCutoffDay` (15) | A correction period closes on that day of the **following** month. Absolute — nothing may be filed for that period afterwards, whatever the day count allows. |
-| Day limit | `maxDays` (5), `extendedMaxDays` (15) | How many days after the correction date a filing is accepted at all. |
-| Category restriction | — | Days 1–5: every category. Days 6–15: **Post facto revisions only**. |
-
-So a filing nine days old naming *AVC correction* is refused with the reason,
-while the same date naming *Post facto revisions* is accepted. A mixed
-selection is refused too — the restricted window admits only what it names.
-
-A cutoff day past the end of a short month clamps to its last day rather than
-rolling forward: 31 set against a January correction means 28 February.
-
-The restricted set is one named list, `RESTRICTED_WINDOW_CATEGORIES` in
-`utils/discrepancyTypes.js`. Widening it later is a one-line change.
-
-## 🔁 Habitual Filing
-
-A filer repeatedly raising the same thing is **marked by the RLDC when
-rejecting**, never inferred. The reviewer has the evidence in front of them at
-that moment, and the judgement is theirs — the portal only counts what they
-marked.
-
-Rejecting a filing offers **Mark as habitual** with a note. It is honoured on a
-rejection and nowhere else, so the count cannot be diluted by marks on resolved
-filings.
-
-*Habitual Filing* under the admin area then reports, per filer:
-
-```
-habitual-marked filings ÷ total filings, over a rolling 30 days
-```
-
-against `habitualThresholdPercent` (40 by default, per region). A row above the
-threshold is flagged. The report also carries the categories that were marked
-and the reviewers' notes, and takes an explicit date range for the monthly
-return the RLDC sends on.
-
-Region-scoped like every other admin listing: an RLDC sees only its own filers.
-
 ## 📧 Email Budget
 
 The portal sends mail through **Brevo**, whose free plan allows **300 messages a

@@ -82,11 +82,6 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
   const [selectedRequest, setSelectedRequest] = useState(null);
   const [correctiveAction, setCorrectiveAction] = useState('Approved and Resolved');
   const [rejectionReason, setRejectionReason] = useState('');
-  // The RLDC's judgement that this filer keeps raising the same thing. Set at
-  // the moment of rejection, because that is when the reviewer has the
-  // evidence in front of them.
-  const [markHabitual, setMarkHabitual] = useState(false);
-  const [habitualNote, setHabitualNote] = useState('');
   const [adminAttachments, setAdminAttachments] = useState([]);
   const [modalMode, setModalMode] = useState('');
 
@@ -255,8 +250,6 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
   };
 
   const handleCloseModal = () => {
-    setMarkHabitual(false);
-    setHabitualNote('');
     setSelectedRequest(null);
     setModalMode('');
     setCorrectiveAction('Approved and Resolved');
@@ -326,7 +319,7 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
     e.preventDefault();
     if (!rejectionReason.trim()) { notify('error', 'Please specify the rejection reason.'); return; }
     try {
-      await processDiscrepancy(selectedRequest.req_no, 'Rejected', '', [], rejectionReason, markHabitual, habitualNote);
+      await processDiscrepancy(selectedRequest.req_no, 'Rejected', '', [], rejectionReason);
       await loadData();
       handleCloseModal();
     } catch (err) {
@@ -334,34 +327,14 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
     }
   };
 
-  /**
-   * Approving a transfer moves a plant between coordinating agencies. The
-   * dialog used to ask only "are you sure?", which gives the reader nothing to
-   * be sure about — so it now shows what is actually being moved, and from and
-   * to whom, above the confirmation.
-   */
-  const handleProcessTransfer = (tr, status) => {
-    const qca = (short, full) => (short && full && short !== full ? `${short} (${full})` : short || full || '—');
+  const handleProcessTransfer = (id, status) => {
     askConfirm({
-      title: `${status} plant transfer`,
-      message: status === 'Approved'
-        ? 'Approving moves this plant to the destination QCA from the effective date. '
-          + 'The outgoing assignment is closed and the incoming one opened together.'
-        : 'Rejecting leaves the plant with its current QCA. The requester is not notified automatically.',
-      details: [
-        ['Plant', `${tr.plant_name || '—'} · ${tr.wbes_acronym}`],
-        ['Category', tr.energy_category || '—'],
-        ['From QCA', tr.from_username ? qca(tr.from_qca_name, tr.from_qca_full_name) : 'Unassigned'],
-        ['To QCA', qca(tr.to_qca_name, tr.to_qca_full_name)],
-        ['Effective from', formatDateDMY(tr.effective_date)],
-        ['Requested by', `${tr.requested_by_name || tr.requested_by}`],
-        ['Requested on', formatDateDMY(tr.created_at)],
-        ['Region', tr.region || '—'],
-      ],
+      title: `${status} transfer request`,
+      message: `Are you sure you want to ${status.toLowerCase()} this plant transfer request?`,
       confirmLabel: status,
       tone: status === 'Approved' ? 'warn' : 'danger',
       action: async () => {
-        const res = await processTransferRequest(tr.id, status);
+        const res = await processTransferRequest(id, status);
         await loadData();
         if (res.success) notify('success', res.message);
       },
@@ -1561,8 +1534,8 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
                         <td>
                           {tr.status === 'Pending' ? (
                             <div style={{ display: 'flex', gap: '6px' }}>
-                              <button className="btn btn-teal" style={{ padding: '4px 8px', fontSize: '0.75rem' }} onClick={() => handleProcessTransfer(tr, 'Approved')}>Approve</button>
-                              <button className="btn btn-danger" style={{ padding: '4px 8px', fontSize: '0.75rem' }} onClick={() => handleProcessTransfer(tr, 'Rejected')}>Reject</button>
+                              <button className="btn btn-teal" style={{ padding: '4px 8px', fontSize: '0.75rem' }} onClick={() => handleProcessTransfer(tr.id, 'Approved')}>Approve</button>
+                              <button className="btn btn-danger" style={{ padding: '4px 8px', fontSize: '0.75rem' }} onClick={() => handleProcessTransfer(tr.id, 'Rejected')}>Reject</button>
                             </div>
                           ) : (
                             <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>Processed</span>
@@ -1761,32 +1734,6 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
                   <label htmlFor="ad-rejection-reason">Rejection Reason</label>
                   <textarea id="ad-rejection-reason" rows="3" className="form-control" placeholder="Provide detailed feedback on why this correction was rejected..." value={rejectionReason} onChange={(e) => setRejectionReason(e.target.value)} required />
                 </div>
-                {/* Marked here rather than inferred: whether a filer is
-                    repeatedly raising the same thing is the RLDC's judgement,
-                    and this is the moment they have the evidence to hand. */}
-                <div className={`habitual-mark${markHabitual ? ' is-set' : ''}`}>
-                  <label htmlFor="ad-mark-habitual">
-                    <input id="ad-mark-habitual" type="checkbox" checked={markHabitual}
-                      onChange={(e) => setMarkHabitual(e.target.checked)} />
-                    <span>
-                      <strong>Mark as habitual</strong> — this filer keeps raising this
-                      type of discrepancy
-                    </span>
-                  </label>
-                  {markHabitual && (
-                    <>
-                      <textarea className="form-control" rows="2" value={habitualNote}
-                        placeholder="What makes this habitual? e.g. third AVC correction filed this month."
-                        onChange={(e) => setHabitualNote(e.target.value)}
-                        style={{ fontSize: '0.8rem', marginTop: '8px' }} />
-                      <p className="habitual-mark-note">
-                        Counts toward this filer&rsquo;s share in the Habitual Filing report,
-                        which the RLDC uses for its monthly return.
-                      </p>
-                    </>
-                  )}
-                </div>
-
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px', background: 'rgba(239,68,68,0.05)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: '6px', marginBottom: '15px', fontSize: '0.75rem', color: 'var(--danger-strong)' }}>
                   <XCircle size={14} /><span>Submitting will trigger a rejection email warning.</span>
                 </div>
