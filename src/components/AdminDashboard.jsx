@@ -29,6 +29,11 @@ import { fyWeekRange, fyWeekForDate, fyForDate, weeksInFY, fyLabel } from '../ut
 
 export default function AdminDashboard({ currentUser, onUserUpdate, activeTab }) {
   const { notice, notify, clearNotice, askConfirm, confirmProps } = useFeedback();
+
+  // A national account administers no region of its own, so the settings page
+  // shows it only the shared email settings. Filing rules, security and the
+  // feature switches belong to each despatch centre and are set from there.
+  const national = isNational(currentUser);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
 
@@ -110,6 +115,11 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
   const [outageStates, setOutageStates] = useState(false);
   // Require ISGS / RE filers to attach the WBES Net Schedule Report Summary.
   const [requireNetFile, setRequireNetFile] = useState(true);
+  // The day of the following month after which a correction period shuts for
+  // good, and the share of flagged discrepancies that puts a filer on the
+  // flagged tracker. Both are read per region by routes/discrepancies.js.
+  const [postFactoCutoffDay, setPostFactoCutoffDay] = useState(15);
+  const [flaggedThreshold, setFlaggedThreshold] = useState(40);
   const [landingPref, setLandingPref] = useState('both');
   const [configSuccess, setConfigSuccess] = useState('');
 
@@ -156,6 +166,8 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
       setOutageRE(cfg.outage_RE === true || cfg.outage_RE === 'true');
       setOutageStates(cfg.outage_States === true || cfg.outage_States === 'true');
       setRequireNetFile(cfg.requireNetScheduleFile !== false && cfg.requireNetScheduleFile !== 'false');
+      setPostFactoCutoffDay(cfg.postFactoCutoffDay ?? 15);
+      setFlaggedThreshold(cfg.flaggedThresholdPercent ?? 40);
       setOtpTrustDays(cfg.otpTrustDays ?? 7);
       setResetOtpMinutes(cfg.resetOtpMinutes ?? 20);
       setMailDailyCap(cfg.mailDailyCap ?? 280);
@@ -390,28 +402,38 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
     e.preventDefault();
     setConfigSuccess('');
     try {
+      // Only what this account actually owns, because the server refuses the
+      // rest from either side: the regional keys are written to the caller's
+      // own region, which a national account does not have, and the shared
+      // email settings are the national administrator's alone. Sending the
+      // whole form regardless is what made this page unsaveable for both.
       await updateConfig({
-        maxDays: parseInt(maxDays),
-        lockoutAttempts: parseInt(lockoutAttempts),
-        allowExtended: String(allowExtended),
-        extendedMaxDays: parseInt(extendedMaxDays),
-        reraiseWindow: parseInt(reraiseWindow),
-        reraiseLimit: parseInt(reraiseLimit),
-        require2FA: String(require2FA),
-        feature_cycle_data: String(featureCycleData),
-        outage_ISGS: String(outageISGS),
-        outage_RE: String(outageRE),
-        outage_States: String(outageStates),
-        requireNetScheduleFile: String(requireNetFile),
-        otpTrustDays: parseInt(otpTrustDays),
-        resetOtpMinutes: parseInt(resetOtpMinutes),
-        mailDailyCap: parseInt(mailDailyCap),
-        smtpHost,
-        smtpPort,
-        smtpSecure: String(smtpSecure),
-        smtpUser,
-        smtpPass,
-        smtpFrom
+        ...(national ? {
+          otpTrustDays: parseInt(otpTrustDays),
+          resetOtpMinutes: parseInt(resetOtpMinutes),
+          mailDailyCap: parseInt(mailDailyCap),
+          smtpHost,
+          smtpPort,
+          smtpSecure: String(smtpSecure),
+          smtpUser,
+          smtpPass,
+          smtpFrom,
+        } : {
+          maxDays: parseInt(maxDays),
+          lockoutAttempts: parseInt(lockoutAttempts),
+          allowExtended: String(allowExtended),
+          extendedMaxDays: parseInt(extendedMaxDays),
+          reraiseWindow: parseInt(reraiseWindow),
+          reraiseLimit: parseInt(reraiseLimit),
+          require2FA: String(require2FA),
+          feature_cycle_data: String(featureCycleData),
+          outage_ISGS: String(outageISGS),
+          outage_RE: String(outageRE),
+          outage_States: String(outageStates),
+          requireNetScheduleFile: String(requireNetFile),
+          postFactoCutoffDay: parseInt(postFactoCutoffDay),
+          flaggedThresholdPercent: parseInt(flaggedThreshold),
+        }),
       });
       await updateAdminPreference(currentUser.username, landingPref);
       await loadConfig();   // settings are no longer refetched by loadData
@@ -420,7 +442,9 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
         onUserUpdate(updatedUser);
         localStorage.setItem('nrldc_session_user', JSON.stringify(updatedUser));
       }
-      setConfigSuccess('System parameters, preferences, and SMTP settings updated successfully.');
+      setConfigSuccess(national
+        ? 'Shared email and SMTP settings, and your preferences, updated successfully.'
+        : `${currentUser.region} settings and your preferences updated successfully.`);
       await loadData();
     } catch (err) {
       notify('error', err.message || 'Failed to save configuration settings.');
@@ -1270,10 +1294,12 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
           {/* Operational Settings Form */}
           <div className="glass-panel" style={{ padding: '30px', height: 'fit-content' }}>
             <h2 style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
-              <Save /><span>Discrepancy Filing Rules</span>
+              <Save /><span>{national ? 'Shared Email Settings' : 'Discrepancy Filing Rules'}</span>
             </h2>
             <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '25px', borderBottom: '1px solid var(--border-color)', paddingBottom: '15px' }}>
-              Adjust the system lock thresholds, regulation limits, and default landing preferences.
+              {national
+                ? 'Adjust the mail allowance, the SMTP account that delivers login codes, and your default landing preference.'
+                : 'Adjust the system lock thresholds, regulation limits, and default landing preferences.'}
             </p>
 
             <Banner type="success" message={configSuccess} />
@@ -1281,16 +1307,29 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
             {/* Settings are per region, so say plainly whose are on screen —
                 otherwise an admin cannot tell whether a change is local. */}
             <div className="settings-scope">
-              <span className="region-badge">{currentUser.region}</span>
+              <span className="region-badge">{national ? 'NLDC' : currentUser.region}</span>
               <span>
-                These settings apply to <strong>{regionLabel(currentUser.region)}</strong> only —
-                other despatch centres keep their own.
-                {isNational(currentUser) && <> As national administrator you also own the
-                shared email settings below.</>}
+                {national ? (
+                  <>
+                    These are the <strong>shared</strong> email settings — one mail account serves
+                    every despatch centre, and changing them here changes them for all of them.
+                    Filing rules, security and feature switches belong to each region and are set
+                    by that region&rsquo;s own administrator.
+                  </>
+                ) : (
+                  <>
+                    These settings apply to <strong>{regionLabel(currentUser.region)}</strong> only —
+                    other despatch centres keep their own.
+                  </>
+                )}
               </span>
             </div>
 
             <form onSubmit={handleSaveConfig}>
+              {/* Everything down to the end of the outage fieldset belongs to
+                  one despatch centre. A national account has none, so it is
+                  shown none of it — the server would refuse the write anyway. */}
+              {!national && (<>
               <div className="form-group">
                 <label htmlFor="ad-maximum-discrepancy-filing-limit-days-iegc-6-5-33">Maximum Discrepancy Filing Limit (Days — IEGC 6.5.33)</label>
                 <input id="ad-maximum-discrepancy-filing-limit-days-iegc-6-5-33" type="number" className="form-control" value={maxDays} onChange={(e) => setMaxDays(e.target.value)} />
@@ -1322,6 +1361,24 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
                 <label htmlFor="ad-re-raise-count-limit-per-discrepancy">Re-Raise Count Limit (Per Discrepancy)</label>
                 <input id="ad-re-raise-count-limit-per-discrepancy" type="number" className="form-control" value={reraiseLimit} onChange={(e) => setReraiseLimit(e.target.value)} />
                 <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>How many times a discrepancy can be re-opened. Default: 2 times.</span>
+              </div>
+
+              {/* Both of these were already read per region by the filing and
+                  flagged-tracker code, and seeded for every region, but had no
+                  field anywhere — the tracker's own caption pointed at this
+                  page for a setting that could not be reached. */}
+              <div className="form-group">
+                <label htmlFor="ad-post-facto-cutoff-day">Post-Facto Correction Closes On Day (Of The Following Month)</label>
+                <input id="ad-post-facto-cutoff-day" type="number" min="1" max="28" className="form-control"
+                  value={postFactoCutoffDay} onChange={(e) => setPostFactoCutoffDay(e.target.value)} />
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>After this day, the previous month&rsquo;s filing window is shut for good. Default: 15.</span>
+              </div>
+
+              <div className="form-group">
+                <label htmlFor="ad-flagged-threshold-percent">Flag A Filer At … % Of Discrepancies Marked Flagged</label>
+                <input id="ad-flagged-threshold-percent" type="number" min="1" max="100" className="form-control"
+                  value={flaggedThreshold} onChange={(e) => setFlaggedThreshold(e.target.value)} />
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>The share that puts an account on the flagged tracker. Default: 40%.</span>
               </div>
 
               {/* ── Security & access ────────────────────────────────────
@@ -1413,6 +1470,7 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
                   <span>States</span>
                 </label>
               </fieldset>
+              </>)}
 
               {/* ── Email budget ─────────────────────────────────────────
                   The mail plan is the tightest resource the portal has, and
@@ -1423,7 +1481,7 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
               <p className="settings-hint">
                 How much email the portal is allowed to send, and how hard it works to avoid needing to.
                 {' '}One mail account serves every region, so these are <strong>shared</strong>:
-                {isNational(currentUser)
+                {national
                   ? <> changing them here changes them for every despatch centre.</>
                   : <> they are shown for reference, and only the national administrator can change them.</>}
               </p>
@@ -1450,7 +1508,7 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
 
               <div className="form-group">
                 <label htmlFor="ad-otp-trust-days">Ask for an OTP once every … days</label>
-                <input id="ad-otp-trust-days" disabled={!isNational(currentUser)} type="number" min="0" max="90" className="form-control"
+                <input id="ad-otp-trust-days" disabled={!national} type="number" min="0" max="90" className="form-control"
                   value={otpTrustDays} onChange={(e) => setOtpTrustDays(e.target.value)} />
                 <span className="settings-field-hint">
                   After a user verifies a code, that browser is trusted for this long and signs in
@@ -1462,7 +1520,7 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
 
               <div className="form-group">
                 <label htmlFor="ad-reset-otp-minutes">Password reset code valid for … minutes</label>
-                <input id="ad-reset-otp-minutes" disabled={!isNational(currentUser)} type="number" min="5" max="120" className="form-control"
+                <input id="ad-reset-otp-minutes" disabled={!national} type="number" min="5" max="120" className="form-control"
                   value={resetOtpMinutes} onChange={(e) => setResetOtpMinutes(e.target.value)} />
                 <span className="settings-field-hint">
                   No second code is emailed while one is still valid, so repeatedly pressing
@@ -1472,7 +1530,7 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
 
               <div className="form-group">
                 <label htmlFor="ad-mail-daily-cap">Daily message limit</label>
-                <input id="ad-mail-daily-cap" disabled={!isNational(currentUser)} type="number" min="0" className="form-control"
+                <input id="ad-mail-daily-cap" disabled={!national} type="number" min="0" className="form-control"
                   value={mailDailyCap} onChange={(e) => setMailDailyCap(e.target.value)} />
                 <span className="settings-field-hint">
                   The portal stops sending once it reaches this number and writes a log entry saying
@@ -1485,32 +1543,38 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
               <h3 style={{ marginTop: '30px', marginBottom: '10px', fontSize: '1rem', borderTop: '1px solid var(--border-color)', paddingTop: '20px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <span>SMTP Server Settings (2FA)</span>
               </h3>
+              {!national && (
+                <p className="settings-hint">
+                  The one mail account every region&rsquo;s login codes are sent from. Shown for
+                  reference; only the national administrator can change it.
+                </p>
+              )}
 
               <div style={{ display: 'grid', gridTemplateColumns: '3fr 1fr', gap: '10px' }}>
                 <div className="form-group">
                   <label htmlFor="ad-smtp-host">SMTP Host</label>
-                  <input id="ad-smtp-host" type="text" className="form-control" value={smtpHost} onChange={(e) => setSmtpHost(e.target.value)} />
+                  <input id="ad-smtp-host" type="text" disabled={!national} className="form-control" value={smtpHost} onChange={(e) => setSmtpHost(e.target.value)} />
                 </div>
                 <div className="form-group">
                   <label htmlFor="ad-port">Port</label>
-                  <input id="ad-port" type="text" className="form-control" value={smtpPort} onChange={(e) => setSmtpPort(e.target.value)} />
+                  <input id="ad-port" type="text" disabled={!national} className="form-control" value={smtpPort} onChange={(e) => setSmtpPort(e.target.value)} />
                 </div>
               </div>
 
               <div className="form-group" style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: '15px 0' }}>
-                <input type="checkbox" id="smtpSecure" checked={smtpSecure} onChange={(e) => setSmtpSecure(e.target.checked)} />
+                <input type="checkbox" id="smtpSecure" disabled={!national} checked={smtpSecure} onChange={(e) => setSmtpSecure(e.target.checked)} />
                 <label htmlFor="smtpSecure" style={{ cursor: 'pointer', marginBottom: 0, fontSize: '0.85rem' }}>Use SSL/TLS</label>
               </div>
 
               <div className="form-group">
                 <label htmlFor="ad-smtp-username-email">SMTP Username / Email</label>
-                <input id="ad-smtp-username-email" type="email" className="form-control" value={smtpUser} onChange={(e) => setSmtpUser(e.target.value)} />
+                <input id="ad-smtp-username-email" type="email" disabled={!national} className="form-control" value={smtpUser} onChange={(e) => setSmtpUser(e.target.value)} />
               </div>
 
               <div className="form-group">
                 <label htmlFor="ad-smtp-app-password">SMTP App Password</label>
                 <div style={{ position: 'relative' }}>
-                  <input id="ad-smtp-app-password" type={showPassword ? "text" : "password"} className="form-control" value={smtpPass} onChange={(e) => setSmtpPass(e.target.value)} />
+                  <input id="ad-smtp-app-password" type={showPassword ? "text" : "password"} disabled={!national} className="form-control" value={smtpPass} onChange={(e) => setSmtpPass(e.target.value)} />
                   <button type="button" style={{ position: 'absolute', right: '10px', top: '10px', background: 'none', border: 'none', color: 'var(--accent-blue)', cursor: 'pointer' }} onClick={() => setShowPassword(!showPassword)}>
                     {showPassword ? "Hide" : "Show"}
                   </button>
@@ -1519,7 +1583,7 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
 
               <div className="form-group">
                 <label htmlFor="ad-sender-address-smtp-from">Sender Address (SMTP From)</label>
-                <input id="ad-sender-address-smtp-from" type="text" className="form-control" value={smtpFrom} onChange={(e) => setSmtpFrom(e.target.value)} />
+                <input id="ad-sender-address-smtp-from" type="text" disabled={!national} className="form-control" value={smtpFrom} onChange={(e) => setSmtpFrom(e.target.value)} />
               </div>
 
               <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '25px' }}>

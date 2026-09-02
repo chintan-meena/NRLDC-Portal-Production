@@ -51,11 +51,10 @@ function redactSecrets(updates) {
 // no way to read another region's — not for any role.
 router.get('/', async (req, res) => {
   try {
-    // A national account has no region of its own. It reads the global
-    // settings plus, optionally, one region's — never a silent default.
-    const asked = req.query?.region;
-    const region = req.auth?.region
-      || (isSuperAdmin(req) && asked ? String(asked).toUpperCase() : null);
+    // A national account has no region of its own, so it reads the shared
+    // settings and nothing else — never another region's, and never a silent
+    // default standing in for one.
+    const region = req.auth?.region || null;
     const result = await pool.query(
       'SELECT key, value FROM config WHERE region = $1 OR region = $2',
       [region, GLOBAL_REGION]
@@ -101,15 +100,16 @@ router.patch('/', requireAdmin, async (req, res) => {
     });
   }
 
-  // Settings are written to the caller's own region. A national account has
-  // none, so it must name the region it means.
-  const asked = req.body?.region;
-  const region = req.auth?.region
-    || (isSuperAdmin(req) && asked ? String(asked).toUpperCase() : null);
+  // Settings are written to the caller's own region, and there is no
+  // client-supplied alternative — a region cannot be named in the body, so one
+  // despatch centre's screen can never write another's rules.
+  const region = req.auth?.region || null;
   const regionalKeys = Object.keys(updates).filter(k => !isGlobalKey(k));
   if (regionalKeys.length > 0 && !region) {
-    return res.status(400).json({
-      error: `Name the region these settings apply to: ${regionalKeys.join(', ')} are set per region.`,
+    return res.status(403).json({
+      error: `${regionalKeys.join(', ')} ${regionalKeys.length === 1 ? 'belongs' : 'belong'} to each `
+        + 'despatch centre. A national account holds none of its own — '
+        + `each region’s administrator changes ${regionalKeys.length === 1 ? 'it' : 'them'} there.`,
     });
   }
 
@@ -118,7 +118,8 @@ router.patch('/', requireAdmin, async (req, res) => {
       await setSetting(key, region, value);
     }
     await logEvent('info',
-      `Settings updated for ${region} by "${req.auth.username}": ${JSON.stringify(redactSecrets(updates))}`);
+      `Settings updated for ${region || GLOBAL_REGION} by "${req.auth.username}": `
+      + JSON.stringify(redactSecrets(updates)));
     res.json({ success: true, config: updates, region });
   } catch (err) {
     console.error('[CONFIG PATCH]', err);
