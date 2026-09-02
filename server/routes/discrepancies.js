@@ -23,7 +23,7 @@ const { parseTimeBlocks } = require('../utils/timeBlocks');
 const { typeMatchPattern } = require('../utils/discrepancyTypes');
 const {
   isTrader, validateTrade, isInterRegional, openingState,
-  isSellerRegion, isBuyerRegion, sellerCanAnswer,
+  isSellerRegion, isBuyerRegion,
   mayRecordOfflineConsent, mayResolveTrade,
 } = require('../utils/trade');
 const { regionCodes } = require('../utils/regionRegistry');
@@ -485,23 +485,6 @@ router.patch('/:reqNo/process', requireAdmin, async (req, res) => {
   }
 });
 
-/**
- * How many administrators a region has who could answer for it here.
- *
- * "Does the counterpart use this portal" is not a flag anyone sets — it is
- * this number. A region with no administrator cannot consent, cannot refuse,
- * and cannot be waited on, which is what makes the offline path necessary
- * rather than merely convenient.
- */
-async function adminsInRegion(region) {
-  if (!region) return 0;
-  const res = await pool.query(
-    "SELECT count(*)::int AS n FROM users WHERE region = $1 AND role = 'ADMIN' AND NOT locked",
-    [region]
-  );
-  return res.rows[0]?.n || 0;
-}
-
 // PATCH /api/discrepancies/:reqNo/consent — the seller's region answers.
 //
 // Consent is not approval of the correction. It says only "yes, this trade was
@@ -564,14 +547,17 @@ router.patch('/:reqNo/consent', requireAdmin, async (req, res) => {
   }
 });
 
-// PATCH /api/discrepancies/:reqNo/offline-consent — consent obtained elsewhere.
+// PATCH /api/discrepancies/:reqNo/offline-consent — bypass the seller's consent.
 //
-// For a counterpart that does not use this portal. Somebody at the seller's
-// centre agreed on the telephone or by email, and that agreement has to be
-// written down here before the buyer acts on it.
+// When the seller's region is unavailable or has not approved on the portal,
+// the buyer's region records the consent it obtained off the portal — on the
+// telephone, or by email — and the ticket is resolved in the same step. This
+// is the one action the buyer takes: there is no separate "apply the fix"
+// afterwards, because bypassing an unresponsive seller and closing the ticket
+// are the same decision.
 //
 // The remark is mandatory, and enforced by the database as well as by this
-// handler: an override with no explanation is indistinguishable from a region
+// handler: a bypass with no explanation is indistinguishable from a region
 // quietly consenting to its own trade. The attachment is optional — proof is
 // better evidence than a sentence, but a sentence is better than nothing and
 // requiring a PDF would make the honest path the hard one.
@@ -595,27 +581,30 @@ router.patch('/:reqNo/offline-consent', requireAdmin, async (req, res) => {
       isNational: isSuperAdmin(req),
       actingRegion: req.auth.region,
       row: disc,
-      sellerHasAdmin: sellerCanAnswer(await adminsInRegion(disc.seller_region)),
     });
     if (!permitted.ok) {
       return res.status(permitted.error.includes('not waiting') ? 409 : 403).json({ error: permitted.error });
     }
 
+    // One step: the offline consent is recorded and the discrepancy is
+    // resolved together. resolved_time stamps the close, exactly as the
+    // ordinary Resolve path does.
     const result = await pool.query(
       `UPDATE discrepancies
           SET consent_state = 'Consented', consent_mode = 'offline', consent_by = $1,
               consent_at = NOW(), consent_remark = $2, consent_files = $3::jsonb,
-              status = 'Pending'
+              status = 'Resolved', resolved_time = NOW()
         WHERE req_no = $4
       RETURNING *`,
       [req.auth.username, note.slice(0, 1000), JSON.stringify(files || []), reqNo]
     );
 
     // Recorded at warn level on purpose. It is a legitimate step, but it is
-    // one region deciding on another's behalf, and it should be findable in
-    // the log without knowing to look for it.
-    const line = `Req No ${reqNo}: offline consent from ${disc.seller_region} recorded by `
-               + `"${req.auth.username}" (${files?.length || 0} attachment(s)). Remark: ${note.slice(0, 200)}`;
+    // one region deciding on another's behalf and closing the ticket on it, so
+    // it should be findable in the log without knowing to look for it.
+    const line = `Req No ${reqNo}: ${disc.buyer_region} bypassed ${disc.seller_region}'s consent `
+               + `(offline) and resolved the ticket — by "${req.auth.username}", `
+               + `${files?.length || 0} attachment(s). Remark: ${note.slice(0, 200)}`;
     for (const r of new Set([disc.buyer_region, disc.seller_region].filter(Boolean))) {
       await logEvent('warn', line, r);
     }

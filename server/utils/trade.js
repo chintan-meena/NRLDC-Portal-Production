@@ -139,35 +139,33 @@ function sellerCanAnswer(adminCount) {
 }
 
 /**
- * Who may record consent obtained outside the portal, and when.
+ * Who may bypass the on-portal consent step by recording consent obtained
+ * offline, and when.
  *
- * Deliberately narrow. The offline path lets one region decide, alone, that
- * another region agreed — so it is available only where nobody else could
- * have decided instead:
+ * The seller's region is meant to approve the trade here on the portal. But a
+ * seller that is unavailable — no administrator, or simply one who has not
+ * answered — would otherwise leave the ticket stuck forever. So the buyer's
+ * region (the one that applies the fix) is allowed to bypass that step by
+ * documenting how consent was obtained off the portal:
  *
- *   · the buyer's region, when the seller's region has no administrator and
- *     therefore cannot answer at all; or
- *   · the national administrator, for a ticket stuck against a region that
- *     can answer but has not.
+ *   · the buyer's region, on any trade still awaiting the seller; or
+ *   · the national administrator, for the same.
  *
- * A buyer facing a seller who is present on the portal is told to wait. That
- * is the rule that stops "record offline consent" from becoming a way to
- * consent to your own trade.
+ * What stops this from becoming "consent to your own trade" is not who may do
+ * it but what it costs: the bypass carries a mandatory remark naming who
+ * agreed and when, it is stored as an offline consent (never a portal one),
+ * and it is logged at warn level in both regions. The remark is the record.
+ *
+ * The seller's region itself is not offered this path — it consents through
+ * /consent, not by recording its own offline agreement.
  */
-function mayRecordOfflineConsent({ isNational, actingRegion, row, sellerHasAdmin }) {
+function mayRecordOfflineConsent({ isNational, actingRegion, row }) {
   if (row.consent_state !== 'Awaiting') {
     return { ok: false, error: 'This discrepancy is not waiting on anyone’s consent.' };
   }
   if (isNational) return { ok: true };
   if (!isBuyerRegion(row, actingRegion)) {
-    return { ok: false, error: 'Only the buyer’s region records consent obtained offline.' };
-  }
-  if (sellerHasAdmin) {
-    return {
-      ok: false,
-      error: `${row.seller_region} has an administrator on this portal and can consent here. `
-           + 'Offline consent is for a counterpart that does not use the system.',
-    };
+    return { ok: false, error: 'Only the buyer’s region can bypass the seller’s consent.' };
   }
   return { ok: true };
 }

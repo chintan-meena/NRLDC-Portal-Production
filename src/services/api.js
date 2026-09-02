@@ -350,10 +350,6 @@ export const updateAdminPreference = async (username, preferredLanding) => {
   });
 };
 
-export const bulkImportUsers = async (csvText) => {
-  return apiFetch('/users/bulk-import', { method: 'POST', body: { csvText } });
-};
-
 // ─── Discrepancies ────────────────────────────────────────────────────────────
 
 export const uploadFiles = async (formData) => {
@@ -517,15 +513,29 @@ export const getAdminCycleUploads = async (fromDate = null, toDate = null) => {
   return apiFetch(`/cycle-data/admin-list${query}`);
 };
 
-export const rollbackUserRegistry = async () => {
-  return apiFetch('/users/rollback-import', { method: 'POST' });
-};
-
 // ─── QCA & Plant Assignments ───────────────────────────────────────────────
 
 export const getWbesEntities = async (search = '') => {
   const query = search ? `?search=${encodeURIComponent(search)}` : '';
   return apiFetch(`/users/wbes-entities${query}`);
+};
+
+// Register one WBES acronym in the caller's region. { wbes_acronym, name, energy_category }
+export const registerWbesEntity = async (payload) => {
+  return apiFetch('/users/wbes-entities', { method: 'POST', body: payload });
+};
+
+// Bulk-register WBES acronyms from an uploaded .xlsx. Pass a FormData carrying
+// the file under "file" and the batch "energy_category".
+export const bulkUploadWbesEntities = async (formData) => {
+  const res = await fetch(`${BASE}/users/wbes-entities/bulk`, {
+    method: 'POST',
+    headers: authHeaders(),   // no Content-Type: the browser sets the multipart boundary
+    body: formData,
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  return data;
 };
 
 export const getUserAssignments = async (username) => {

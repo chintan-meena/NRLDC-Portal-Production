@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { getUsers, toggleUserLock, registerUser, bulkImportUsers, updateUserAdmin, resetUserPasswordAdmin, rollbackUserRegistry, toggleUserBypass2FA, getRegistrations, processRegistration, getPasswordResets, processPasswordReset } from '../services/db';
+import { getUsers, toggleUserLock, registerUser, updateUserAdmin, resetUserPasswordAdmin, toggleUserBypass2FA, getRegistrations, processRegistration, getPasswordResets, processPasswordReset, getWbesEntities, registerWbesEntity, bulkUploadWbesEntities } from '../services/db';
 import { DEFAULT_PASSWORD, RULES as PASSWORD_RULES, validatePassword } from '../utils/password';
 import { defaultUsernameFor } from '../utils/usernames';
 import { REGIONS, isNational } from '../utils/regions';
@@ -12,7 +12,8 @@ import { useFeedback } from '../hooks/useFeedback';
 import { useModalDismiss } from '../hooks/useModalDismiss';
 import {
   Users, UserPlus, FileUp, Download, Lock, Unlock, Search,
-  CheckCircle2, Edit, X, Check, Key, Undo2, KeyRound, ShieldCheck
+  CheckCircle2, Edit, X, Check, Key, KeyRound, ShieldCheck,
+  Building2, Plus, FileSpreadsheet
 } from 'lucide-react';
 import { formatDateDMYHM } from '../utils/format';
 
@@ -75,11 +76,16 @@ export default function UserManagement({ currentUser }) {
   const [editSuccess, setEditSuccess] = useState('');
   const [editQcaName, setEditQcaName] = useState('');
 
-  // CSV Bulk Importer States
-  const [showImport, setShowImport] = useState(false);
-  const [csvText, setCsvText] = useState('');
-  const [importError, setImportError] = useState('');
-  const [importSuccess, setImportSuccess] = useState('');
+  // WBES Acronym Registry states
+  const [showWbes, setShowWbes] = useState(false);
+  const [wbesName, setWbesName] = useState('');
+  const [wbesRegAcr, setWbesRegAcr] = useState('');
+  const [wbesError, setWbesError] = useState('');
+  const [wbesSuccess, setWbesSuccess] = useState('');
+  const [wbesList, setWbesList] = useState([]);
+  const [wbesBusy, setWbesBusy] = useState(false);
+  const [bulkFile, setBulkFile] = useState(null);
+  const [bulkResult, setBulkResult] = useState(null);
 
   async function loadData() {
     setLoadError('');
@@ -318,20 +324,6 @@ export default function UserManagement({ currentUser }) {
     });
   };
 
-  const handleRollback = () => {
-    askConfirm({
-      title: 'Roll back user registry',
-      message: 'Revert the user registry to the state before the last bulk import?\n\nAny users added since then will be removed. This cannot be undone.',
-      confirmLabel: 'Roll back registry',
-      tone: 'danger',
-      action: async () => {
-        const res = await rollbackUserRegistry();
-        setUsers(res.users);
-        notify('success', res.message || 'Registry rolled back successfully.');
-      },
-    });
-  };
-
   // Escape closes the edit dialog, and the list behind it stops scrolling.
   useModalDismiss(!!editingUser, () => setEditingUser(null));
 
@@ -453,24 +445,65 @@ export default function UserManagement({ currentUser }) {
     }
   };
 
-  const handleCsvImport = async (e) => {
-    e.preventDefault();
-    setImportError('');
-    setImportSuccess('');
+  const loadWbesList = async () => {
+    try {
+      setWbesList(await getWbesEntities(''));
+    } catch (err) {
+      setWbesError(err.message || 'Could not load the WBES register.');
+    }
+  };
 
-    if (!csvText.trim()) {
-      setImportError('Please enter or paste CSV text data.');
+  const handleAddWbes = async (e) => {
+    e.preventDefault();
+    setWbesError(''); setWbesSuccess('');
+    if (!wbesName.trim() || !wbesRegAcr.trim()) {
+      setWbesError('Display name and WBES acronym are both required.');
       return;
     }
-
+    setWbesBusy(true);
     try {
-      const result = await bulkImportUsers(csvText);
-      setImportSuccess(`Import complete. ${result.importCount} users added, ${result.errorCount} skipped.`);
-      setCsvText('');
-      await loadData();
+      const ent = await registerWbesEntity({
+        name: wbesName.trim(),
+        wbes_acronym: wbesRegAcr.trim().toUpperCase(),
+      });
+      setWbesSuccess(`Registered ${ent.wbes_acronym} — ${ent.name}.`);
+      setWbesName(''); setWbesRegAcr('');
+      await loadWbesList();
     } catch (err) {
-      setImportError(err.message || 'CSV parse or import failed.');
+      setWbesError(err.message || 'Could not register the acronym.');
+    } finally {
+      setWbesBusy(false);
     }
+  };
+
+  const handleWbesUpload = async (e) => {
+    e.preventDefault();
+    setWbesError(''); setWbesSuccess(''); setBulkResult(null);
+    if (!bulkFile) { setWbesError('Choose an .xlsx file to upload.'); return; }
+    setWbesBusy(true);
+    try {
+      const form = new FormData();
+      form.append('file', bulkFile);
+      const res = await bulkUploadWbesEntities(form);
+      setBulkResult(res);
+      setWbesSuccess(`Upload complete: ${res.importedCount} added, ${res.skippedCount} skipped.`);
+      setBulkFile(null);
+      const input = document.getElementById('wbes-file');
+      if (input) input.value = '';
+      await loadWbesList();
+    } catch (err) {
+      setWbesError(err.message || 'Upload failed.');
+    } finally {
+      setWbesBusy(false);
+    }
+  };
+
+  const toggleWbes = () => {
+    const next = !showWbes;
+    setShowWbes(next);
+    setShowAddForm(false);
+    setWbesError(''); setWbesSuccess(''); setBulkResult(null);
+    if (next) loadWbesList();
   };
 
   const handleExportCSV = () => {
@@ -491,13 +524,6 @@ export default function UserManagement({ currentUser }) {
     } catch (err) {
       notify('error', 'Failed to export: ' + err.message);
     }
-  };
-
-  const loadSampleCSV = () => {
-    setCsvText(`Name,Username,Email,Category,Acronym
-ANTA Gas Power Station,usr_ANTA,anta@ntpc.co.in,ISGS,ANTA
-MITHAPUR_SOLAR,usr_MITHAPUR,ops@mithapursolar.com,RE,MITHAPUR
-HARYANA_UTILITY,usr_HARYANA,scheduling@haryana.gov.in,States,HARYANA`);
   };
 
   const filteredUsers = users.filter(u => {
@@ -882,25 +908,23 @@ HARYANA_UTILITY,usr_HARYANA,scheduling@haryana.gov.in,States,HARYANA`);
             <span>User Directory Registry</span>
           </h2>
           <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginTop: '4px' }}>
-            Register new energy stations, handle account locks/unlocks, and bulk-load users.
+            Register new energy stations, manage account locks, and maintain the WBES acronym registry.
           </p>
         </div>
 
         <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
           {!isNational(currentUser) && (
-            <button className="btn btn-secondary" onClick={() => { setShowAddForm(!showAddForm); setShowImport(false); }}>
+            <button className="btn btn-secondary" onClick={() => { setShowAddForm(!showAddForm); setShowWbes(false); }}>
               <UserPlus size={16} />
               {showAddForm ? 'Close Add Form' : 'Register User'}
             </button>
           )}
-          <button className="btn btn-secondary" onClick={() => { setShowImport(!showImport); setShowAddForm(false); }}>
-            <FileUp size={16} />
-            {showImport ? 'Close Importer' : 'Bulk CSV Upload'}
-          </button>
-          <button className="btn btn-warning" onClick={handleRollback} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'var(--warn-strong)', color: 'var(--on-accent)' }}>
-            <Undo2 size={16} />
-            Revert Last CSV Import
-          </button>
+          {!isNational(currentUser) && (
+            <button className="btn btn-secondary" onClick={toggleWbes}>
+              <Building2 size={16} />
+              {showWbes ? 'Close WBES Registry' : 'WBES Acronyms'}
+            </button>
+          )}
           <button className="btn btn-teal" onClick={handleExportCSV}>
             <Download size={16} />
             Download Directory
@@ -1086,42 +1110,102 @@ HARYANA_UTILITY,usr_HARYANA,scheduling@haryana.gov.in,States,HARYANA`);
         </div>
       )}
 
-      {/* CSV Bulk Importer */}
-      {showImport && (
+      {/* WBES Acronym Registry */}
+      {showWbes && !isNational(currentUser) && (
         <div className="glass-panel" style={{ padding: '24px', animation: 'modalFadeIn 0.2s ease-out' }}>
-          <h3 style={{ fontSize: '1.1rem', marginBottom: '10px' }}>CSV User Directory Batch Importer</h3>
+          <h3 style={{ fontSize: '1.1rem', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Building2 size={18} /> WBES Acronym Registry — {currentUser.region}
+          </h3>
           <p style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', marginBottom: '15px' }}>
-            Paste comma-separated CSV rows. Duplicate usernames will be ignored. Admin creation is restricted to protect security (forced role = USER). 
-            System automatically takes a registry backup before execution so you can rollback at any time.
+            Register the WBES acronyms your stations file against. Users self-register against these,
+            so an acronym must exist here first. Everything you add belongs to {currentUser.region}.
           </p>
 
-          <Banner type="error" message={importError} />
+          <Banner type="error" message={wbesError} />
+          <Banner type="success" message={wbesSuccess} />
 
-          <Banner type="success" message={importSuccess} />
-
-          <form onSubmit={handleCsvImport}>
-            <div className="form-group">
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <label htmlFor="um-csv-text-headers-name-username-email-category">CSV Text (Headers: Name, Username, Email, Category)</label>
-                <button type="button" className="btn btn-secondary" style={{ padding: '2px 8px', fontSize: '0.7rem' }} onClick={loadSampleCSV}>
-                  Load Sample Template
-                </button>
+          {/* Add one */}
+          <form onSubmit={handleAddWbes} style={{ marginBottom: '22px' }}>
+            <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+              <div className="form-group" style={{ flex: '2 1 220px', margin: 0 }}>
+                <label htmlFor="wbes-name">Display Name</label>
+                <input id="wbes-name" className="form-control" value={wbesName}
+                  onChange={(e) => setWbesName(e.target.value)}
+                  placeholder="e.g. Bhartiya Rail Bijlee Company Ltd" />
               </div>
-              <textarea id="um-csv-text-headers-name-username-email-category"
-                rows="6"
-                className="form-control"
-                placeholder="Paste CSV rows here..."
-                style={{ fontFamily: 'monospace', fontSize: '0.8rem' }}
-                value={csvText}
-                onChange={(e) => setCsvText(e.target.value)}
-              />
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
-              <button type="button" className="btn btn-secondary" onClick={() => setShowImport(false)}>Cancel</button>
-              <button type="submit" className="btn btn-primary">Process Import</button>
+              <div className="form-group" style={{ flex: '1 1 150px', margin: 0 }}>
+                <label htmlFor="wbes-acr">WBES Acronym</label>
+                <input id="wbes-acr" className="form-control" value={wbesRegAcr}
+                  onChange={(e) => setWbesRegAcr(e.target.value.toUpperCase())}
+                  placeholder="BRBCL" style={{ textTransform: 'uppercase' }} />
+              </div>
+              <button type="submit" className="btn btn-primary" disabled={wbesBusy}>
+                <Plus size={15} /> Add
+              </button>
             </div>
           </form>
+
+          {/* Bulk upload */}
+          <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '16px' }}>
+            <h4 style={{ fontSize: '0.92rem', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <FileSpreadsheet size={15} /> Bulk upload
+            </h4>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '0.78rem', marginBottom: '12px' }}>
+              An <strong>.xlsx</strong> file with columns <strong>Display Name</strong>, <strong>WBES Acronym</strong>{' '}
+              and <strong>Region</strong>. Rows for a region other than {currentUser.region} are skipped, as are
+              acronyms already registered.
+            </p>
+            <form onSubmit={handleWbesUpload}>
+              <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                <div className="form-group" style={{ flex: '2 1 240px', margin: 0 }}>
+                  <label htmlFor="wbes-file">Spreadsheet (.xlsx)</label>
+                  <input id="wbes-file" type="file" accept=".xlsx" className="form-control"
+                    onChange={(e) => setBulkFile(e.target.files?.[0] || null)} />
+                </div>
+                <button type="submit" className="btn btn-teal" disabled={wbesBusy || !bulkFile}>
+                  <FileUp size={15} /> {wbesBusy ? 'Uploading…' : 'Upload'}
+                </button>
+              </div>
+            </form>
+
+            {bulkResult && bulkResult.skipped?.length > 0 && (
+              <div style={{ marginTop: '12px', maxHeight: '160px', overflowY: 'auto', fontSize: '0.76rem',
+                            color: 'var(--text-secondary)', background: 'rgba(0,0,0,0.04)',
+                            border: '1px solid var(--border-color)', borderRadius: '8px', padding: '10px 12px' }}>
+                <strong>{bulkResult.skippedCount} row(s) skipped:</strong>
+                <ul style={{ margin: '6px 0 0', paddingLeft: '18px' }}>
+                  {bulkResult.skipped.map((line, i) => <li key={i}>{line}</li>)}
+                </ul>
+              </div>
+            )}
+          </div>
+
+          {/* Existing acronyms */}
+          <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '16px', marginTop: '18px' }}>
+            <h4 style={{ fontSize: '0.92rem', marginBottom: '10px' }}>
+              Registered acronyms{' '}
+              <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>({wbesList.length})</span>
+            </h4>
+            {wbesList.length === 0 ? (
+              <p style={{ color: 'var(--text-muted)', fontSize: '0.82rem' }}>
+                No WBES acronyms registered in {currentUser.region} yet.
+              </p>
+            ) : (
+              <div style={{ maxHeight: '260px', overflowY: 'auto', border: '1px solid var(--border-color)', borderRadius: '8px' }}>
+                <table className="custom-table" style={{ margin: 0 }}>
+                  <thead><tr><th>Acronym</th><th>Display Name</th></tr></thead>
+                  <tbody>
+                    {wbesList.map((w) => (
+                      <tr key={w.wbes_acronym}>
+                        <td className="mono">{w.wbes_acronym}</td>
+                        <td>{w.name || w.plant_name}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         </div>
       )}
 

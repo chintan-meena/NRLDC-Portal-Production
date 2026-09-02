@@ -789,8 +789,8 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
                           </div>
                         </td>
                         <td onClick={() => setSelectedRequest(disc)} style={{ maxWidth: '120px', wordBreak: 'break-word', whiteSpace: 'normal', fontSize: '0.8rem' }}>{disc.time_blocks}</td>
-                        <td onClick={() => setSelectedRequest(disc)} style={{ maxWidth: '350px', textOverflow: 'ellipsis', overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', whiteSpace: 'normal' }} title={disc.request_content}>
-                          {disc.request_content}
+                        <td onClick={() => setSelectedRequest(disc)} style={{ maxWidth: '350px' }} title={disc.request_content}>
+                          <div className="clamp-3">{disc.request_content}</div>
                         </td>
                         <td onClick={() => setSelectedRequest(disc)}>
                           {disc.files && disc.files.length > 0 ? (

@@ -5,8 +5,8 @@
  * PATCH  /api/users/:username/lock   → toggle lock
  * PATCH  /api/users/:username/profile → update profile details (name, email, email2, email3, mobile) OR password
  * PATCH  /api/users/:username/landing → update preferred landing
- * POST   /api/users/bulk-import      → CSV bulk import
- * POST   /api/users/rollback-import  → Roll back last CSV import
+ * POST   /api/users/wbes-entities        → register one WBES acronym (regional)
+ * POST   /api/users/wbes-entities/bulk   → register many from an .xlsx (regional)
  * POST   /api/users/:username/reset-password → Admin reset password to the default
  * GET    /api/users/registrations    → self-service registrations awaiting a decision
  * PATCH  /api/users/registrations/:id/process → approve (optionally with corrections) or reject
@@ -27,13 +27,30 @@ const {
 } = require('../middleware/region');
 const { previousDayString } = require('../utils/dates');
 const { DEFAULT_PASSWORD, validatePassword } = require('../utils/password');
-const { setSetting, getSetting } = require('../utils/settings');
 const { usernameForRegion } = require('../utils/usernames');
 const { FILING_CATEGORIES } = require('../utils/trade');
 const { sendMail, mailUsage } = require('../utils/mailer');
 const { forgetDevices, listDevices } = require('../auth/devices');
+const path = require('path');
+const fs = require('fs');
+const ExcelJS = require('exceljs');
+const { createUploader } = require('../config/uploads');
 
 const HASH_ROUNDS = 10;
+
+// Spreadsheet uploads (the WBES acronym registry) land in the same upload
+// folder every other attachment does, and are read then deleted.
+const uploadsDir = path.join(__dirname, '../upload');
+if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+const { upload: sheetUpload, handleUploadErrors: handleSheetUploadErrors } = createUploader(uploadsDir);
+
+/**
+ * A WBES acronym that can be stored and named after: 1–50 characters, letters
+ * and digits with dots, hyphens or underscores between them. Wider than the
+ * region-namespace rule because plant acronyms genuinely carry underscores
+ * (BIKANER_RE3), and the column is VARCHAR(50).
+ */
+const WBES_ACRONYM_RULE = /^[A-Z0-9][A-Z0-9._-]{0,49}$/;
 
 /**
  * Look up a plant's energy category. QCA coordination is permitted for
@@ -423,182 +440,6 @@ router.patch('/:username/landing', requireSelfOrAdmin('username'), requireSameRe
   }
 });
 
-// POST /api/users/bulk-import — CSV bulk import (with registry backup)
-router.post('/bulk-import', requireAdmin, async (req, res) => {
-  const { csvText } = req.body;
-  if (!csvText || !csvText.trim()) {
-    return res.status(400).json({ error: 'No CSV text provided.' });
-  }
-
-  const rows = csvText.split('\n').map(r => r.trim()).filter(r => r.length > 0);
-  if (rows.length < 2) return res.status(400).json({ error: 'No user data rows found.' });
-
-  const header = rows[0].toLowerCase().split(/[,\t]/).map(h => h.trim().replace(/^["']|["']$/g, ''));
-  const getIndex = (names) => header.findIndex(h => names.some(n => h.includes(n)));
-
-  const nameIdx  = getIndex(['name', 'full name', 'display name']);
-  const userIdx  = getIndex(['username', 'user', 'login']);
-  const emailIdx = getIndex(['email', 'mail']);
-  const categoryIdx = getIndex(['category', 'energy']);
-  const acronymIdx = getIndex(['wbes', 'acronym']);
-
-  if (userIdx === -1 || emailIdx === -1) {
-    return res.status(400).json({ error: 'CSV must contain at least "Username" and "Email" columns.' });
-  }
-
-  try {
-    // 1. Back up the current registry — this region's part of it.
-    //
-    // The backup and the rollback that reads it are both scoped, because
-    // rollback deletes accounts that are not in the backup: an unscoped one
-    // would delete every other region's users.
-    const importRegion = regionForNewRow(req);
-    if (!importRegion) {
-      return res.status(400).json({
-        error: 'A bulk import belongs to one region. Sign in as that region\'s administrator to run it.',
-      });
-    }
-    const currentUsers = await pool.query('SELECT * FROM users WHERE region = $1', [importRegion]);
-    await setSetting('last_users_backup', importRegion, JSON.stringify(currentUsers.rows));
-
-    let importCount = 0, errorCount = 0;
-
-    // 2. Loop and import
-    for (let i = 1; i < rows.length; i++) {
-      const cols = rows[i].split(/[,\t]/).map(c => c.trim().replace(/^["']|["']$/g, ''));
-      if (cols.length < header.length) continue;
-
-      const username = cols[userIdx];
-      if (!username) continue;
-
-      const email    = cols[emailIdx] || `${username}@nrldc.in`;
-      const name     = cols[nameIdx] || username;
-      const role     = 'USER';
-
-      // The CSV column is free text, so it is matched rather than compared.
-      // Order matters: "trader" contains "re", so it has to be tested first or
-      // every trader in the file would import as a renewable generator.
-      const rawCat   = (cols[categoryIdx] || 'isgs').toLowerCase();
-      let energy_category = 'ISGS';
-      if (rawCat.includes('trad')) {
-        energy_category = 'Traders';
-      } else if (rawCat.includes('re') || rawCat.includes('renewable')) {
-        energy_category = 'RE';
-      } else if (rawCat.includes('state')) {
-        energy_category = 'States';
-      }
-
-      // WBES Acronym from CSV or default to uppercase username
-      const wbes_acronym = acronymIdx !== -1 && cols[acronymIdx] ? cols[acronymIdx].trim().toUpperCase() : username.toUpperCase();
-
-      try {
-        const emailTrimmed = email.trim();
-        const acronymTrimmed = wbes_acronym.trim().toUpperCase();
-
-        const uniqueErrors = await checkUniqueness(username.trim(), [emailTrimmed], null, acronymTrimmed);
-        if (uniqueErrors.length > 0) {
-          errorCount++;
-          continue;
-        }
-
-        const hash = await bcrypt.hash(DEFAULT_PASSWORD, HASH_ROUNDS);
-        
-        const dbRes = await pool.query(
-          `INSERT INTO users (username, name, role, region, email, password_hash, energy_category, locked, failed_attempts, wbes_acronym)
-           VALUES ($1, $2, $3, $8, $4, $5, $6, FALSE, 0, $7)
-           ON CONFLICT (username) DO NOTHING`,
-          [username, name, role, email, hash, energy_category, wbes_acronym, importRegion]
-        );
-        if (dbRes.rowCount > 0) {
-          importCount++;
-        } else {
-          errorCount++; // Username duplicate skipped
-        }
-      } catch (e) {
-        errorCount++;
-      }
-    }
-
-    await logEvent('success', `Imported ${importCount} users from CSV. Duplicate/skipped: ${errorCount}`);
-    const allUsers = await pool.query(
-      `SELECT id, username, name, role, region, email, email2, email3, mobile, energy_category,
-              locked, failed_attempts, preferred_landing, bypass_2fa, can_upload_cycle_data,
-              wbes_acronym, qca_name
-         FROM users WHERE region = $1 ORDER BY id ASC`, [rollbackRegion]);
-    res.json({ importCount, errorCount, users: allUsers.rows });
-  } catch (err) {
-    console.error('[USERS BULK IMPORT]', err);
-    res.status(500).json({ error: 'Failed to process CSV import: ' + err.message });
-  }
-});
-
-// POST /api/users/rollback-import — Roll back last CSV import
-router.post('/rollback-import', requireAdmin, async (req, res) => {
-  try {
-    const rollbackRegion = regionForNewRow(req);
-    if (!rollbackRegion) {
-      return res.status(400).json({
-        error: 'A rollback belongs to one region. Sign in as that region\'s administrator to run it.',
-      });
-    }
-    const backup = await getSetting('last_users_backup', rollbackRegion, null);
-    if (!backup) {
-      return res.status(400).json({ error: `No user registry backup found for ${rollbackRegion}.` });
-    }
-
-    const backupUsers = JSON.parse(backup);
-    const backupUsernames = backupUsers.map(u => u.username);
-
-    // Only this region's accounts are considered. Rollback deletes anything
-    // added since the backup, so looking wider would delete other regions'
-    // users — the one mistake here that cannot be undone.
-    const currentUsersRes = await pool.query(
-      'SELECT username, role FROM users WHERE region = $1', [rollbackRegion]
-    );
-
-    const toDelete = currentUsersRes.rows.filter(
-      u => !backupUsernames.includes(u.username) && !['ADMIN', 'SUPERADMIN'].includes(u.role)
-    );
-
-    // One connection for the whole restore: deleting the imported users and
-    // putting the previous ones back has to succeed or fail as a unit.
-    await withTransaction(async (client) => {
-      if (toDelete.length > 0) {
-        const usernamesToDelete = toDelete.map(u => u.username);
-        await client.query('DELETE FROM users WHERE username = ANY($1)', [usernamesToDelete]);
-      }
-
-      for (const u of backupUsers) {
-        await client.query(
-          `INSERT INTO users (username, name, role, region, email, email2, email3, mobile, password_hash, energy_category, locked, failed_attempts, preferred_landing, bypass_2fa, can_upload_cycle_data, wbes_acronym)
-           VALUES ($1, $2, $3, $16, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
-           ON CONFLICT (username) DO UPDATE SET
-             name = $2, role = $3, region = $16, email = $4, email2 = $5, email3 = $6, mobile = $7, password_hash = $8, energy_category = $9, locked = $10, failed_attempts = $11, preferred_landing = $12, bypass_2fa = $13, can_upload_cycle_data = $14, wbes_acronym = $15`,
-          [
-            u.username, u.name, u.role, u.email, u.email2, u.email3, u.mobile, u.password_hash, u.energy_category,
-            u.locked, u.failed_attempts, u.preferred_landing, u.bypass_2fa, u.can_upload_cycle_data || false, u.wbes_acronym || '',
-            u.region || rollbackRegion
-          ]
-        );
-      }
-
-      await client.query("DELETE FROM config WHERE key = 'last_users_backup' AND region = $1", [rollbackRegion]);
-    });
-
-    await logEvent('success', `Rolled back the ${rollbackRegion} user registry. ${toDelete.length} account(s) added since the backup were removed.`);
-    
-    const allUsers = await pool.query(
-      `SELECT id, username, name, role, region, email, email2, email3, mobile, energy_category,
-              locked, failed_attempts, preferred_landing, bypass_2fa, can_upload_cycle_data,
-              wbes_acronym, qca_name
-         FROM users WHERE region = $1 ORDER BY id ASC`, [rollbackRegion]);
-    res.json({ success: true, message: 'Rollback complete. Restored registry to previous state.', users: allUsers.rows });
-  } catch (err) {
-    console.error('[USERS ROLLBACK]', err);
-    res.status(500).json({ error: 'Failed to restore user registry: ' + err.message });
-  }
-});
-
 // PATCH /api/users/:username — Admin update user details (with custom password option)
 router.patch('/:username', requireAdmin, requireSameRegion(), async (req, res) => {
   const { username } = req.params;
@@ -847,6 +688,138 @@ router.get('/wbes-entities', async (req, res) => {
   } catch (err) {
     console.error('[WBES ENTITIES GET]', err);
     res.status(500).json({ error: 'Failed to fetch plant list.' });
+  }
+});
+
+// POST /api/users/wbes-entities — register one WBES acronym.
+//
+// The plant register used to grow only as a side effect of creating a user.
+// Now that users self-register against acronyms that already exist, the
+// register is filled first: a region's administrator adds the acronyms their
+// stations will register against, one here or many through the bulk upload.
+// It belongs to one region — the administrator's own — and no account is
+// created with it.
+router.post('/wbes-entities', requireAdmin, async (req, res) => {
+  const region = regionForNewRow(req);
+  if (!region) {
+    return res.status(400).json({
+      error: 'Registering a WBES acronym belongs to one region. Sign in as that region’s administrator.',
+    });
+  }
+
+  const acronym = String(req.body.wbes_acronym || '').trim().toUpperCase();
+  const name = String(req.body.name || req.body.display_name || '').trim();
+
+  if (!WBES_ACRONYM_RULE.test(acronym)) {
+    return res.status(400).json({ error: 'The WBES acronym must be 1–50 characters: letters and digits, with dots, hyphens or underscores.' });
+  }
+  if (!name) return res.status(400).json({ error: 'Give the entity a display name.' });
+
+  try {
+    const clash = await pool.query('SELECT region FROM wbes_entities WHERE UPPER(wbes_acronym) = $1', [acronym]);
+    if (clash.rows.length > 0) {
+      return res.status(409).json({ error: `WBES acronym "${acronym}" is already registered (${clash.rows[0].region}).` });
+    }
+
+    // A WBES acronym carries no energy category of its own — a registering user
+    // states their own category. The column is stored at its neutral default.
+    const result = await pool.query(
+      `INSERT INTO wbes_entities (wbes_acronym, name, region)
+       VALUES ($1, $2, $3)
+       RETURNING wbes_acronym, name, region, created_at`,
+      [acronym, name, region]
+    );
+
+    await logEvent('success',
+      `WBES acronym ${acronym} ("${name}") registered by "${req.auth.username}".`, region);
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    if (err.code === '23505') {
+      return res.status(409).json({ error: `WBES acronym "${acronym}" is already registered.` });
+    }
+    console.error('[WBES ENTITY POST]', err);
+    res.status(500).json({ error: 'Failed to register the WBES acronym.' });
+  }
+});
+
+// POST /api/users/wbes-entities/bulk — register many WBES acronyms from a sheet.
+//
+// The file carries three columns — Display Name, WBES Acronym, Region — in any
+// order, matched by header name. Every row is scoped to the administrator's own
+// region: a row naming another region is skipped rather than obeyed, because a
+// bulk upload must not become a way to plant an acronym in a region you do not
+// run. An acronym has no energy category of its own; a registering user states
+// their own, so the register only records the name, the acronym and the region.
+router.post('/wbes-entities/bulk', requireAdmin, handleSheetUploadErrors(sheetUpload.single('file')), async (req, res) => {
+  const cleanup = () => { try { if (req.file?.path) fs.unlinkSync(req.file.path); } catch { /* already gone */ } };
+
+  const region = regionForNewRow(req);
+  if (!region) {
+    cleanup();
+    return res.status(400).json({
+      error: 'A bulk WBES upload belongs to one region. Sign in as that region’s administrator.',
+    });
+  }
+  if (!req.file) return res.status(400).json({ error: 'Please upload an .xlsx file.' });
+
+  try {
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.readFile(req.file.path);
+    const ws = workbook.worksheets[0];
+    if (!ws || ws.rowCount < 2) {
+      cleanup();
+      return res.status(400).json({ error: 'The sheet has no data rows.' });
+    }
+
+    // Locate the columns by header (row 1), tolerant to order and casing.
+    const headers = [];
+    ws.getRow(1).eachCell((cell, col) => { headers[col] = String(cell.value ?? '').trim().toLowerCase(); });
+    const findCol = (needles) => headers.findIndex(h => h && needles.some(n => h.includes(n)));
+    const nameCol = findCol(['display name', 'name']);
+    const acrCol  = findCol(['wbes', 'acronym']);
+    const regCol  = findCol(['region', 'rldc']);
+    if (nameCol === -1 || acrCol === -1 || regCol === -1) {
+      cleanup();
+      return res.status(400).json({ error: 'The file needs Display Name, WBES Acronym and Region columns.' });
+    }
+
+    const text = (row, col) => {
+      const v = row.getCell(col).value;
+      if (v && typeof v === 'object' && 'text' in v) return String(v.text).trim(); // rich text / hyperlink
+      return String(v ?? '').trim();
+    };
+
+    let imported = 0;
+    const skipped = [];   // one human-readable line per row not imported
+
+    for (let r = 2; r <= ws.rowCount; r++) {
+      const row = ws.getRow(r);
+      const name = text(row, nameCol);
+      const acronym = text(row, acrCol).toUpperCase();
+      const rowRegion = text(row, regCol).toUpperCase();
+      if (!name && !acronym && !rowRegion) continue;   // genuinely blank row
+
+      if (!WBES_ACRONYM_RULE.test(acronym)) { skipped.push(`Row ${r}: invalid acronym “${acronym || '(blank)'}”.`); continue; }
+      if (!name) { skipped.push(`Row ${r}: ${acronym} has no display name.`); continue; }
+      if (rowRegion !== region) { skipped.push(`Row ${r}: ${acronym} is for ${rowRegion || '(blank)'}, not ${region}.`); continue; }
+
+      const ins = await pool.query(
+        `INSERT INTO wbes_entities (wbes_acronym, name, region)
+         VALUES ($1, $2, $3) ON CONFLICT (wbes_acronym) DO NOTHING`,
+        [acronym, name, region]
+      );
+      if (ins.rowCount > 0) imported++;
+      else skipped.push(`Row ${r}: ${acronym} is already registered.`);
+    }
+
+    cleanup();
+    await logEvent('success',
+      `WBES bulk upload by "${req.auth.username}": ${imported} added, ${skipped.length} skipped.`, region);
+    res.json({ importedCount: imported, skippedCount: skipped.length, skipped: skipped.slice(0, 100) });
+  } catch (err) {
+    cleanup();
+    console.error('[WBES BULK]', err);
+    res.status(500).json({ error: 'Failed to process the WBES upload: ' + err.message });
   }
 });
 

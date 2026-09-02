@@ -44,6 +44,22 @@ const corsOrigins = (process.env.CORS_ORIGINS || '')
 const devOrigins = ['http://localhost:5173', 'http://localhost:5174', 'http://localhost:5175'];
 const allowedOrigins = corsOrigins.length > 0 ? corsOrigins : (IS_PRODUCTION ? [] : devOrigins);
 
+// Is this deployment actually reached over HTTPS? Being in production mode is
+// not the same question: the app runs in production mode over plain HTTP on a
+// developer's machine and, until TLS is terminated in front of it, on the
+// server too.
+//
+// It matters because HSTS and upgrade-insecure-requests are not inert over
+// HTTP — they are sticky instructions to never speak HTTP to this host again.
+// Chrome hard-codes an exemption for localhost and ignores them; Safari does
+// not, so it upgrades http://localhost:PORT to https://, finds nothing
+// listening, and the app never loads. Worse, HSTS is stored per host and
+// ignores the port, so one such response makes Safari refuse *every* plain
+// HTTP localhost project on that machine until its HSTS entry is cleared.
+//
+// Set BEHIND_TLS=true once TLS is terminated in front of this process.
+const BEHIND_TLS = process.env.BEHIND_TLS === 'true';
+
 app.use(helmet({
   // The built frontend is plain static assets served from this origin; the
   // default CSP would block its own stylesheet and Google Fonts.
@@ -57,11 +73,12 @@ app.use(helmet({
       connectSrc: ["'self'"],
       objectSrc: ["'none'"],
       frameAncestors: ["'none'"],
+      // helmet sets this by default. Asking a browser to upgrade requests to
+      // a scheme this deployment does not answer on just breaks it.
+      upgradeInsecureRequests: BEHIND_TLS ? [] : null,
     },
   } : false,
-  // Only meaningful over HTTPS; harmless otherwise, and a reminder to
-  // terminate TLS in front of this.
-  hsts: IS_PRODUCTION,
+  hsts: IS_PRODUCTION && BEHIND_TLS,
 }));
 
 app.use(cors({
@@ -309,6 +326,7 @@ async function start() {
     console.log('');
     console.log('  NRLDC Schedule Discrepancy Portal — backend');
     console.log(`  mode        : ${IS_PRODUCTION ? 'production' : 'development'}`);
+    console.log(`  transport   : ${BEHIND_TLS ? 'behind TLS (HSTS on)' : 'plain HTTP (HSTS off)'}`);
     console.log(`  listening   : http://localhost:${PORT}`);
     console.log(`  database    : ${process.env.PGHOST}:${process.env.PGPORT}/${process.env.PGDATABASE}`);
     console.log(`  frontend    : ${hasBuild ? `served from ${path.relative(process.cwd(), distDir)}` : 'not built (use the Vite dev server)'}`);

@@ -57,6 +57,11 @@
   --danger-strong: #b91c1c;
   --success-text: #0f766e;
   --link-text: #1d4ed8;
+  /* Entity-category accents: purple = ISGS+RE ("both"), indigo = admin,
+     emerald = States. Light values, for the pale tint over a light surface. */
+  --cat-both: #6d28d9;
+  --cat-admin: #4f46e5;
+  --cat-states: #047857;
   --surface-subtle: #f8fafc;
 
   /* ── Surfaces that were written as literals ──────────────────────────────
@@ -160,6 +165,9 @@
     --danger-strong: #fca5a5;
     --success-text: #2dd4bf;
     --link-text: #93c5fd;
+    --cat-both: #c4b5fd;
+    --cat-admin: #a5b4fc;
+    --cat-states: #6ee7b7;
     --surface-subtle: #212c3a;
 
     /* Surface hierarchy, darkest to lightest: page → card → input/row.
@@ -254,6 +262,9 @@
   --danger-strong: #fca5a5;
   --success-text: #2dd4bf;
   --link-text: #93c5fd;
+  --cat-both: #c4b5fd;
+  --cat-admin: #a5b4fc;
+  --cat-states: #6ee7b7;
   --surface-subtle: #212c3a;
 
   /* Surface hierarchy, darkest to lightest: page → card → input/row.
@@ -461,10 +472,10 @@ button {
 .meta-item.working-date-meta {
   background: rgba(59, 130, 246, 0.04);
   border-color: rgba(59, 130, 246, 0.12);
-  color: #1e4ed8;
+  color: var(--link-text);
 }
 .meta-item.working-date-meta .meta-icon {
-  color: #2563eb;
+  color: var(--accent-blue);
 }
 
 .meta-item.rev-block-meta {
@@ -473,7 +484,7 @@ button {
   color: var(--success-text);
 }
 .meta-item.rev-block-meta .meta-icon {
-  color: #0d9488;
+  color: var(--accent-teal);
 }
 
 .meta-item.server-time-meta {
@@ -752,12 +763,27 @@ button {
   font-weight: 500;
 }
 
+/* Truncating a cell to a few lines.
+   This must go on an element inside the <td>, never on the cell itself:
+   display:-webkit-box replaces the cell's table-cell layout, and Safari
+   honours that on a <td> where Chrome quietly keeps the cell intact. The
+   result is a row whose text detaches from its own column. */
+.clamp-3 {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: normal;
+}
+
 /* Custom Table Row Tints based on discrepancy status */
 .custom-table tr.status-resolved td {
   background-color: var(--row-resolved) !important;
 }
 .custom-table tr.status-resolved:hover td {
-  background-color: #dcfce7 !important;
+  background-color: var(--row-resolved-hover) !important;
 }
 
 .custom-table tr.status-returned td {
@@ -806,10 +832,10 @@ button {
   border-left: 4px solid var(--link-text);
 }
 .custom-table tr.both td:first-child {
-  border-left: 4px solid #6d28d9;
+  border-left: 4px solid var(--cat-both);
 }
 .custom-table tr.States td:first-child {
-  border-left: 4px solid #059669;
+  border-left: 4px solid var(--cat-states);
 }
 .custom-table tr.QCA td:first-child {
   border-left: 4px solid var(--warn-strong);
@@ -892,17 +918,17 @@ button {
 
 .energy-badge.both {
   background: rgba(109, 40, 217, 0.08);
-  color: #6d28d9;
+  color: var(--cat-both);
 }
 
 .energy-badge.admin {
   background: rgba(79, 70, 229, 0.08);
-  color: #4f46e5;
+  color: var(--cat-admin);
 }
 
 .energy-badge.States {
   background: rgba(16, 185, 129, 0.08);
-  color: #059669;
+  color: var(--cat-states);
 }
 
 .energy-badge.QCA {
@@ -979,7 +1005,7 @@ button {
 
 .form-control:disabled {
   background: var(--input-disabled-bg);
-  color: #64748b;
+  color: var(--text-muted);
   cursor: not-allowed;
 }
 
@@ -1029,7 +1055,7 @@ button {
 }
 .btn-danger:hover:not(:disabled) {
   background: var(--btn-danger-hover);
-  color: #991b1b;
+  color: var(--danger-strong);
 }
 
 .btn:disabled {
@@ -1120,13 +1146,13 @@ button {
 }
 
 .log-item.info {
-  border-color: #3b82f6;
-  color: #93c5fd;
+  border-color: var(--accent-blue);
+  color: var(--link-text);
 }
 
 .log-item.success {
-  border-color: #10b981;
-  color: #6ee7b7;
+  border-color: var(--success-text);
+  color: var(--success-text);
 }
 
 .log-item.warn {
@@ -1224,7 +1250,7 @@ button {
   color: var(--danger-text);
 }
 .lock-icon-btn.unlocked {
-  color: #10b981;
+  color: var(--success-text);
 }
 
 /* Utility layout blocks */
