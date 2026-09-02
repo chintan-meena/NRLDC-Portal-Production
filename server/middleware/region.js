@@ -71,6 +71,26 @@ function scopeToRegion(req, column, conditions, params) {
 }
 
 /**
+ * As scopeToRegion, but also admits rows the region is a party to.
+ *
+ * Only discrepancies have such rows, and only trades: an inter-regional trade
+ * is listed by the buyer's region and the seller's alike, because the seller
+ * has to read what it is being asked to consent to and the buyer has to finish
+ * it afterwards. `columns` are OR-ed against the same single region parameter.
+ *
+ * On every ordinary filing the extra columns are NULL, so this admits exactly
+ * the same rows scopeToRegion would.
+ */
+function scopeToRegionOrParty(req, columns, conditions, params) {
+  const region = regionScope(req);
+  if (!region) return null;
+  params.push(region);
+  const n = params.length;
+  conditions.push(`(${columns.map(c => `${c} = $${n}`).join(' OR ')})`);
+  return region;
+}
+
+/**
  * As scopeToRegion, but also admits rows belonging to no region at all.
  *
  * Only the system log has those — a failed login for a username that does not
@@ -218,6 +238,7 @@ function requireSameRegion(param = 'username') {
 }
 
 module.exports = {
+  scopeToRegionOrParty,
   get REGIONS() { return regionCodes(); },
   requireSameRegion,
   GLOBAL_REGION,

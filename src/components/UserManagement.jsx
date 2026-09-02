@@ -706,6 +706,7 @@ HARYANA_UTILITY,usr_HARYANA,scheduling@haryana.gov.in,States,HARYANA`);
                                   <option value="ISGS">{categoryLabel('ISGS')}</option>
                                   <option value="RE">RE — Renewable Energy</option>
                                   <option value="States">States</option>
+                  <option value="Traders">Traders</option>
                                 </select>
                                 {reviewDraft.role === 'QCA' ? (
                                   <span className="settings-field-hint">A QCA coordinates RE plants, so the category is fixed.</span>
@@ -1037,6 +1038,7 @@ HARYANA_UTILITY,usr_HARYANA,scheduling@haryana.gov.in,States,HARYANA`);
                   <option value="ISGS">{categoryLabel('ISGS')}</option>
                   <option value="RE">{categoryLabel('RE')}</option>
                   <option value="States">States</option>
+                  <option value="Traders">Traders</option>
                   {/* A QCA account is always Renewable Energy — see the QCA/RE rule. */}
                   <option value="QCA">QCA (Renewable Energy)</option>
                 </select>
@@ -1343,6 +1345,7 @@ HARYANA_UTILITY,usr_HARYANA,scheduling@haryana.gov.in,States,HARYANA`);
                   <option value="ISGS">{categoryLabel('ISGS')}</option>
                   <option value="RE">{categoryLabel('RE')}</option>
                   <option value="States">States</option>
+                  <option value="Traders">Traders</option>
                   {/* A QCA account is always Renewable Energy — see the QCA/RE rule. */}
                   <option value="QCA">QCA (Renewable Energy)</option>
                 </select>

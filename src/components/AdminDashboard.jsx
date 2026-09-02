@@ -17,11 +17,13 @@ import { isNational, regionLabel } from '../utils/regions';
 import ConfirmDialog from './ConfirmDialog';
 import { Banner, EmptyState, SkeletonRows } from './Feedback';
 import { categoryLabel, categoryShort } from '../utils/categories';
+import ConsentPanel from './ConsentPanel';
+import { isTrade, consentBadge } from '../utils/trade';
 import { useFeedback } from '../hooks/useFeedback';
 import { useModalDismiss } from '../hooks/useModalDismiss';
 import { originalFilename } from '../utils/filenames';
 import { FILTERABLE_TYPES } from '../utils/discrepancyTypes';
-import { formatDateDMY, formatDateDMYHM, getStatusPriority, todayISO, daysAgoISO, shiftDaysISO, nowDatetimeLocal } from '../utils/format';
+import { formatDateDMY, formatDateDMYHM, getStatusPriority, statusClass, todayISO, daysAgoISO, shiftDaysISO, nowDatetimeLocal } from '../utils/format';
 import { fyWeekRange, fyWeekForDate, fyForDate, weeksInFY, fyLabel } from '../utils/financialYear';
 
 
@@ -867,6 +869,7 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
                 <label htmlFor="ad-status-filter">Status</label>
                 <select id="ad-status-filter" className="form-control" value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setCurrentPage(1); }}>
                   <option value="ALL">All Statuses</option>
+                  <option value="Awaiting Consent">Awaiting Consent</option>
                   <option value="Pending">Pending</option>
                   <option value="Returned">Returned</option>
                   <option value="Resolved">Resolved</option>
@@ -967,10 +970,25 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
                         ) : <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>None</span>}
                       </td>
                       <td onClick={() => handleOpenActionModal(req, 'view')}>
-                        <span className={`status-badge ${req.status.toLowerCase()}`}>{req.status}</span>
+                        <span className={`status-badge ${statusClass(req.status)}`}>{req.status}</span>
+                        {/* Where a trade has got to, without opening it. A row
+                            reading "Pending" tells this region nothing about
+                            whether the other one has answered yet. */}
+                        {consentBadge(req) && (
+                          <span className={`status-badge ${consentBadge(req).tone}`}
+                            style={{ marginTop: '3px', display: 'inline-flex', fontSize: '0.68rem' }}>
+                            {consentBadge(req).text}
+                          </span>
+                        )}
                       </td>
                       <td>
-                        {req.status === 'Pending' ? (
+                        {/* A consented trade is the buyer's to fix. The seller
+                            sees Details, not the three action buttons. */}
+                        {req.status === 'Pending' && (
+                          !isTrade(req) || !req.consent_state
+                          || currentUser.role === 'SUPERADMIN'
+                          || currentUser.region === req.buyer_region
+                        ) ? (
                           <div style={{ display: 'flex', gap: '6px' }}>
                             <button className="btn btn-teal" style={{ padding: '4px 8px', fontSize: '0.75rem' }} onClick={(e) => { e.stopPropagation(); handleOpenActionModal(req, 'resolve'); }}>Resolve</button>
                             <button className="btn btn-warning" style={{ padding: '4px 8px', fontSize: '0.75rem', background: 'var(--warn-strong)', color: 'var(--on-accent)' }} onClick={(e) => { e.stopPropagation(); handleOpenActionModal(req, 'return'); }}>Return</button>
@@ -1620,8 +1638,17 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
                 <div><span style={{ color: 'var(--text-secondary)' }}>Request Date:</span> {formatDateDMY(selectedRequest.request_date)}</div>
                 <div><span style={{ color: 'var(--text-secondary)' }}>Correction Date:</span> {formatDateDMY(selectedRequest.correction_for_date)}</div>
                 <div><span style={{ color: 'var(--text-secondary)' }}>Days Mismatch:</span> <strong style={{ color: selectedRequest.days_diff > config.maxDays ? 'var(--danger-text)' : 'var(--text-primary)' }}>{selectedRequest.days_diff} days</strong></div>
-                <div><span style={{ color: 'var(--text-secondary)' }}>Status:</span> <span className={`status-badge ${selectedRequest.status.toLowerCase()}`}>{selectedRequest.status}</span></div>
+                <div><span style={{ color: 'var(--text-secondary)' }}>Status:</span> <span className={`status-badge ${statusClass(selectedRequest.status)}`}>{selectedRequest.status}</span></div>
               </div>
+
+              {/* A trade is the first thing to read on one of these, because it
+                  decides whether this region can act at all. */}
+              <ConsentPanel
+                request={selectedRequest}
+                currentUser={currentUser}
+                notify={notify}
+                onDone={async () => { await loadData(); handleCloseModal(); }}
+              />
 
               <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '10px' }}>
                 <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', display: 'block', marginBottom: '4px' }}>Type of Discrepancy Tags:</span>
@@ -1818,7 +1845,17 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
                   </button>
                 </div>
                 <div style={{ display: 'flex', gap: '10px' }}>
+                  {/* On a consented trade the fix belongs to the buyer's region
+                      alone. The seller has already had its say, and offering it
+                      Resolve here would let it answer a question it was only
+                      asked to confirm. The server refuses it either way; not
+                      drawing the button is so nobody tries. */}
                   {selectedRequest.status === 'Pending' && (
+                    !isTrade(selectedRequest)
+                    || !selectedRequest.consent_state
+                    || currentUser.role === 'SUPERADMIN'
+                    || currentUser.region === selectedRequest.buyer_region
+                  ) && (
                     <>
                       <button className="btn btn-teal" onClick={() => setModalMode('resolve')}>Resolve</button>
                       <button className="btn btn-warning" style={{ background: 'var(--warn-strong)', color: 'var(--on-accent)' }} onClick={() => setModalMode('return')}>Return</button>

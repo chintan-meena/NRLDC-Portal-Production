@@ -18,6 +18,7 @@ export const CATEGORY_LABELS = {
   ISGS: 'Regional Entity',
   RE: 'Regional Entity (RE)',
   States: 'States',
+  Traders: 'Traders',
   QCA: 'QCA',
 };
 
@@ -29,6 +30,7 @@ export const CATEGORY_SHORT = {
   ISGS: 'Reg. Entity',
   RE: 'Reg. Entity (RE)',
   States: 'States',
+  Traders: 'Traders',
   QCA: 'QCA',
 };
 
@@ -42,5 +44,12 @@ export function categoryShort(value) {
   return CATEGORY_SHORT[value] ?? value ?? '';
 }
 
-/** The three filing categories, in the order they should be offered. */
-export const CATEGORIES = ['ISGS', 'RE', 'States'];
+/**
+ * The filing categories, in the order they should be offered.
+ *
+ * Traders sit alongside the others rather than under Regional Entity: a trader
+ * is not a generator and despatches nothing. What they file is a discrepancy
+ * in a *trade*, which is why theirs is the only category whose filing form
+ * asks who bought and who sold — see utils/trade.js.
+ */
+export const CATEGORIES = ['ISGS', 'RE', 'States', 'Traders'];

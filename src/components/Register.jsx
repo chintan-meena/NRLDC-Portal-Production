@@ -207,6 +207,7 @@ export default function Register({ onBackToLogin }) {
                   <option value="ISGS">{categoryLabel('ISGS')}</option>
                   <option value="RE">{categoryLabel('RE')} — Renewable Energy</option>
                   <option value="States">States</option>
+                  <option value="Traders">Traders</option>
                 </select>
               </div>
             )}

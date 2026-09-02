@@ -9,7 +9,10 @@
  * Creating a region and giving it its first administrator happen together, in
  * one transaction. A region with no administrator is a region nobody can
  * manage — the national account cannot create its users either — so the two
- * are not allowed to come apart.
+ * are not allowed to come apart. Regions that predate that rule, or that lose
+ * their last administrator, are repaired through POST /:acronym/admins: the
+ * national account is the only one that can reach into a region it cannot
+ * otherwise see.
  */
 
 const express = require('express');
@@ -182,6 +185,88 @@ router.patch('/:acronym', async (req, res) => {
   } catch (err) {
     console.error('[REGIONS PATCH]', err);
     res.status(500).json({ error: 'Failed to update the region.' });
+  }
+});
+
+// POST /api/regions/:acronym/admins — give an existing region an administrator.
+//
+// Region creation makes the first one, but a region can still end up with
+// none: created before that rule existed, seeded straight into the database,
+// or its only administrator deleted. Such a region is stuck — nobody inside it
+// can sign in, and users are only ever created regionally — and the national
+// account is the only one that can reach in. That is what this is for.
+//
+// It also serves the ordinary case of a second administrator, or a
+// replacement at handover.
+//
+// Deliberately not the general user-creation route: an administrator has no
+// WBES acronym (that names a plant, not a person), and that route requires
+// one.
+router.post('/:acronym/admins', async (req, res) => {
+  const code = String(req.params.acronym || '').trim().toUpperCase();
+  const { adminUsername, adminName, adminEmail, adminPassword } = req.body || {};
+
+  if (!adminName || !String(adminName).trim() || !adminEmail || !String(adminEmail).trim()) {
+    return res.status(400).json({ error: 'An administrator needs a name and an email address.' });
+  }
+
+  const username = usernameForRegion(adminUsername || 'admin', code);
+  if (!username) {
+    return res.status(400).json({ error: 'That username cannot be used. Use letters, digits, dots or hyphens.' });
+  }
+
+  const password = adminPassword && String(adminPassword).trim() ? String(adminPassword) : DEFAULT_PASSWORD;
+  const passwordError = validatePassword(password);
+  if (passwordError) return res.status(400).json({ error: passwordError });
+
+  try {
+    // Checked against the table, not the cache: creating an account somewhere
+    // is a place where being stale is worse than being slow.
+    if (!(await regionExists(code))) {
+      return res.status(404).json({ error: `There is no active region "${code}".` });
+    }
+
+    const outcome = await withTransaction(async (client) => {
+      const clash = await client.query(
+        `SELECT (SELECT count(*) FROM users WHERE LOWER(username) = LOWER($1)) AS username_taken,
+                (SELECT count(*) FROM users WHERE LOWER(email) = LOWER($2))    AS email_taken`,
+        [username, String(adminEmail).trim()]
+      );
+      const c = clash.rows[0];
+      if (Number(c.username_taken) > 0) {
+        return { status: 409, body: { error: `The username "${username}" is already taken.` } };
+      }
+      if (Number(c.email_taken) > 0) {
+        return { status: 409, body: { error: `"${String(adminEmail).trim()}" already belongs to an account.` } };
+      }
+
+      const hash = await bcrypt.hash(password, HASH_ROUNDS);
+      await client.query(
+        `INSERT INTO users (username, name, role, region, email, password_hash, energy_category,
+                            locked, failed_attempts, bypass_2fa, can_upload_cycle_data, wbes_acronym)
+         VALUES ($1, $2, 'ADMIN', $3, $4, $5, 'ISGS', FALSE, 0, FALSE, FALSE, '')`,
+        [username, String(adminName).trim(), code, String(adminEmail).trim(), hash]
+      );
+
+      return { status: 201, username };
+    });
+
+    if (outcome.status !== 201) return res.status(outcome.status).json(outcome.body);
+
+    await logEvent('success',
+      `National admin "${req.auth.username}" created administrator "${outcome.username}" for region ${code}.`,
+      code);
+
+    res.status(201).json({
+      success: true,
+      acronym: code,
+      administrator: outcome.username,
+      usedDefaultPassword: password === DEFAULT_PASSWORD,
+      message: `"${outcome.username}" now administers ${code} and can sign in to add the region's users.`,
+    });
+  } catch (err) {
+    console.error('[REGION ADMIN POST]', err);
+    res.status(500).json({ error: 'Failed to create the administrator.' });
   }
 });
 

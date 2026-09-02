@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { getRegions, createRegion, updateRegion, getRegionUsers, toggleUserLock } from '../services/db';
+import { getRegions, createRegion, updateRegion, getRegionUsers, toggleUserLock, addRegionAdmin } from '../services/db';
 import { DEFAULT_PASSWORD } from '../utils/password';
 import { Banner, EmptyState, SkeletonRows } from './Feedback';
 import { useFeedback } from '../hooks/useFeedback';
 import ConfirmDialog from './ConfirmDialog';
-import { Globe2, Plus, Users, ShieldCheck, X, Pause, Play, Unlock, Lock } from 'lucide-react';
+import { Globe2, Plus, Users, ShieldCheck, X, Pause, Play, Unlock, Lock, UserPlus, AlertTriangle } from 'lucide-react';
 import { formatDateDMY } from '../utils/format';
 
 /**
@@ -35,6 +35,12 @@ export default function NationalAdmin({ currentUser }) {
   const [openRegion, setOpenRegion] = useState(null);
   const [regionUsers, setRegionUsers] = useState([]);
   const [usersLoading, setUsersLoading] = useState(false);
+
+  // The region being given an administrator, and the form for it.
+  const [adminFor, setAdminFor] = useState(null);
+  const [newAdmin, setNewAdmin] = useState({ username: 'admin', name: '', email: '' });
+  const [adminError, setAdminError] = useState('');
+  const [addingAdmin, setAddingAdmin] = useState(false);
 
   async function load() {
     setLoadError('');
@@ -130,8 +136,48 @@ export default function NationalAdmin({ currentUser }) {
     });
   };
 
+  /**
+   * Open — or close — the form that gives a region an administrator.
+   *
+   * A region with none is stuck: its users can only be created from inside it,
+   * and nobody can sign in. This account is the only one that can reach in.
+   */
+  const openAdminForm = (acronym) => {
+    setAdminError('');
+    if (adminFor === acronym) { setAdminFor(null); return; }
+    setNewAdmin({ username: 'admin', name: '', email: '' });
+    setAdminFor(acronym);
+    setOpenRegion(null);
+  };
+
+  const handleAddAdmin = async (e, acronym) => {
+    e.preventDefault();
+    setAdminError('');
+    if (!newAdmin.name.trim() || !newAdmin.email.trim()) {
+      setAdminError('An administrator needs a name and an email address.');
+      return;
+    }
+    setAddingAdmin(true);
+    try {
+      const res = await addRegionAdmin(acronym, {
+        adminUsername: newAdmin.username.trim(),
+        adminName: newAdmin.name.trim(),
+        adminEmail: newAdmin.email.trim(),
+      });
+      setAdminFor(null);
+      await load();
+      notify('success', res.message + (res.usedDefaultPassword
+        ? ` They sign in with the default password "${DEFAULT_PASSWORD}" and should change it.` : ''));
+    } catch (err) {
+      setAdminError(err.message || 'Could not create the administrator.');
+    } finally {
+      setAddingAdmin(false);
+    }
+  };
+
   const handleViewUsers = async (region) => {
     if (openRegion === region.acronym) { setOpenRegion(null); return; }
+    setAdminFor(null);
     setOpenRegion(region.acronym);
     setUsersLoading(true);
     try {
@@ -143,6 +189,9 @@ export default function NationalAdmin({ currentUser }) {
       setUsersLoading(false);
     }
   };
+
+  // Regions nobody can sign in to. The acute case this page has to surface.
+  const unmanaged = regions.filter(r => !r.administrators);
 
   const totals = regions.reduce((acc, r) => ({
     users: acc.users + (r.user_count || 0),
@@ -178,6 +227,32 @@ export default function NationalAdmin({ currentUser }) {
           <div><strong>{totals.admins}</strong><span>administrator{totals.admins === 1 ? '' : 's'}</span></div>
           <div><strong>{totals.users}</strong><span>users</span></div>
           <div><strong>{totals.discrepancies.toLocaleString()}</strong><span>discrepancies</span></div>
+        </div>
+      )}
+
+      {unmanaged.length > 0 && (
+        <div className="locked-admins unmanaged-regions">
+          <AlertTriangle size={16} />
+          <div>
+            <strong>
+              {unmanaged.length} region{unmanaged.length === 1 ? ' has' : 's have'} no administrator
+            </strong>
+            <p>
+              Nobody can sign in to {unmanaged.length === 1 ? 'it' : 'them'}, and a region’s users
+              are only ever created from inside it — so {unmanaged.length === 1 ? 'it' : 'they'} cannot
+              be fixed from within. Give {unmanaged.length === 1 ? 'it' : 'each'} an administrator to open
+              {unmanaged.length === 1 ? ' it' : ' them'} up.
+            </p>
+            <div className="locked-admin-list">
+              {unmanaged.map(r => (
+                <button key={r.acronym} type="button" className="btn btn-secondary"
+                  onClick={() => openAdminForm(r.acronym)}>
+                  <UserPlus size={13} /> Add administrator
+                  <span className="region-badge">{r.acronym}</span>
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
       )}
 
@@ -311,6 +386,15 @@ export default function NationalAdmin({ currentUser }) {
                         onClick={() => handleViewUsers(r)}>
                         <Users size={13} /> {openRegion === r.acronym ? 'Hide' : 'View users'}
                       </button>
+                      <button type="button"
+                        className={`btn ${r.administrators ? 'btn-secondary' : 'btn-primary'}`}
+                        style={{ fontSize: '0.72rem', padding: '4px 9px' }}
+                        onClick={() => openAdminForm(r.acronym)}
+                        title={r.administrators
+                          ? `Add another administrator to ${r.acronym}`
+                          : `${r.acronym} has no administrator — nobody can sign in to it`}>
+                        <UserPlus size={13} /> {adminFor === r.acronym ? 'Cancel' : 'Add admin'}
+                      </button>
                       <button type="button" className="btn btn-secondary" style={{ fontSize: '0.72rem', padding: '4px 9px' }}
                         onClick={() => handleToggleStatus(r)}
                         title={r.status === 'Active' ? 'Suspend this region' : 'Reactivate this region'}>
@@ -319,6 +403,65 @@ export default function NationalAdmin({ currentUser }) {
                     </div>
                   </td>
                 </tr>
+
+                {adminFor === r.acronym && (
+                  <tr className="review-row">
+                    <td colSpan="8">
+                      <div className="review-panel">
+                        <div className="review-panel-head">
+                          <h4>Give {r.acronym} an administrator</h4>
+                          <p>
+                            {r.administrators
+                              ? `${r.acronym} already has ${r.administrators}. A second administrator shares the same powers within the region.`
+                              : `${r.acronym} has nobody who can sign in. Its administrator runs the region from here on — this page does not create its users.`}
+                          </p>
+                        </div>
+                        <Banner type="error" message={adminError} />
+                        <form onSubmit={(e) => handleAddAdmin(e, r.acronym)}>
+                          <div className="review-grid">
+                            <div className="form-group">
+                              <label htmlFor={`na-au-${r.acronym}`}>Username</label>
+                              <input id={`na-au-${r.acronym}`} className="form-control mono"
+                                value={newAdmin.username}
+                                onChange={(e) => setNewAdmin(a => ({ ...a, username: e.target.value }))} />
+                              <span className="settings-field-hint">
+                                Will be created as{' '}
+                                <strong className="mono">
+                                  {`${(newAdmin.username || 'admin').trim().split('@')[0].toLowerCase() || 'admin'}@${r.acronym.toLowerCase()}`}
+                                </strong>
+                              </span>
+                            </div>
+                            <div className="form-group">
+                              <label htmlFor={`na-an-${r.acronym}`}>Name</label>
+                              <input id={`na-an-${r.acronym}`} className="form-control"
+                                value={newAdmin.name} placeholder="e.g. S. Kumar"
+                                onChange={(e) => setNewAdmin(a => ({ ...a, name: e.target.value }))} />
+                            </div>
+                            <div className="form-group">
+                              <label htmlFor={`na-ae-${r.acronym}`}>Email</label>
+                              <input id={`na-ae-${r.acronym}`} type="email" className="form-control"
+                                value={newAdmin.email} placeholder="name@example.in"
+                                onChange={(e) => setNewAdmin(a => ({ ...a, email: e.target.value }))} />
+                              <span className="settings-field-hint">
+                                They start on the default password{' '}
+                                <strong className="mono">{DEFAULT_PASSWORD}</strong> and are asked
+                                for an OTP at first sign-in.
+                              </span>
+                            </div>
+                          </div>
+                          <div style={{ display: 'flex', gap: '8px', marginTop: '14px' }}>
+                            <button type="submit" className="btn btn-primary" disabled={addingAdmin}>
+                              {addingAdmin ? 'Creating…' : `Create administrator for ${r.acronym}`}
+                            </button>
+                            <button type="button" className="btn btn-secondary" onClick={() => setAdminFor(null)}>
+                              Cancel
+                            </button>
+                          </div>
+                        </form>
+                      </div>
+                    </td>
+                  </tr>
+                )}
 
                 {openRegion === r.acronym && (
                   <tr className="review-row">

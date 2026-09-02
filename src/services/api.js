@@ -290,6 +290,30 @@ export const revokeTrustedDevices = async (username) => {
   return result;
 };
 
+// ─── Trades and consent ─────────────────────────────────────────────────────
+
+// Plant acronyms across every region. A trader naming the other side of a
+// trade needs entities their own centre does not despatch, which the
+// region-scoped register above deliberately will not return.
+export const searchWbesDirectory = async (search, region) => {
+  const q = new URLSearchParams({ search });
+  if (region) q.set('region', region);
+  return apiFetch(`/users/wbes-directory?${q.toString()}`);
+};
+
+// The seller's region answers: 'consent' or 'refuse'.
+export const decideConsent = async (reqNo, decision, remark) =>
+  apiFetch(`/discrepancies/${encodeURIComponent(reqNo)}/consent`, {
+    method: 'PATCH', body: { decision, remark },
+  });
+
+// The buyer's region writes down consent obtained off the portal. The remark
+// is mandatory — it is the only evidence the ticket will carry.
+export const recordOfflineConsent = async (reqNo, remark, files) =>
+  apiFetch(`/discrepancies/${encodeURIComponent(reqNo)}/offline-consent`, {
+    method: 'PATCH', body: { remark, files },
+  });
+
 // ─── Regions (national level) ────────────────────────────────────────────────
 
 export const getRegions = async () => apiFetch('/regions');
@@ -302,6 +326,11 @@ export const updateRegion = async (acronym, changes) =>
 
 export const getRegionUsers = async (acronym) =>
   apiFetch(`/regions/${encodeURIComponent(acronym)}/users`);
+
+// Give a region an administrator it does not have. National-level: a region
+// without one cannot create its own users, so nobody inside it can fix it.
+export const addRegionAdmin = async (acronym, payload) =>
+  apiFetch(`/regions/${encodeURIComponent(acronym)}/admins`, { method: 'POST', body: payload });
 
 export const getMailUsage = async () => {
   return apiFetch('/config/mail-usage');
@@ -358,10 +387,19 @@ export const getDiscrepancies = async (params = {}) => {
   return apiFetch(`/discrepancies${query}`);
 };
 
-export const createDiscrepancy = async (username, correctionDate, timeBlocks, requestContent, discrepancyType, files, wbes_acronym = null) => {
+/**
+ * File a discrepancy.
+ *
+ * `trade` is for a Traders account only — { buyerRegion, sellerRegion,
+ * buyerAcronym, sellerAcronym } — and the server refuses it from anyone else
+ * rather than ignoring it. Passed as an object rather than four more
+ * positional arguments, which at this length would be unreadable at the call
+ * site and easy to transpose.
+ */
+export const createDiscrepancy = async (username, correctionDate, timeBlocks, requestContent, discrepancyType, files, wbes_acronym = null, trade = null) => {
   return apiFetch('/discrepancies', {
     method: 'POST',
-    body: { username, correctionDate, timeBlocks, requestContent, discrepancyType, files, wbes_acronym },
+    body: { username, correctionDate, timeBlocks, requestContent, discrepancyType, files, wbes_acronym, ...(trade || {}) },
   });
 };
 

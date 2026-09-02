@@ -29,6 +29,7 @@ const { previousDayString } = require('../utils/dates');
 const { DEFAULT_PASSWORD, validatePassword } = require('../utils/password');
 const { setSetting, getSetting } = require('../utils/settings');
 const { usernameForRegion } = require('../utils/usernames');
+const { FILING_CATEGORIES } = require('../utils/trade');
 const { sendMail, mailUsage } = require('../utils/mailer');
 const { forgetDevices, listDevices } = require('../auth/devices');
 
@@ -162,8 +163,7 @@ router.post('/', requireAdmin, async (req, res) => {
     return res.status(400).json({ error: 'That username cannot be used. Use letters, digits, dots or hyphens.' });
   }
 
-  const validCategories = ['ISGS', 'RE', 'States'];
-  const category = validCategories.includes(energy_category) ? energy_category : 'ISGS';
+  const category = FILING_CATEGORIES.includes(energy_category) ? energy_category : 'ISGS';
 
   // QCAs are RE-only — reject rather than silently rewriting the category.
   const qcaError = validateQcaCategory(role, category, qca_name);
@@ -475,10 +475,14 @@ router.post('/bulk-import', requireAdmin, async (req, res) => {
       const name     = cols[nameIdx] || username;
       const role     = 'USER';
 
-      // Enforce new categories: ISGS, RE, States
+      // The CSV column is free text, so it is matched rather than compared.
+      // Order matters: "trader" contains "re", so it has to be tested first or
+      // every trader in the file would import as a renewable generator.
       const rawCat   = (cols[categoryIdx] || 'isgs').toLowerCase();
       let energy_category = 'ISGS';
-      if (rawCat.includes('re') || rawCat.includes('renewable')) {
+      if (rawCat.includes('trad')) {
+        energy_category = 'Traders';
+      } else if (rawCat.includes('re') || rawCat.includes('renewable')) {
         energy_category = 'RE';
       } else if (rawCat.includes('state')) {
         energy_category = 'States';
@@ -661,8 +665,8 @@ router.patch('/:username', requireAdmin, requireSameRegion(), async (req, res) =
       values.push(role);
     }
     if (energy_category !== undefined) {
-      if (!['ISGS', 'RE', 'States'].includes(energy_category)) {
-        return res.status(400).json({ error: 'Invalid energy category. Choose ISGS, RE, or States.' });
+      if (!FILING_CATEGORIES.includes(energy_category)) {
+        return res.status(400).json({ error: `Invalid energy category. Choose one of: ${FILING_CATEGORIES.join(', ')}.` });
       }
       updates.push(`energy_category = $${idx++}`);
       values.push(energy_category);
@@ -731,6 +735,62 @@ router.patch('/:username', requireAdmin, requireSameRegion(), async (req, res) =
   } catch (err) {
     console.error('[USERS PATCH ADMIN]', err);
     res.status(500).json({ error: 'Failed to update user details.' });
+  }
+});
+
+// GET /api/users/wbes-directory — plant acronyms across every region.
+//
+// The region-scoped register below is right for a station: it picks from the
+// plants its own centre despatches and has no business seeing the rest. A
+// trader is the exception. Trading power out of NRLDC into ERLDC means naming
+// an ERLDC entity, and a lookup that stopped at the trader's own region would
+// make the buyer/seller fields unfillable.
+//
+// So this is deliberately the thinnest possible cross-region read: an acronym,
+// a name, a region and a category. No owner, no coordinator, no filing, no
+// count — nothing that would tell a trader anything about how another region
+// is running. Restricted to traders and administrators, and it requires a
+// search term, so it cannot be used to page out the national plant register.
+router.get('/wbes-directory', async (req, res) => {
+  const { search, region } = req.query;
+
+  const mayLookUp = isAdmin(req) || req.auth.energy_category === 'Traders';
+  if (!mayLookUp) {
+    return res.status(403).json({ error: 'Only traders and administrators look up entities outside their own region.' });
+  }
+
+  const term = String(search || '').trim();
+  if (term.length < 2) {
+    return res.json([]);   // Not an error: an empty box is the normal state.
+  }
+
+  const params = [`%${term.toLowerCase()}%`];
+  const conditions = ['(LOWER(w.wbes_acronym) LIKE $1 OR LOWER(w.name) LIKE $1)'];
+
+  // Narrowing to one region is what the form does once a region is chosen, so
+  // the suggestions match the side of the trade being filled in.
+  if (region && String(region).trim()) {
+    params.push(String(region).trim().toUpperCase());
+    conditions.push(`w.region = $${params.length}`);
+  }
+
+  try {
+    const result = await pool.query(
+      `SELECT w.wbes_acronym, w.name, w.region, w.energy_category
+         FROM wbes_entities w
+        WHERE ${conditions.join(' AND ')}
+        ORDER BY
+          -- An exact acronym match is almost always the one being typed, so it
+          -- leads regardless of alphabetical order.
+          (LOWER(w.wbes_acronym) = $${params.length + 1}) DESC,
+          w.wbes_acronym ASC
+        LIMIT 25`,
+      [...params, term.toLowerCase()]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error('[WBES DIRECTORY GET]', err);
+    res.status(500).json({ error: 'Failed to search the entity register.' });
   }
 });
 
@@ -1273,8 +1333,8 @@ router.patch('/registrations/:id/process', requireAdmin, async (req, res) => {
       if (!['USER', 'QCA'].includes(final.role)) {
         return { status: 400, body: { error: 'Role must be USER or QCA.' } };
       }
-      if (!['ISGS', 'RE', 'States'].includes(final.energy_category)) {
-        return { status: 400, body: { error: 'Energy category must be ISGS, RE or States.' } };
+      if (!FILING_CATEGORIES.includes(final.energy_category)) {
+        return { status: 400, body: { error: `Energy category must be one of: ${FILING_CATEGORIES.join(', ')}.` } };
       }
       // The same QCA/RE rule the rest of the portal enforces — a correction
       // cannot be used to route around it.

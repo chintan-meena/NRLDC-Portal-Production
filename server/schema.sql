@@ -39,7 +39,7 @@ CREATE TABLE IF NOT EXISTS wbes_entities (
   -- A plant's energy category is a property of the plant itself, not of
   -- whichever user currently holds the acronym. QCA management is permitted
   -- for RE plants only, so this column is what that rule is enforced against.
-  energy_category VARCHAR(20) NOT NULL DEFAULT 'RE' CHECK (energy_category IN ('ISGS', 'RE', 'States')),
+  energy_category VARCHAR(20) NOT NULL DEFAULT 'RE' CHECK (energy_category IN ('ISGS', 'RE', 'States', 'Traders')),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -58,7 +58,7 @@ CREATE TABLE IF NOT EXISTS users (
   email3 VARCHAR(200),
   mobile VARCHAR(20),
   password_hash VARCHAR(200) NOT NULL,
-  energy_category VARCHAR(20) NOT NULL DEFAULT 'ISGS' CHECK (energy_category IN ('ISGS', 'RE', 'States')),
+  energy_category VARCHAR(20) NOT NULL DEFAULT 'ISGS' CHECK (energy_category IN ('ISGS', 'RE', 'States', 'Traders')),
   locked BOOLEAN NOT NULL DEFAULT FALSE,
   failed_attempts INTEGER NOT NULL DEFAULT 0,
   preferred_landing VARCHAR(20) DEFAULT 'both',
@@ -89,7 +89,7 @@ CREATE TABLE IF NOT EXISTS discrepancies (
   time_blocks TEXT NOT NULL,
   request_content TEXT NOT NULL,
   discrepancy_type TEXT,
-  status VARCHAR(20) NOT NULL DEFAULT 'Pending' CHECK (status IN ('Pending', 'Resolved', 'Rejected', 'Returned')),
+  status VARCHAR(20) NOT NULL DEFAULT 'Pending' CHECK (status IN ('Pending', 'Resolved', 'Rejected', 'Returned', 'Awaiting Consent')),
   energy_category VARCHAR(20) NOT NULL DEFAULT 'ISGS',
   files JSONB NOT NULL DEFAULT '[]',
   admin_comment TEXT NOT NULL DEFAULT '',
@@ -268,7 +268,7 @@ CREATE TABLE IF NOT EXISTS registration_requests (
   email VARCHAR(200) NOT NULL,
   mobile VARCHAR(20),
   password_hash VARCHAR(200) NOT NULL,
-  energy_category VARCHAR(20) NOT NULL CHECK (energy_category IN ('ISGS', 'RE', 'States')),
+  energy_category VARCHAR(20) NOT NULL CHECK (energy_category IN ('ISGS', 'RE', 'States', 'Traders')),
   wbes_acronym VARCHAR(50) NOT NULL,
   qca_name VARCHAR(100),
   status VARCHAR(20) NOT NULL DEFAULT 'Pending' CHECK (status IN ('Pending', 'Approved', 'Rejected')),
@@ -487,7 +487,7 @@ BEGIN
   ) THEN
     ALTER TABLE wbes_entities
       ADD CONSTRAINT wbes_entities_energy_category_check
-      CHECK (energy_category IN ('ISGS', 'RE', 'States'));
+      CHECK (energy_category IN ('ISGS', 'RE', 'States', 'Traders'));
   END IF;
 END $$;
 
@@ -638,3 +638,106 @@ INSERT INTO config (key, region, value) VALUES
   -- log entry rather than having the provider reject mail silently.
   ('mailDailyCap', 'GLOBAL', '280')
 ON CONFLICT (key, region) DO NOTHING;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Traders, and the inter-regional consent workflow.
+--
+-- A trader buys power in one region and sells it in another, so a discrepancy
+-- they raise is not one region's business alone: the region that has to change
+-- a schedule is not always the region that can confirm the trade happened.
+-- That is what the consent step is for, and it is the first thing in this
+-- portal that two regions touch.
+--
+-- The columns below are all nullable and all unused by an ordinary filing. A
+-- discrepancy raised by a station carries NULL in every one of them and moves
+-- through exactly the states it always did.
+-- ─────────────────────────────────────────────────────────────────────────────
+
+-- Existing databases: widen the category constraints in place. Dropping and
+-- re-adding is the only way to change a CHECK, and it is safe here because the
+-- new set is a superset of the old — no existing row can fail it.
+DO $$
+DECLARE
+  t TEXT;
+  c TEXT;
+BEGIN
+  FOREACH t IN ARRAY ARRAY['users', 'wbes_entities', 'registration_requests'] LOOP
+    c := t || '_energy_category_check';
+    IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = c) THEN
+      EXECUTE format('ALTER TABLE %I DROP CONSTRAINT %I', t, c);
+    END IF;
+    EXECUTE format(
+      'ALTER TABLE %I ADD CONSTRAINT %I CHECK (energy_category IN (''ISGS'', ''RE'', ''States'', ''Traders''))',
+      t, c);
+  END LOOP;
+END $$;
+
+-- The consent state. 'Awaiting Consent' is a discrepancy sitting with the
+-- seller's region, which has not yet said whether the trade is theirs.
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'discrepancies_status_check') THEN
+    ALTER TABLE discrepancies DROP CONSTRAINT discrepancies_status_check;
+  END IF;
+  ALTER TABLE discrepancies ADD CONSTRAINT discrepancies_status_check
+    CHECK (status IN ('Pending', 'Resolved', 'Rejected', 'Returned', 'Awaiting Consent'));
+END $$;
+
+-- Who traded with whom. Free of foreign keys on purpose: a counterpart region
+-- that does not use this portal still has to be nameable, and a region row may
+-- not exist for it. The application validates against the region registry and
+-- falls back to the five RLDC codes, which are fixed by the grid, not by us.
+ALTER TABLE discrepancies
+  ADD COLUMN IF NOT EXISTS buyer_region         VARCHAR(10),
+  ADD COLUMN IF NOT EXISTS seller_region        VARCHAR(10),
+  ADD COLUMN IF NOT EXISTS buyer_wbes_acronym   VARCHAR(50),
+  ADD COLUMN IF NOT EXISTS seller_wbes_acronym  VARCHAR(50);
+
+-- The consent trail. Kept separate from `status` so it survives the ticket
+-- moving on: once the seller has consented the status becomes 'Pending', and
+-- without these columns there would be nothing left to show that consent was
+-- ever given, by whom, or on what evidence.
+--
+--   consent_state  NULL | 'Awaiting' | 'Consented' | 'Refused'
+--   consent_mode   'portal'  — the seller's own administrator answered here
+--                  'offline' — the buyer recorded consent obtained elsewhere
+ALTER TABLE discrepancies
+  ADD COLUMN IF NOT EXISTS consent_state   VARCHAR(12),
+  ADD COLUMN IF NOT EXISTS consent_mode    VARCHAR(10),
+  ADD COLUMN IF NOT EXISTS consent_by      VARCHAR(100),
+  ADD COLUMN IF NOT EXISTS consent_at      TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS consent_remark  TEXT NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS consent_files   JSONB NOT NULL DEFAULT '[]';
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'discrepancies_consent_state_check') THEN
+    ALTER TABLE discrepancies ADD CONSTRAINT discrepancies_consent_state_check
+      CHECK (consent_state IS NULL OR consent_state IN ('Awaiting', 'Consented', 'Refused'));
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'discrepancies_consent_mode_check') THEN
+    ALTER TABLE discrepancies ADD CONSTRAINT discrepancies_consent_mode_check
+      CHECK (consent_mode IS NULL OR consent_mode IN ('portal', 'offline'));
+  END IF;
+  -- Offline consent without a remark is an unexplained override. The whole
+  -- point of the offline path is that it leaves a record of who agreed to
+  -- what, so an empty one is refused by the database and not merely by a form.
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'discrepancies_offline_consent_remark_check') THEN
+    ALTER TABLE discrepancies ADD CONSTRAINT discrepancies_offline_consent_remark_check
+      CHECK (consent_mode <> 'offline' OR length(trim(consent_remark)) > 0);
+  END IF;
+END $$;
+
+-- Both regions of a trade list the ticket, so both ends are indexed.
+CREATE INDEX IF NOT EXISTS idx_disc_buyer_region  ON discrepancies (buyer_region)  WHERE buyer_region IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_disc_seller_region ON discrepancies (seller_region) WHERE seller_region IS NOT NULL;
+
+-- The national administrator despatches nothing itself, but it is an account
+-- in the WBES sense and NLDC is its acronym.
+INSERT INTO wbes_entities (wbes_acronym, region, name, energy_category)
+SELECT 'NLDC', r.acronym, 'National Load Despatch Centre', 'ISGS'
+  FROM regions r WHERE r.acronym = 'NRLDC'
+ON CONFLICT (wbes_acronym) DO NOTHING;
+
+UPDATE users SET wbes_acronym = 'NLDC'
+ WHERE role = 'SUPERADMIN' AND COALESCE(NULLIF(TRIM(wbes_acronym), ''), '') = '';

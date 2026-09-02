@@ -19,6 +19,7 @@ const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const pool = require('../db');
 const { logEvent } = require('../utils/log');
+const { FILING_CATEGORIES } = require('../utils/trade');
 const { issueToken } = require('../auth/tokens');
 const { validatePassword } = require('../utils/password');
 const { defaultUsernameFor } = require('../utils/usernames');
@@ -527,8 +528,8 @@ router.post('/register', async (req, res) => {
   if (!['USER', 'QCA'].includes(role)) {
     return res.status(400).json({ error: 'Choose either a plant user or a QCA account.' });
   }
-  if (!['ISGS', 'RE', 'States'].includes(energy_category)) {
-    return res.status(400).json({ error: 'Choose a valid energy category: ISGS, RE or States.' });
+  if (!FILING_CATEGORIES.includes(energy_category)) {
+    return res.status(400).json({ error: `Choose a valid energy category: ${FILING_CATEGORIES.join(', ')}.` });
   }
   // The region decides which despatch centre's administrator reviews this.
   if (!isValidRegion(region)) {

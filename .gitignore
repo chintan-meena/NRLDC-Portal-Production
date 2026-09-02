@@ -36,3 +36,10 @@ server/upload
 
 # Control-script runtime state (pid, logs)
 .run
+
+# Finder-style copy duplicates ("README 2.md", "server/index 3.js").
+# Forty-two of these had been committed to the production repository by
+# repeated copying, shipping stale modules alongside the real ones. Ignoring
+# them means a stray copy can never be committed again by accident.
+* [0-9].*
+* [0-9]

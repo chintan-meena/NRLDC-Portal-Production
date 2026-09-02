@@ -4,6 +4,10 @@
  * POST  /api/discrepancies                → create new
  * PATCH /api/discrepancies/:reqNo/process → resolve or reject (admin)
  * PATCH /api/discrepancies/:reqNo/reraise → re-raise rejected/resolved
+ *
+ * And, for trades that cross a regional boundary:
+ * PATCH /api/discrepancies/:reqNo/consent         → seller's region agrees or refuses
+ * PATCH /api/discrepancies/:reqNo/offline-consent → buyer records consent got elsewhere
  */
 
 const express = require('express');
@@ -13,10 +17,16 @@ const { logEvent } = require('../utils/log');
 const { getSettings } = require('../utils/settings');
 const { checkFilingWindow } = require('../utils/filingWindow');
 const { requireAdmin, isAdmin, isSuperAdmin } = require('../middleware/auth');
-const { scopeToRegion, canActOnRegion, crossRegionError } = require('../middleware/region');
+const { scopeToRegion, scopeToRegionOrParty, canActOnRegion, crossRegionError } = require('../middleware/region');
 const { toDateString, daysSince } = require('../utils/dates');
 const { parseTimeBlocks } = require('../utils/timeBlocks');
 const { typeMatchPattern } = require('../utils/discrepancyTypes');
+const {
+  isTrader, validateTrade, isInterRegional, openingState,
+  isSellerRegion, isBuyerRegion, sellerCanAnswer,
+  mayRecordOfflineConsent, mayResolveTrade,
+} = require('../utils/trade');
+const { regionCodes } = require('../utils/regionRegistry');
 const path = require('path');
 const fs = require('fs');
 const { createUploader } = require('../config/uploads');
@@ -89,7 +99,15 @@ router.get('/', async (req, res) => {
     // The filter is on the record's own region rather than the filer's current
     // one: a user moving between regions must not drag their filing history
     // across with them.
-    if (isAdmin(req)) scopeToRegion(req, 'd.region', conditions, params);
+    //
+    // A trade is the one exception, and it is the feature rather than a hole:
+    // an inter-regional filing is listed by both ends, because a seller asked
+    // to confirm a trade has to be able to read what they are confirming, and
+    // the buyer has to be able to finish it. Both columns are NULL on every
+    // ordinary filing, so nothing else widens by a single row.
+    if (isAdmin(req)) {
+      scopeToRegionOrParty(req, ['d.region', 'd.buyer_region', 'd.seller_region'], conditions, params);
+    }
 
     // Role-based visibility
     if (username) {
@@ -191,9 +209,20 @@ router.get('/', async (req, res) => {
     const countResult = await pool.query(`SELECT COUNT(*) AS count ${fromClause}${whereClause}`, params);
     const total = parseInt(countResult.rows[0].count);
 
-    let baseQuery = `SELECT d.*, u.name AS request_by_name ${fromClause}${whereClause}`;
+    // seller_on_portal answers the one question the screen cannot: whether the
+    // selling region has anybody who could consent here. It decides whether the
+    // buyer is shown "waiting for ERLDC" or the offline path, and computing it
+    // in the browser is impossible — a regional admin cannot read another
+    // region's user list, and should not be able to.
+    let baseQuery = `SELECT d.*, u.name AS request_by_name,
+      CASE WHEN d.seller_region IS NULL THEN NULL ELSE EXISTS (
+        SELECT 1 FROM users su
+         WHERE su.region = d.seller_region AND su.role = 'ADMIN' AND NOT su.locked
+      ) END AS seller_on_portal
+      ${fromClause}${whereClause}`;
     baseQuery += ` ORDER BY 
       CASE d.status 
+        WHEN 'Awaiting Consent' THEN 0
         WHEN 'Pending' THEN 1 
         WHEN 'Returned' THEN 2 
         WHEN 'Resolved' THEN 3 
@@ -240,7 +269,11 @@ router.post('/upload', handleUploadErrors(upload.array('files')), async (req, re
 
 // POST /api/discrepancies — Create new
 router.post('/', async (req, res) => {
-  const { correctionDate, timeBlocks, requestContent, discrepancyType, files, wbes_acronym } = req.body;
+  const {
+    correctionDate, timeBlocks, requestContent, discrepancyType, files, wbes_acronym,
+    // A trader's routing data. Ignored for every other category.
+    buyerRegion, sellerRegion, buyerAcronym, sellerAcronym,
+  } = req.body;
 
   // The filer is whoever holds the token — never a name supplied in the body.
   const username = req.auth.username;
@@ -325,17 +358,55 @@ router.post('/', async (req, res) => {
       energy_category = plantRes.rows[0].energy_category;
     }
 
+    // A trader's filing carries the trade with it: who bought, who sold, and
+    // in which regions. Where those regions differ the record does not go
+    // straight to Pending — it goes to the seller's region to be confirmed.
+    let trade = null;
+    let opening = { status: 'Pending', consentState: null };
+    if (isTrader(energy_category)) {
+      const checked = validateTrade(
+        { buyerRegion, sellerRegion, buyerAcronym, sellerAcronym },
+        regionCodes()
+      );
+      if (!checked.ok) return res.status(400).json({ error: checked.error });
+      trade = checked.trade;
+      opening = openingState(trade);
+    } else if (buyerRegion || sellerRegion || buyerAcronym || sellerAcronym) {
+      // Refused rather than ignored: silently dropping the fields would let a
+      // station file something that looks like a trade and behaves like an
+      // ordinary filing, which is worse than saying no.
+      return res.status(400).json({
+        error: 'Only a Traders account files a discrepancy against a trade.',
+      });
+    }
+
     const result = await pool.query(
-      `INSERT INTO discrepancies (request_by, region, request_date, correction_for_date, days_diff, time_blocks, request_content, discrepancy_type, status, energy_category, files, admin_comment, admin_files, rejection_reason, resolved_time, wbes_acronym)
-       VALUES ($1, $10, CURRENT_DATE, $2, $3, $4, $5, $6, 'Pending', $7, $8::jsonb, '', '[]'::jsonb, '', NULL, $9)
+      `INSERT INTO discrepancies (request_by, region, request_date, correction_for_date, days_diff, time_blocks, request_content, discrepancy_type, status, energy_category, files, admin_comment, admin_files, rejection_reason, resolved_time, wbes_acronym,
+                                  buyer_region, seller_region, buyer_wbes_acronym, seller_wbes_acronym, consent_state)
+       VALUES ($1, $10, CURRENT_DATE, $2, $3, $4, $5, $6, $11, $7, $8::jsonb, '', '[]'::jsonb, '', NULL, $9,
+               $12, $13, $14, $15, $16)
        RETURNING *`,
       [username, correctionDate, diff >= 0 ? diff : 0, parsedBlocks.normalised, requestContent, discrepancyType || '', energy_category, JSON.stringify(files || []), targetAcronym,
        // Stamped from the filer's account at the moment of filing, so the
        // record keeps the region that despatched it.
-       req.auth.region]
+       req.auth.region,
+       opening.status,
+       trade?.buyerRegion || null, trade?.sellerRegion || null,
+       trade?.buyerAcronym || null, trade?.sellerAcronym || null,
+       opening.consentState]
     );
 
     await logEvent('success', `Discrepancy raised: Req No ${result.rows[0].req_no} for ${correctionDate} (${energy_category})`);
+    if (trade && isInterRegional(trade)) {
+      // Logged into both regions' logs: the seller's, because a ticket has
+      // just arrived for them to answer, and the buyer's, because it is
+      // theirs to finish afterwards.
+      const line = `Inter-regional trade Req No ${result.rows[0].req_no}: `
+                 + `${trade.sellerAcronym} (${trade.sellerRegion}) → ${trade.buyerAcronym} (${trade.buyerRegion}). `
+                 + `Awaiting ${trade.sellerRegion}'s consent.`;
+      await logEvent('info', line, trade.sellerRegion);
+      await logEvent('info', line, trade.buyerRegion);
+    }
     res.status(201).json(result.rows[0]);
   } catch (err) {
     console.error('[DISC POST]', err);
@@ -358,9 +429,24 @@ router.patch('/:reqNo/process', requireAdmin, async (req, res) => {
 
     const disc = discRes.rows[0];
 
-    // An admin processes their own region's filings only.
-    if (!canActOnRegion(req, disc.region)) {
+    // An admin processes their own region's filings only — plus, for a trade,
+    // the ones their region is a party to.
+    const partyToTrade = isBuyerRegion(disc, req.auth.region) || isSellerRegion(disc, req.auth.region);
+    if (!canActOnRegion(req, disc.region) && !partyToTrade) {
       return res.status(403).json(crossRegionError(req));
+    }
+
+    // A trade that has not been consented to is not the buyer's to close, and
+    // one that was refused is already finished. The seller's region answers
+    // through /consent, not here — otherwise the region being asked could
+    // resolve the question by resolving the ticket.
+    if (disc.consent_state) {
+      const allowed = mayResolveTrade({
+        isNational: isSuperAdmin(req),
+        actingRegion: req.auth.region,
+        row: disc,
+      });
+      if (!allowed.ok) return res.status(409).json({ error: allowed.error });
     }
 
     // Flagged is a rejection judgement: it says "this filer keeps raising
@@ -396,6 +482,148 @@ router.patch('/:reqNo/process', requireAdmin, async (req, res) => {
   } catch (err) {
     console.error('[DISC PROCESS]', err);
     res.status(500).json({ error: 'Failed to process discrepancy.' });
+  }
+});
+
+/**
+ * How many administrators a region has who could answer for it here.
+ *
+ * "Does the counterpart use this portal" is not a flag anyone sets — it is
+ * this number. A region with no administrator cannot consent, cannot refuse,
+ * and cannot be waited on, which is what makes the offline path necessary
+ * rather than merely convenient.
+ */
+async function adminsInRegion(region) {
+  if (!region) return 0;
+  const res = await pool.query(
+    "SELECT count(*)::int AS n FROM users WHERE region = $1 AND role = 'ADMIN' AND NOT locked",
+    [region]
+  );
+  return res.rows[0]?.n || 0;
+}
+
+// PATCH /api/discrepancies/:reqNo/consent — the seller's region answers.
+//
+// Consent is not approval of the correction. It says only "yes, this trade was
+// ours" — the buyer's region still has to judge the discrepancy itself and
+// apply the fix. A refusal, on the other hand, ends the ticket: if the seller
+// says the trade was not theirs there is nothing left to correct.
+router.patch('/:reqNo/consent', requireAdmin, async (req, res) => {
+  const { reqNo } = req.params;
+  const { decision, remark } = req.body || {};
+
+  if (!['consent', 'refuse'].includes(decision)) {
+    return res.status(400).json({ error: 'Decision must be "consent" or "refuse".' });
+  }
+  // A refusal closes someone else's ticket, so it has to say why.
+  if (decision === 'refuse' && !String(remark || '').trim()) {
+    return res.status(400).json({ error: 'Say why the trade is being refused — the filer sees this.' });
+  }
+
+  try {
+    const discRes = await pool.query('SELECT * FROM discrepancies WHERE req_no = $1', [reqNo]);
+    if (discRes.rows.length === 0) return res.status(404).json({ error: 'Discrepancy not found.' });
+    const disc = discRes.rows[0];
+
+    if (disc.consent_state !== 'Awaiting') {
+      return res.status(409).json({ error: 'This discrepancy is not waiting on anyone’s consent.' });
+    }
+    // The national administrator may answer for a region, which is the only
+    // way a ticket against an unresponsive centre ever moves.
+    if (!isSuperAdmin(req) && !isSellerRegion(disc, req.auth.region)) {
+      return res.status(403).json({
+        error: `${disc.seller_region} is the seller’s region and answers this one.`,
+      });
+    }
+
+    const consented = decision === 'consent';
+    const result = await pool.query(
+      `UPDATE discrepancies
+          SET consent_state = $1, consent_mode = 'portal', consent_by = $2, consent_at = NOW(),
+              consent_remark = $3,
+              status = $4,
+              rejection_reason = CASE WHEN $5::boolean THEN '' ELSE $3 END,
+              resolved_time = CASE WHEN $5::boolean THEN resolved_time ELSE NOW() END
+        WHERE req_no = $6
+      RETURNING *`,
+      [consented ? 'Consented' : 'Refused', req.auth.username, String(remark || '').slice(0, 1000),
+       consented ? 'Pending' : 'Rejected', consented, reqNo]
+    );
+
+    const line = consented
+      ? `Req No ${reqNo}: ${disc.seller_region} consented to the trade. ${disc.buyer_region} to apply the fix.`
+      : `Req No ${reqNo}: ${disc.seller_region} refused the trade. Ticket closed.`;
+    for (const r of new Set([disc.buyer_region, disc.seller_region].filter(Boolean))) {
+      await logEvent(consented ? 'success' : 'warn', line, r);
+    }
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('[DISC CONSENT]', err);
+    res.status(500).json({ error: 'Failed to record the decision.' });
+  }
+});
+
+// PATCH /api/discrepancies/:reqNo/offline-consent — consent obtained elsewhere.
+//
+// For a counterpart that does not use this portal. Somebody at the seller's
+// centre agreed on the telephone or by email, and that agreement has to be
+// written down here before the buyer acts on it.
+//
+// The remark is mandatory, and enforced by the database as well as by this
+// handler: an override with no explanation is indistinguishable from a region
+// quietly consenting to its own trade. The attachment is optional — proof is
+// better evidence than a sentence, but a sentence is better than nothing and
+// requiring a PDF would make the honest path the hard one.
+router.patch('/:reqNo/offline-consent', requireAdmin, async (req, res) => {
+  const { reqNo } = req.params;
+  const { remark, files } = req.body || {};
+
+  const note = String(remark || '').trim();
+  if (!note) {
+    return res.status(400).json({
+      error: 'Record how consent was obtained — who agreed, and when. This is the only evidence the ticket will carry.',
+    });
+  }
+
+  try {
+    const discRes = await pool.query('SELECT * FROM discrepancies WHERE req_no = $1', [reqNo]);
+    if (discRes.rows.length === 0) return res.status(404).json({ error: 'Discrepancy not found.' });
+    const disc = discRes.rows[0];
+
+    const permitted = mayRecordOfflineConsent({
+      isNational: isSuperAdmin(req),
+      actingRegion: req.auth.region,
+      row: disc,
+      sellerHasAdmin: sellerCanAnswer(await adminsInRegion(disc.seller_region)),
+    });
+    if (!permitted.ok) {
+      return res.status(permitted.error.includes('not waiting') ? 409 : 403).json({ error: permitted.error });
+    }
+
+    const result = await pool.query(
+      `UPDATE discrepancies
+          SET consent_state = 'Consented', consent_mode = 'offline', consent_by = $1,
+              consent_at = NOW(), consent_remark = $2, consent_files = $3::jsonb,
+              status = 'Pending'
+        WHERE req_no = $4
+      RETURNING *`,
+      [req.auth.username, note.slice(0, 1000), JSON.stringify(files || []), reqNo]
+    );
+
+    // Recorded at warn level on purpose. It is a legitimate step, but it is
+    // one region deciding on another's behalf, and it should be findable in
+    // the log without knowing to look for it.
+    const line = `Req No ${reqNo}: offline consent from ${disc.seller_region} recorded by `
+               + `"${req.auth.username}" (${files?.length || 0} attachment(s)). Remark: ${note.slice(0, 200)}`;
+    for (const r of new Set([disc.buyer_region, disc.seller_region].filter(Boolean))) {
+      await logEvent('warn', line, r);
+    }
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('[DISC OFFLINE CONSENT]', err);
+    res.status(500).json({ error: 'Failed to record the offline consent.' });
   }
 });
 

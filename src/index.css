@@ -26,6 +26,9 @@
   --status-pending-bg: #fef3c7;
   --status-pending-border: #fde68a;
   --status-pending-text: #b45309;
+  --status-await-bg: #ede9fe;
+  --status-await-border: #ddd6fe;
+  --status-await-text: #6d28d9;
   
   --status-resolved-bg: #d1fae5;
   --status-resolved-border: #a7f3d0;
@@ -130,6 +133,9 @@
     --status-pending-bg: #2b2216;
     --status-pending-border: #4a3a1d;
     --status-pending-text: #fbbf24;
+    --status-await-bg: #241f3a;
+    --status-await-border: #3b3160;
+    --status-await-text: #c4b5fd;
 
     --status-resolved-bg: #14261f;
     --status-resolved-border: #1f4436;
@@ -221,6 +227,9 @@
   --status-pending-bg: #2b2216;
   --status-pending-border: #4a3a1d;
   --status-pending-text: #fbbf24;
+  --status-await-bg: #241f3a;
+  --status-await-border: #3b3160;
+  --status-await-text: #c4b5fd;
 
   --status-resolved-bg: #14261f;
   --status-resolved-border: #1f4436;
@@ -1836,6 +1845,16 @@ button {
 .locked-admin-list { display: flex; flex-wrap: wrap; gap: 8px; }
 .locked-admin-list .btn { font-size: 0.78rem; padding: 5px 10px; gap: 7px; }
 
+/* A region with no administrator is an unfinished setup step rather than a
+   fault, and it sits directly above the locked-out panel. Amber keeps the two
+   tellable apart at a glance instead of stacking two identical red blocks. */
+.unmanaged-regions {
+  border-color: var(--status-pending-border);
+  background: var(--status-pending-bg);
+}
+.unmanaged-regions > svg,
+.unmanaged-regions strong { color: var(--status-pending-text); }
+
 .national-totals {
   display: flex;
   flex-wrap: wrap;
@@ -2015,4 +2034,88 @@ button {
   font-size: 0.73rem;
   color: var(--text-secondary);
   line-height: 1.4;
+}
+
+/* ── Acronym type-ahead ───────────────────────────────────────────────────── */
+/* The list overlays whatever follows it in the form, so the wrapper is the
+   positioning context and the list is lifted above sibling fields. */
+.acronym-picker { position: relative; }
+.acronym-picker-input { position: relative; display: flex; align-items: center; }
+.acronym-picker-input > svg:first-child {
+  position: absolute; left: 10px; color: var(--text-muted); pointer-events: none;
+}
+.acronym-picker-input .form-control { padding-left: 30px; }
+.acronym-picker-input > svg:last-child { position: absolute; right: 10px; color: var(--text-muted); }
+.spin { animation: acronym-spin 0.9s linear infinite; }
+@keyframes acronym-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spin { animation: none; } }
+
+.acronym-options {
+  position: absolute; z-index: 40; top: 100%; left: 0; right: 0;
+  margin: 4px 0 0; padding: 4px; list-style: none;
+  max-height: 260px; overflow-y: auto;
+  border: 1px solid var(--border-color); border-radius: 10px;
+  background: var(--bg-secondary); box-shadow: 0 10px 28px rgba(0, 0, 0, 0.16);
+}
+.acronym-options li {
+  display: flex; align-items: center; gap: 9px;
+  padding: 7px 9px; border-radius: 7px; cursor: pointer; font-size: 0.8rem;
+}
+.acronym-options li.active { background: var(--bg-tertiary); }
+.acronym-option-name {
+  flex: 1; color: var(--text-secondary);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.acronym-empty { color: var(--text-muted); cursor: default; font-style: italic; }
+.settings-field-hint.warn { color: var(--status-pending-text); }
+.settings-field-hint.error { color: var(--status-rejected-text); }
+.settings-field-hint.warn, .settings-field-hint.error {
+  display: inline-flex; align-items: center; gap: 5px;
+}
+
+/* ── The trade, and its consent step ──────────────────────────────────────── */
+.trade-route {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-size: 0.78rem; padding: 3px 9px; border-radius: 999px;
+  border: 1px solid var(--border-color); background: var(--bg-tertiary);
+}
+.trade-route .mono { font-weight: 600; }
+
+/* The consent panel states share a shape and differ only in colour, so the
+   tone class carries the palette and nothing else. */
+.consent-panel {
+  display: flex; align-items: flex-start; gap: 11px;
+  padding: 13px 15px; border-radius: 10px; border: 1px solid;
+}
+.consent-panel > svg { flex-shrink: 0; margin-top: 2px; }
+.consent-panel strong { font-size: 0.85rem; display: block; }
+.consent-panel p {
+  margin: 3px 0 0; font-size: 0.79rem; line-height: 1.5;
+  color: var(--text-secondary); max-width: 70ch;
+}
+.consent-panel .consent-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 11px; }
+.consent-panel.pending  { border-color: var(--status-pending-border);  background: var(--status-pending-bg); }
+.consent-panel.pending  > svg, .consent-panel.pending strong  { color: var(--status-pending-text); }
+.consent-panel.resolved { border-color: var(--status-resolved-border); background: var(--status-resolved-bg); }
+.consent-panel.resolved > svg, .consent-panel.resolved strong { color: var(--status-resolved-text); }
+.consent-panel.rejected { border-color: var(--status-rejected-border); background: var(--status-rejected-bg); }
+.consent-panel.rejected > svg, .consent-panel.rejected strong { color: var(--status-rejected-text); }
+
+/* Offline consent is one region deciding on another's behalf. It is a
+   legitimate step and it is not styled as an error — but a reader should never
+   have to hunt for how the consent was obtained, so it is marked. */
+.consent-offline-mark {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 0.7rem; letter-spacing: 0.03em; text-transform: uppercase;
+  padding: 2px 7px; border-radius: 999px; margin-left: 8px;
+  border: 1px dashed var(--status-pending-border); color: var(--status-pending-text);
+}
+
+/* A trade waiting on another region. Deliberately not the same amber as
+   Pending: "pending" means this region has work to do, and this means it
+   cannot act yet — the opposite instruction. */
+.status-badge.awaiting {
+  background: var(--status-await-bg);
+  color: var(--status-await-text);
+  border: 1px solid var(--status-await-border);
 }

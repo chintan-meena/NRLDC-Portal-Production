@@ -8,20 +8,25 @@ import {
 import { RULES as PASSWORD_RULES, validatePassword } from '../utils/password';
 import { Banner, EmptyState, SkeletonRows } from './Feedback';
 import { categoryLabel } from '../utils/categories';
+import { GRID_REGIONS, isTraderCategory, consentBadge } from '../utils/trade';
+import AcronymPicker from './AcronymPicker';
 import { useFeedback } from '../hooks/useFeedback';
 import { useModalDismiss } from '../hooks/useModalDismiss';
 import { originalFilename } from '../utils/filenames';
 import { FILTERABLE_TYPES, ALL_FILING_TYPES, MISC_TYPE } from '../utils/discrepancyTypes';
 import { ACCEPT_ATTRIBUTE, ALLOWED_DESCRIPTION, MAX_UPLOAD_MB, validateFiles } from '../utils/uploads';
 import { parseTimeBlocks } from '../utils/timeBlocks';
-import { formatDateDMY, formatDateDMYHM, getStatusPriority, todayISO, daysAgoISO, nowDatetimeLocal } from '../utils/format';
-import { AlertCircle, Plus, ClipboardList, Settings, CheckCircle2, XCircle, FileText, Upload, Calendar, RefreshCw, Download, User, Mail, Phone, Lock, Zap, Database, Search, AlertTriangle
+import { formatDateDMY, formatDateDMYHM, getStatusPriority, statusClass, todayISO, daysAgoISO, nowDatetimeLocal } from '../utils/format';
+import { AlertCircle, Plus, ClipboardList, Settings, CheckCircle2, XCircle, FileText, Upload, Calendar, RefreshCw, Download, User, Mail, Phone, Lock, Zap, Database, Search, AlertTriangle, Clock
 } from 'lucide-react';
 
 export default function UserDashboard({ currentUser, onUserUpdate, activeTab, setActiveTab }) {
   // QCA coordination applies to Renewable Energy plants only. ISGS and States
   // users manage their own schedules directly and never see QCA controls.
   const isQcaUser = currentUser.role === 'QCA';
+  // A trader files against a trade rather than against a plant they operate,
+  // so their form asks who bought, who sold, and in which regions.
+  const isTrader = isTraderCategory(currentUser.energy_category);
   const isRenewableUser = currentUser.energy_category === 'RE';
 
   const [discrepancies, setDiscrepancies] = useState([]);
@@ -83,6 +88,13 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
   const [selectedFiles, setSelectedFiles] = useState([]);
   const [formError, setFormError] = useState('');
   const [formSuccess, setFormSuccess] = useState('');
+
+  // The trade a discrepancy is being filed against. Traders only — every other
+  // category leaves these empty and the server refuses them if they are not.
+  const [buyerRegion, setBuyerRegion] = useState('');
+  const [sellerRegion, setSellerRegion] = useState('');
+  const [buyerAcronym, setBuyerAcronym] = useState('');
+  const [sellerAcronym, setSellerAcronym] = useState('');
 
   // Multiselect Reason States
   const [selectedReasons, setSelectedReasons] = useState([]);
@@ -275,6 +287,14 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
 
     if (isSubmitting) return;   // guard against a double click
     if (isQcaUser && !selectedPlantAcronym) { setFormError('Please select a plant from your assignments.'); return; }
+    if (isTrader && !reRaiseReqNo) {
+      if (!buyerRegion || !sellerRegion) { setFormError('Choose both the buyer’s region and the seller’s region.'); return; }
+      if (!buyerAcronym || !sellerAcronym) {
+        setFormError('Pick both entities from the search results — a typed acronym that was never in the list is not a valid entity.');
+        return;
+      }
+      if (buyerAcronym === sellerAcronym) { setFormError('The buyer and the seller cannot be the same entity.'); return; }
+    }
     if (!correctionDate) { setFormError('Please select a correction date.'); return; }
     if (!timeBlocks.trim()) { setFormError('Please specify the affected time blocks.'); return; }
     const blockCheck = parseTimeBlocks(timeBlocks);
@@ -339,11 +359,23 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
       } else {
         // Standard new creation
         const targetAcronym = isQcaUser ? selectedPlantAcronym : currentUser.wbes_acronym;
-        await createDiscrepancy(currentUser.username, correctionDate, blockCheck.normalised, reason, discrepancyType, uploadedFilenames, targetAcronym);
-        setFormSuccess('Discrepancy filed successfully and dispatched to NRLDC operations!');
+        const trade = isTrader
+          ? { buyerRegion, sellerRegion, buyerAcronym, sellerAcronym }
+          : null;
+        await createDiscrepancy(currentUser.username, correctionDate, blockCheck.normalised, reason, discrepancyType, uploadedFilenames, targetAcronym, trade);
+        // An inter-regional trade does not go to operations yet: it goes to the
+        // selling region to be confirmed, and saying so here is the difference
+        // between a user waiting patiently and a user filing it again.
+        setFormSuccess(
+          trade && buyerRegion !== sellerRegion
+            ? `Filed. ${sellerRegion} must confirm the trade was theirs before ${buyerRegion} can apply the fix — you will see it as “Awaiting consent” until they do.`
+            : 'Discrepancy filed successfully and dispatched to NRLDC operations!'
+        );
       }
 
       setCorrectionDate(''); 
+      setBuyerRegion(''); setSellerRegion('');
+      setBuyerAcronym(''); setSellerAcronym('');
       setTimeBlocks(''); 
       setReason(''); 
       setSelectedReasons([]);
@@ -768,12 +800,21 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
                           ) : <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>None</span>}
                         </td>
                         <td onClick={() => setSelectedRequest(disc)}>
-                          <span className={`status-badge ${disc.status.toLowerCase()}`}>
+                          <span className={`status-badge ${statusClass(disc.status)}`}>
                             {disc.status === 'Resolved' && <CheckCircle2 size={12} />}
                             {disc.status === 'Rejected' && <XCircle size={12} />}
                             {disc.status === 'Pending' && <AlertCircle size={12} />}
+                            {disc.status === 'Awaiting Consent' && <Clock size={12} />}
                             {disc.status}
                           </span>
+                          {/* A trader can see which region is holding it, so
+                              they know who to chase rather than re-filing. */}
+                          {consentBadge(disc) && (
+                            <span className={`status-badge ${consentBadge(disc).tone}`}
+                              style={{ marginTop: '3px', display: 'inline-flex', fontSize: '0.68rem' }}>
+                              {consentBadge(disc).text}
+                            </span>
+                          )}
                         </td>
                         <td>
                           {isRenewableUser && qcaAssociation?.qcaEligible && qcaAssociation?.assignedToQCA ? (
@@ -1001,6 +1042,61 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
                   )}
                 </div>
               </div>
+
+              {isTrader && !reRaiseReqNo && (
+                <div className="glass-panel" style={{ padding: '16px', marginBottom: '20px' }}>
+                  <h4 style={{ fontSize: '0.92rem', margin: '0 0 3px' }}>The trade</h4>
+                  <p style={{ color: 'var(--text-secondary)', fontSize: '0.79rem', margin: '0 0 14px', maxWidth: '70ch' }}>
+                    Who bought, who sold, and through which despatch centres. Where the two
+                    regions differ, the selling region confirms the trade was theirs before
+                    the buying region changes any schedule.
+                  </p>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px' }}>
+                    <div className="form-group">
+                      <label htmlFor="ud-seller-region">Seller region <span style={{ color: 'var(--danger-text)' }}>*</span></label>
+                      <select id="ud-seller-region" className="form-control" value={sellerRegion}
+                        onChange={(e) => { setSellerRegion(e.target.value); setSellerAcronym(''); }}>
+                        <option value="">— Choose —</option>
+                        {GRID_REGIONS.map(r => <option key={r} value={r}>{r}</option>)}
+                      </select>
+                    </div>
+                    <AcronymPicker
+                      key={`seller-${sellerRegion}`}
+                      label={<>Seller WBES acronym <span style={{ color: 'var(--danger-text)' }}>*</span></>}
+                      value={sellerAcronym}
+                      onChange={setSellerAcronym}
+                      region={sellerRegion}
+                      disabled={!sellerRegion}
+                      hint="The entity the power was sold from."
+                    />
+                    <div className="form-group">
+                      <label htmlFor="ud-buyer-region">Buyer region <span style={{ color: 'var(--danger-text)' }}>*</span></label>
+                      <select id="ud-buyer-region" className="form-control" value={buyerRegion}
+                        onChange={(e) => { setBuyerRegion(e.target.value); setBuyerAcronym(''); }}>
+                        <option value="">— Choose —</option>
+                        {GRID_REGIONS.map(r => <option key={r} value={r}>{r}</option>)}
+                      </select>
+                    </div>
+                    <AcronymPicker
+                      key={`buyer-${buyerRegion}`}
+                      label={<>Buyer WBES acronym <span style={{ color: 'var(--danger-text)' }}>*</span></>}
+                      value={buyerAcronym}
+                      onChange={setBuyerAcronym}
+                      region={buyerRegion}
+                      disabled={!buyerRegion}
+                      hint="The entity the power was sold to."
+                    />
+                  </div>
+
+                  {buyerRegion && sellerRegion && (
+                    <p className="settings-field-hint" style={{ marginTop: '12px', display: 'block' }}>
+                      {buyerRegion === sellerRegion
+                        ? `Both ends are inside ${buyerRegion}, so this is an intra-regional trade — it goes straight to ${buyerRegion} operations, with no consent step.`
+                        : `Inter-regional: ${sellerRegion} confirms the trade, then ${buyerRegion} applies the fix.`}
+                    </p>
+                  )}
+                </div>
+              )}
 
               {isQcaUser && (
                 <div className="form-group">
@@ -1725,7 +1821,7 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
                 <div><span style={{ color: 'var(--text-secondary)' }}>Request Date:</span> {formatDateDMY(selectedRequest.request_date)}</div>
                 <div><span style={{ color: 'var(--text-secondary)' }}>Correction Date:</span> {formatDateDMY(selectedRequest.correction_for_date)}</div>
                 <div><span style={{ color: 'var(--text-secondary)' }}>Days Mismatch:</span> <strong style={{ color: selectedRequest.days_diff > config.maxDays ? 'var(--danger-text)' : 'var(--text-primary)' }}>{selectedRequest.days_diff} days</strong></div>
-                <div><span style={{ color: 'var(--text-secondary)' }}>Status:</span> <span className={`status-badge ${selectedRequest.status.toLowerCase()}`}>{selectedRequest.status}</span></div>
+                <div><span style={{ color: 'var(--text-secondary)' }}>Status:</span> <span className={`status-badge ${statusClass(selectedRequest.status)}`}>{selectedRequest.status}</span></div>
               </div>
 
               <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '10px' }}>
