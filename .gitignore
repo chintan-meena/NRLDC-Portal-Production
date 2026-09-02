@@ -43,3 +43,4 @@ server/upload
 # them means a stray copy can never be committed again by accident.
 * [0-9].*
 * [0-9]
+~$*.xlsx
