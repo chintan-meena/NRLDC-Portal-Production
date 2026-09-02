@@ -1,37 +1,35 @@
 import { useState } from 'react';
-import { registerAccount } from '../services/db';
+import { registerAccount, searchWbesForRegistration } from '../services/db';
 import { RULES as PASSWORD_RULES, validatePassword } from '../utils/password';
-import { defaultUsernameFor } from '../utils/usernames';
-import { REGIONS } from '../utils/regions';
+import { usernameFromAcronym } from '../utils/usernames';
+import { regionLabel } from '../utils/regions';
 import { Banner } from './Feedback';
 import { categoryLabel } from '../utils/categories';
+import AcronymPicker from './AcronymPicker';
 import { UserPlus, ArrowLeft, CheckCircle2, Building2, Lock } from 'lucide-react';
 
 /**
  * Register — self-service sign-up.
  *
- * Submitting does not create an account; it queues a request an NRLDC
- * administrator has to approve. The admin can correct the details before
- * approving, so a typo here is not fatal — but the acronym is what ties the
- * account to its plant, so the form still asks for care.
- *
- * The username follows from the WBES acronym (DADRI → dadri@nrldc), matching
- * every account already in the registry. It is filled in as the acronym is
- * typed and stops following once the applicant edits it themselves.
+ * Submitting does not create an account; it queues a request an RLDC
+ * administrator has to approve. The account is anchored on a WBES acronym the
+ * RLDC has already registered: the applicant searches for it, and selecting it
+ * fills in the display name, the despatch centre and the username
+ * (acronym@rldc). The applicant only supplies contact details, a password, and
+ * — for a QCA — the agency name. The admin can still correct anything before
+ * approving.
  */
 export default function Register({ onBackToLogin }) {
+  // Auto-filled from the chosen WBES acronym; the applicant does not type these.
   const [name, setName] = useState('');
   const [username, setUsername] = useState('');
+  const [region, setRegion] = useState('');
+  const [wbesAcronym, setWbesAcronym] = useState('');
+
   const [email, setEmail] = useState('');
   const [mobile, setMobile] = useState('');
   const [accountType, setAccountType] = useState('USER');   // USER | QCA
   const [energyCategory, setEnergyCategory] = useState('ISGS');
-  const [wbesAcronym, setWbesAcronym] = useState('');
-  // Which despatch centre reviews this application, and will administer the
-  // account afterwards.
-  const [region, setRegion] = useState('NRLDC');
-  // Once the applicant types their own username, the acronym stops driving it.
-  const [usernameEdited, setUsernameEdited] = useState(false);
   const [qcaName, setQcaName] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -40,16 +38,20 @@ export default function Register({ onBackToLogin }) {
   const [submitted, setSubmitted] = useState(null);
   const [submitting, setSubmitting] = useState(false);
 
-  const handleAcronymChange = (raw) => {
-    const next = raw.toUpperCase();
-    setWbesAcronym(next);
-    if (!usernameEdited) setUsername(defaultUsernameFor(next));
+  // Picking a registered acronym settles the account's identity: its display
+  // name, the region that despatches it, and the username built from both.
+  const handleAcronymSelect = (row) => {
+    setWbesAcronym(row.wbes_acronym);
+    setName(row.name || '');
+    setRegion(row.region || '');
+    setUsername(usernameFromAcronym(row.wbes_acronym, row.region));
   };
 
-  const handleUsernameChange = (raw) => {
-    setUsername(raw);
-    // Clearing the field hands control back to the acronym.
-    setUsernameEdited(raw.trim() !== '');
+  // Typing after a selection clears it, so the derived fields clear with it —
+  // there is no half-chosen state where the name and acronym disagree.
+  const handleAcronymChange = (val) => {
+    setWbesAcronym(val);
+    if (!val) { setName(''); setRegion(''); setUsername(''); }
   };
 
   const isQca = accountType === 'QCA';
@@ -60,8 +62,12 @@ export default function Register({ onBackToLogin }) {
     e.preventDefault();
     setError('');
 
-    if (!name.trim() || !username.trim() || !email.trim() || !wbesAcronym.trim()) {
-      setError('Please fill in your name, username, email and WBES acronym.');
+    if (!wbesAcronym) {
+      setError('Search for your WBES acronym and pick it from the list. If it is not there, ask your RLDC to register it first.');
+      return;
+    }
+    if (!email.trim()) {
+      setError('Enter your email address.');
       return;
     }
     if (isQca && !qcaName.trim()) {
@@ -76,6 +82,8 @@ export default function Register({ onBackToLogin }) {
     try {
       const res = await registerAccount({
         name: name.trim(),
+        // Advisory only — the server derives the username and region from the
+        // acronym's registered row. Sent so the confirmation screen matches.
         username: username.trim(),
         email: email.trim(),
         mobile: mobile.trim() || null,
@@ -118,7 +126,7 @@ export default function Register({ onBackToLogin }) {
           </div>
 
           <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.55, marginTop: '16px' }}>
-            You cannot sign in yet. An NRLDC administrator reviews each request; once
+            You cannot sign in yet. An administrator reviews each request; once
             yours is approved you will be emailed at <strong>{email.trim()}</strong> and can
             sign in with the password you just chose.
           </p>
@@ -141,7 +149,7 @@ export default function Register({ onBackToLogin }) {
             Register for portal access
           </h2>
           <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
-            Your request is reviewed by an NRLDC administrator before the account is created.
+            Your request is reviewed by an administrator before the account is created.
           </p>
         </div>
 
@@ -150,20 +158,6 @@ export default function Register({ onBackToLogin }) {
         <form onSubmit={handleSubmit}>
           <fieldset className="register-section">
             <legend><Building2 size={14} /> Who is registering</legend>
-
-            <div className="form-group">
-              <label htmlFor="reg-region">Load despatch centre</label>
-              <select id="reg-region" className="form-control" value={region}
-                onChange={(e) => setRegion(e.target.value)}>
-                {REGIONS.map(r => (
-                  <option key={r.code} value={r.code}>{r.name} — {r.code}</option>
-                ))}
-              </select>
-              <span className="settings-field-hint">
-                The centre that despatches your station. Its administrator reviews this
-                request, and administers the account afterwards.
-              </span>
-            </div>
 
             <div className="form-group">
               <label htmlFor="reg-account-type">Account type</label>
@@ -183,11 +177,34 @@ export default function Register({ onBackToLogin }) {
               </span>
             </div>
 
+            {/* The acronym anchors everything: it must be one the RLDC has
+                registered, and picking it fills in the name, region and
+                username below. */}
+            <AcronymPicker
+              label={<>WBES acronym <span style={{ color: 'var(--danger-text)' }}>*</span></>}
+              value={wbesAcronym}
+              onChange={handleAcronymChange}
+              onSelect={handleAcronymSelect}
+              searchFn={searchWbesForRegistration}
+              placeholder="Search your plant's WBES acronym or name…"
+              hint="If your plant is not listed, ask your RLDC to register its WBES acronym first."
+            />
+
             <div className="form-group">
-              <label htmlFor="reg-name">{isQca ? 'Agency name' : 'Station / full name'}</label>
+              <label htmlFor="reg-name">{isQca ? 'Registered name' : 'Station / plant name'}</label>
               <input id="reg-name" type="text" className="form-control" value={name}
-                placeholder={isQca ? 'e.g. Thar Solar Coordination Services' : 'e.g. Dadri Thermal Power Station'}
-                onChange={(e) => setName(e.target.value)} required />
+                placeholder="Filled in from the WBES acronym you pick"
+                readOnly disabled />
+              <span className="settings-field-hint">Taken from the WBES register — an administrator can correct it before approving.</span>
+            </div>
+
+            <div className="form-group">
+              <label htmlFor="reg-region">Load despatch centre (RLDC)</label>
+              <input id="reg-region" type="text" className="form-control"
+                value={region ? regionLabel(region) : ''}
+                placeholder="Filled in from the WBES acronym you pick"
+                readOnly disabled />
+              <span className="settings-field-hint">The centre that despatches this plant reviews and administers the account.</span>
             </div>
 
             {isQca && (
@@ -205,31 +222,12 @@ export default function Register({ onBackToLogin }) {
                 <select id="reg-category" className="form-control" value={energyCategory}
                   onChange={(e) => setEnergyCategory(e.target.value)}>
                   <option value="ISGS">{categoryLabel('ISGS')}</option>
-                  <option value="RE">{categoryLabel('RE')} — Renewable Energy</option>
+                  <option value="RE">{categoryLabel('RE')}</option>
                   <option value="States">States</option>
                   <option value="Traders">Traders</option>
                 </select>
               </div>
             )}
-
-            <div className="form-group">
-              <label htmlFor="reg-acronym">WBES acronym</label>
-              <input
-                id="reg-acronym"
-                type="text"
-                className="form-control"
-                style={{ textTransform: 'uppercase', fontFamily: 'ui-monospace, Menlo, monospace' }}
-                value={wbesAcronym}
-                placeholder="e.g. DADRI_TH"
-                onChange={(e) => handleAcronymChange(e.target.value)}
-                required
-              />
-              <span className="settings-field-hint">
-                This identifies your plant in WBES, and your username is built from it.
-                Please check it carefully — an administrator can correct it before
-                approving, but it cannot be changed once the account exists.
-              </span>
-            </div>
           </fieldset>
 
           <fieldset className="register-section">
@@ -256,12 +254,10 @@ export default function Register({ onBackToLogin }) {
             <div className="form-group">
               <label htmlFor="reg-username">Username</label>
               <input id="reg-username" type="text" className="form-control" value={username}
-                placeholder="e.g. dadri.th@nrldc" autoComplete="username"
-                onChange={(e) => handleUsernameChange(e.target.value)} required />
+                placeholder="Generated from your WBES acronym once you pick it"
+                autoComplete="username" readOnly disabled />
               <span className="settings-field-hint">
-                {usernameEdited
-                  ? 'You have set this yourself. Clear the field to go back to the name built from your acronym.'
-                  : 'Filled in from your WBES acronym — the convention used across the portal. You can change it.'}
+                Built automatically as <strong>acronym@rldc</strong> — the convention used across the portal.
               </span>
             </div>
 

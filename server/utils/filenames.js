@@ -24,4 +24,21 @@ function originalFilename(stored) {
   return dash !== -1 ? name.slice(dash + 1) : name;
 }
 
-module.exports = { originalFilename };
+/**
+ * Is this the Net Schedule Report Summary a station downloads from WBES?
+ *
+ * The real files carry a variable middle — one segment or two — before the
+ * revision, so the pattern is tolerant of both:
+ *   NetSchdReportSummary@AAPL_BKN2@rev(121)@01-09-2026@..._18-03-54.xlsx
+ *   NetSchdReportSummary@DADRI@DADRI_CRF@rev(109)@02-09-2026@..._15-10-01.xlsx
+ *
+ * Accepts .xlsx and .xls. Checks the original (uploader) name, so pass the
+ * result of originalFilename() when checking a stored file.
+ */
+const NET_SCHEDULE_SUMMARY = /^NetSchdReportSummary@.+@rev\(\d+\)@.*\.xls[x]?$/i;
+
+function isNetScheduleSummary(name) {
+  return NET_SCHEDULE_SUMMARY.test(String(name || '').trim());
+}
+
+module.exports = { originalFilename, isNetScheduleSummary };

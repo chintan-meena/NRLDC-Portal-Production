@@ -22,10 +22,9 @@ const { logEvent } = require('../utils/log');
 const { FILING_CATEGORIES } = require('../utils/trade');
 const { issueToken } = require('../auth/tokens');
 const { validatePassword } = require('../utils/password');
-const { defaultUsernameFor } = require('../utils/usernames');
+const { usernameFromAcronym } = require('../utils/usernames');
 const { getBoolean, getNumber } = require('../utils/settings');
 const { setContextRegion } = require('../utils/requestContext');
-const { isValidRegion, REGIONS } = require('../middleware/region');
 const { sendMail, numericConfig } = require('../utils/mailer');
 const {
   rememberDevice, isDeviceTrusted, forgetDevices, pruneExpiredDevices, trustDays,
@@ -510,16 +509,13 @@ router.post('/logout', async (req, res) => {
 // The WBES acronym given here is final — it identifies the plant, and neither
 // the applicant nor the approving admin can change it afterwards.
 router.post('/register', async (req, res) => {
-  const { username, name, role, email, mobile, password, energy_category, wbes_acronym, qca_name, region } = req.body || {};
+  const { name, role, email, mobile, password, energy_category, wbes_acronym, qca_name } = req.body || {};
 
-  // The username follows from the acronym (DADRI → dadri@nrldc), so an
-  // applicant who leaves it blank still gets the conventional name rather than
-  // an error. Anything they typed themselves is kept as-is.
-  const derivedUsername = (username && String(username).trim())
-    ? String(username).trim()
-    : defaultUsernameFor(wbes_acronym);
-
-  const required = { username: derivedUsername, name, role, email, password, energy_category, wbes_acronym };
+  // The acronym is the anchor now: it must be one the RLDC has already
+  // registered, and it decides both the region (which despatch centre reviews
+  // and administers this) and the username. The applicant no longer types
+  // either — both are derived from the wbes_entities row looked up below.
+  const required = { name, role, email, password, energy_category, wbes_acronym };
   const missing = Object.entries(required).filter(([, v]) => !v || !String(v).trim()).map(([k]) => k);
   if (missing.length > 0) {
     return res.status(400).json({ error: `These fields are required: ${missing.join(', ')}.` });
@@ -530,10 +526,6 @@ router.post('/register', async (req, res) => {
   }
   if (!FILING_CATEGORIES.includes(energy_category)) {
     return res.status(400).json({ error: `Choose a valid energy category: ${FILING_CATEGORIES.join(', ')}.` });
-  }
-  // The region decides which despatch centre's administrator reviews this.
-  if (!isValidRegion(region)) {
-    return res.status(400).json({ error: `Choose your load despatch centre: ${REGIONS.join(', ')}.` });
   }
 
   // QCAs coordinate Renewable Energy plants only — the same rule the rest of
@@ -552,11 +544,30 @@ router.post('/register', async (req, res) => {
     return res.status(400).json({ error: passwordError });
   }
 
-  const cleanUsername = derivedUsername.trim();
   const cleanAcronym = wbes_acronym.trim().toUpperCase();
   const cleanEmail = email.trim();
 
   try {
+    // The acronym must already be on the register — the RLDC adds it before a
+    // station signs up. Its row carries the region and the display name, and
+    // the username follows from the acronym and that region (dadri@nrldc,
+    // dadri@erldc), so a non-NRLDC applicant is no longer misnamed '@nrldc'.
+    const entity = await pool.query(
+      'SELECT wbes_acronym, name, region FROM wbes_entities WHERE UPPER(wbes_acronym) = $1',
+      [cleanAcronym]
+    );
+    if (entity.rows.length === 0) {
+      return res.status(400).json({
+        error: `WBES acronym "${cleanAcronym}" is not registered. Ask your RLDC to add it before signing up.`,
+      });
+    }
+    const region = entity.rows[0].region;
+    const cleanUsername = usernameFromAcronym(cleanAcronym, region);
+    const finalName = (name && String(name).trim()) ? String(name).trim() : entity.rows[0].name;
+    if (!cleanUsername) {
+      return res.status(400).json({ error: 'Could not build a username from that acronym.' });
+    }
+
     // Taken by an existing account?
     const clash = await pool.query(
       `SELECT
@@ -584,7 +595,7 @@ router.post('/register', async (req, res) => {
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
        RETURNING id, created_at`,
       [
-        cleanUsername, name.trim(), role, cleanEmail,
+        cleanUsername, finalName, role, cleanEmail,
         mobile && mobile.trim() ? mobile.trim() : null,
         hash, energy_category, cleanAcronym,
         role === 'QCA' ? qca_name.trim() : null,
@@ -660,6 +671,43 @@ router.post('/request-password-reset', async (req, res) => {
     }
     console.error('[AUTH /request-password-reset]', err);
     return res.status(500).json({ success: false, error: 'Server error while submitting your request.' });
+  }
+});
+
+// GET /api/auth/wbes-lookup?search=<term> — public lookup for the sign-up screen.
+//
+// Registration happens before login, so an applicant must be able to find the
+// WBES acronym their RLDC registered without a token. This is the thinnest
+// possible public read: acronym, display name and region for entities that are
+// still registerable — not already held by an account, and not already the
+// subject of a pending registration — so the applicant never picks one that
+// would be refused at submit. Nothing sensitive lives on wbes_entities, and a
+// minimum term length keeps it from paging out the national register. It sits
+// under the hard-rate-limited /api/auth router.
+router.get('/wbes-lookup', async (req, res) => {
+  const term = String(req.query.search || '').trim();
+  if (term.length < 2) return res.json([]);
+
+  try {
+    const result = await pool.query(
+      `SELECT w.wbes_acronym, w.name, w.region
+         FROM wbes_entities w
+        WHERE (LOWER(w.wbes_acronym) LIKE $1 OR LOWER(w.name) LIKE $1)
+          AND NOT EXISTS (
+            SELECT 1 FROM users u WHERE UPPER(TRIM(u.wbes_acronym)) = UPPER(w.wbes_acronym)
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM registration_requests r
+             WHERE UPPER(TRIM(r.wbes_acronym)) = UPPER(w.wbes_acronym) AND r.status = 'Pending'
+          )
+        ORDER BY (LOWER(w.wbes_acronym) = $2) DESC, w.wbes_acronym ASC
+        LIMIT 25`,
+      [`%${term.toLowerCase()}%`, term.toLowerCase()]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error('[AUTH /wbes-lookup]', err);
+    res.status(500).json({ error: 'Could not search the WBES register.' });
   }
 });
 

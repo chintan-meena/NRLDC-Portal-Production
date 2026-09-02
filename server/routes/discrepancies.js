@@ -14,8 +14,9 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../db');
 const { logEvent } = require('../utils/log');
-const { getSettings } = require('../utils/settings');
+const { getSettings, getBoolean } = require('../utils/settings');
 const { checkFilingWindow } = require('../utils/filingWindow');
+const { originalFilename, isNetScheduleSummary } = require('../utils/filenames');
 const { requireAdmin, isAdmin, isSuperAdmin } = require('../middleware/auth');
 const { scopeToRegion, scopeToRegionOrParty, canActOnRegion, crossRegionError } = require('../middleware/region');
 const { toDateString, daysSince } = require('../utils/dates');
@@ -378,6 +379,23 @@ router.post('/', async (req, res) => {
       return res.status(400).json({
         error: 'Only a Traders account files a discrepancy against a trade.',
       });
+    }
+
+    // Net Schedule Report Summary rule (per region). When switched on, an ISGS
+    // or RE filing must carry the WBES-downloaded summary; other attachments
+    // are unrestricted, and States/Traders are never subject to it. Enforced
+    // here as well as in the browser, so it is a real rule and not a hint.
+    if (['ISGS', 'RE'].includes(energy_category)
+        && await getBoolean('requireNetScheduleFile', req.auth.region, true)) {
+      const attached = Array.isArray(files) ? files : [];
+      const hasSummary = attached.some(f => isNetScheduleSummary(originalFilename(f)));
+      if (!hasSummary) {
+        await logEvent('warn',
+          `Discrepancy filing BLOCKED for "${username}" (${correctionDate}): Net Schedule Report Summary not attached.`);
+        return res.status(400).json({
+          error: 'Attach the Net Schedule Report Summary (.xlsx) downloaded from WBES — its name starts with "NetSchdReportSummary@". Other supporting files are optional.',
+        });
+      }
     }
 
     const result = await pool.query(

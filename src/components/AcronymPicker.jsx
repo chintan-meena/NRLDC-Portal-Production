@@ -18,6 +18,11 @@ import { Search, Loader2, AlertCircle } from 'lucide-react';
  */
 export default function AcronymPicker({
   label, value, onChange, region, placeholder = 'Search by acronym or name…', disabled, hint,
+  // The search source and an optional whole-row callback. The trader form uses
+  // the defaults (search the authenticated directory, only the acronym string
+  // matters); the sign-up form injects the public lookup and takes the whole
+  // row so it can fill in the display name and region too.
+  searchFn = searchWbesDirectory, onSelect,
 }) {
   const id = useId();
   const [term, setTerm] = useState(value || '');
@@ -48,7 +53,7 @@ export default function AcronymPicker({
       if (typed.length < 2 || typed === value) { setResults([]); setOpen(false); return; }
       setBusy(true); setError('');
       try {
-        const rows = await searchWbesDirectory(typed, region);
+        const rows = await searchFn(typed, region);
         if (ticket !== latest.current) return;
         setResults(rows); setOpen(true); setActive(-1);
       } catch (err) {
@@ -58,7 +63,7 @@ export default function AcronymPicker({
       }
     }, 250);
     return () => clearTimeout(timer);
-  }, [term, region, value]);
+  }, [term, region, value, searchFn]);
 
   // Clicking away closes the list without choosing anything.
   useEffect(() => {
@@ -69,6 +74,7 @@ export default function AcronymPicker({
 
   const choose = (row) => {
     onChange(row.wbes_acronym);
+    if (onSelect) onSelect(row);
     setTerm(row.wbes_acronym);
     setOpen(false);
     setResults([]);

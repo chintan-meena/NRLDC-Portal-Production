@@ -25,3 +25,18 @@ export function originalFilename(stored) {
   const dash = name.indexOf('-');
   return dash !== -1 ? name.slice(dash + 1) : name;
 }
+
+/**
+ * Is this the Net Schedule Report Summary a station downloads from WBES?
+ *
+ * Tolerant of the variable middle — one segment or two — before the revision:
+ *   NetSchdReportSummary@AAPL_BKN2@rev(121)@01-09-2026@..._18-03-54.xlsx
+ *   NetSchdReportSummary@DADRI@DADRI_CRF@rev(109)@02-09-2026@..._15-10-01.xlsx
+ *
+ * Mirror of isNetScheduleSummary in server/utils/filenames.js.
+ */
+const NET_SCHEDULE_SUMMARY = /^NetSchdReportSummary@.+@rev\(\d+\)@.*\.xls[x]?$/i;
+
+export function isNetScheduleSummary(name) {
+  return NET_SCHEDULE_SUMMARY.test(String(name || '').trim());
+}

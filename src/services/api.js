@@ -172,6 +172,17 @@ export const registerAccount = async (payload) => {
   return apiFetch('/auth/register', { method: 'POST', body: payload });
 };
 
+/**
+ * Public WBES acronym search for the sign-up screen. Returns the registerable
+ * entities matching the term — { wbes_acronym, name, region } — so an applicant
+ * can pick their plant and have the display name, region and username filled in.
+ * No token: the caller is not signed in yet.
+ */
+export const searchWbesForRegistration = async (search) => {
+  const q = new URLSearchParams({ search });
+  return apiFetch(`/auth/wbes-lookup?${q.toString()}`);
+};
+
 export const getRegistrations = async (status = 'ALL') => {
   return apiFetch(`/users/registrations?status=${encodeURIComponent(status)}`);
 };

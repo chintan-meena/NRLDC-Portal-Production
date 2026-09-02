@@ -73,7 +73,7 @@ export default function Navbar({ currentUser, onLogout, activeTab, setActiveTab 
         />
         <div className="brand-details">
           <span className="brand-title">GRID-INDIA</span>
-          <span className="brand-subtitle">NRLDC Energy Scheduling Platform</span>
+          <span className="brand-subtitle">{(currentUser?.region || 'NLDC')} Energy Scheduling Platform</span>
         </div>
       </div>
 
@@ -211,7 +211,7 @@ export default function Navbar({ currentUser, onLogout, activeTab, setActiveTab 
               <span className="username-label">{currentUser.username}</span>
               <span className="user-role-badge">
                 {currentUser.role === 'SUPERADMIN'
-                  ? `⚡ ${currentUser.region} Admin · National`
+                  ? `⚡ ${currentUser.region || 'NLDC'} Admin · National`
                   : currentUser.role === 'ADMIN'
                     ? `⚡ ${currentUser.region} Admin`
                     : `👤 ${currentUser.region} User`}

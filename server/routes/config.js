@@ -26,6 +26,8 @@ const WRITABLE_KEYS = new Set([
   // after which a correction period closes for good; flaggedThresholdPercent
   // is the share of a filer's discrepancies marked flagged that flags them.
   'postFactoCutoffDay', 'flaggedThresholdPercent',
+  // Whether ISGS / RE filers must attach the WBES Net Schedule Report Summary.
+  'requireNetScheduleFile',
   // Mail budget controls. otpTrustDays is the lever that matters: it decides
   // how often a user is asked for a code, and so how much mail the portal
   // needs. See auth/devices.js.

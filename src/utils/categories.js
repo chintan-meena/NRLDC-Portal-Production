@@ -7,16 +7,16 @@
  * reads can be changed in one place without touching any of that.
  *
  * Under the IEGC both inter-state generating stations and renewable generators
- * are regional entities, which is why the two labels share a stem. The
- * parenthetical is what separates them, so keep it: "Regional Entity" and
- * "Regional Entity (RE)" differ by four characters, and a label that only
- * differs in a suffix is easy to misread in a dense table.
+ * are regional entities. ISGS keeps the plain "Regional Entity" label; RE is
+ * shown as "Renewable (RE)" rather than "Regional Entity (RE)" so the two are
+ * not two labels that differ only by a suffix — that was easy to misread in a
+ * dense table. The "(RE)" token is kept so the stored value is still legible.
  */
 
 /** Stored value → what the user sees. */
 export const CATEGORY_LABELS = {
   ISGS: 'Regional Entity',
-  RE: 'Regional Entity (RE)',
+  RE: 'Renewable (RE)',
   States: 'States',
   Traders: 'Traders',
   QCA: 'QCA',
@@ -28,7 +28,7 @@ export const CATEGORY_LABELS = {
  */
 export const CATEGORY_SHORT = {
   ISGS: 'Reg. Entity',
-  RE: 'Reg. Entity (RE)',
+  RE: 'Renewable',
   States: 'States',
   Traders: 'Traders',
   QCA: 'QCA',

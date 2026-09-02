@@ -31,6 +31,28 @@ function defaultUsernameFor(acronym) {
 }
 
 /**
+ * Build a username from a plant's WBES acronym *and* its region:
+ * <acronym-slug>@<region>, e.g. ('BIKANER_RE3', 'ERLDC') → 'bikaner.re3@erldc'.
+ *
+ * This is the convention self-service registration follows once the applicant
+ * picks a registered acronym — the acronym decides the local part and the
+ * region (carried on the acronym's wbes_entities row) decides the namespace.
+ * Unlike defaultUsernameFor(), which hardcodes '@nrldc', this names the account
+ * for the region that actually despatches the plant.
+ *
+ * Returns '' when either part is missing, so callers can fall back.
+ */
+function usernameFromAcronym(acronym, region) {
+  const slug = String(acronym || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '.')
+    .replace(/^\.+|\.+$/g, '');
+  const ns = String(region || '').trim().toLowerCase();
+  return slug && ns ? `${slug}@${ns}` : '';
+}
+
+/**
  * An acronym that can serve as a namespace: letters and digits, 2–10 of them.
  * Anything else would produce usernames that are awkward to type or ambiguous.
  */
@@ -67,5 +89,5 @@ function isInRegionNamespace(username, acronym) {
 }
 
 module.exports = {
-  DOMAIN, defaultUsernameFor, usernameForRegion, isInRegionNamespace, ACRONYM_RULE,
+  DOMAIN, defaultUsernameFor, usernameFromAcronym, usernameForRegion, isInRegionNamespace, ACRONYM_RULE,
 };

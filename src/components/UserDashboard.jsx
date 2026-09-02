@@ -12,7 +12,7 @@ import { GRID_REGIONS, isTraderCategory, consentBadge } from '../utils/trade';
 import AcronymPicker from './AcronymPicker';
 import { useFeedback } from '../hooks/useFeedback';
 import { useModalDismiss } from '../hooks/useModalDismiss';
-import { originalFilename } from '../utils/filenames';
+import { originalFilename, isNetScheduleSummary } from '../utils/filenames';
 import { FILTERABLE_TYPES, ALL_FILING_TYPES, MISC_TYPE } from '../utils/discrepancyTypes';
 import { ACCEPT_ATTRIBUTE, ALLOWED_DESCRIPTION, MAX_UPLOAD_MB, validateFiles } from '../utils/uploads';
 import { parseTimeBlocks } from '../utils/timeBlocks';
@@ -320,20 +320,19 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
       }
     }
 
-    // Validate Excel File format
-    if (selectedFiles.length > 0) {
-      const invalidFile = selectedFiles.find(file => {
-        const ext = file.name.split('.').pop().toLowerCase();
-        const isExcel = ext === 'xlsx' || ext === 'xls';
-        const startsWithSummary = file.name.startsWith('NetSchdReportSummary@');
-        const containsRev = file.name.includes('@rev(');
-        return !isExcel || !startsWithSummary || !containsRev;
-      });
-
-      if (invalidFile) {
-        setFormError('Please upload the Net Schedule Report summary from WBES link (filename must start with NetSchdReportSummary@, contain revision details, and be an Excel file).');
-        return;
-      }
+    // Net Schedule Report Summary rule. When the RLDC has it switched on, an
+    // ISGS or RE filing must include the WBES-downloaded summary; other files
+    // (PDFs etc.) are allowed alongside with no name check. States/Traders, a
+    // switched-off region, and re-raises are exempt (the server enforces the
+    // same). QCA filings are for RE plants, so they are treated as RE.
+    const filingCategory = isQcaUser ? 'RE' : currentUser.energy_category;
+    const netFileRequired =
+      config.requireNetScheduleFile !== false && config.requireNetScheduleFile !== 'false'
+      && ['ISGS', 'RE'].includes(filingCategory)
+      && !reRaiseReqNo;
+    if (netFileRequired && !selectedFiles.some(f => isNetScheduleSummary(f.name))) {
+      setFormError('Attach the Net Schedule Report Summary (.xlsx) downloaded from WBES — its name starts with “NetSchdReportSummary@”. You may attach other supporting files alongside it.');
+      return;
     }
 
     setIsSubmitting(true);
@@ -369,7 +368,7 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
         setFormSuccess(
           trade && buyerRegion !== sellerRegion
             ? `Filed. ${sellerRegion} must confirm the trade was theirs before ${buyerRegion} can apply the fix — you will see it as “Awaiting consent” until they do.`
-            : 'Discrepancy filed successfully and dispatched to NRLDC operations!'
+            : `Discrepancy filed successfully and dispatched to ${currentUser.region} operations!`
         );
       }
 
@@ -441,7 +440,7 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
     try {
       setSubmittingTransfer(true);
       await createTransferRequest(currentUser.wbes_acronym, selectedTargetQca, transferEffectiveDate, currentUser.username);
-      setTransferSuccess('Transfer request submitted successfully. It is now pending NRLDC Admin approval.');
+      setTransferSuccess(`Transfer request submitted successfully. It is now pending ${currentUser.region} Admin approval.`);
       setSelectedTargetQca('');
       const allTransfers = await getTransferRequests();
       setMyTransferRequests(allTransfers ? allTransfers.filter(tr => tr.requested_by === currentUser.username) : []);
@@ -645,6 +644,14 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
   const daysDiff = getDaysDiff(correctionDate);
   const maxAllowedDays = config.allowExtended ? (config.extendedMaxDays || 15) : config.maxDays;
   const isDateInvalid = daysDiff !== null && daysDiff > maxAllowedDays;
+
+  // Whether the WBES Net Schedule Summary attachment is mandatory for this
+  // filing — mirrors the guard in handleFormSubmit and the server. Drives the
+  // wording on the upload zone.
+  const netFileRequiredNow =
+    config.requireNetScheduleFile !== false && config.requireNetScheduleFile !== 'false'
+    && ['ISGS', 'RE'].includes(isQcaUser ? 'RE' : currentUser.energy_category)
+    && !reRaiseReqNo;
 
   // Filter Logic is performed on the server side, but status sorting is client-side
   const filteredDiscrepancies = [...discrepancies].sort((a, b) => {
@@ -923,7 +930,7 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
               <div style={{ padding: '25px', background: 'var(--bg-secondary)', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
                 <h3 style={{ fontSize: '1rem', fontWeight: '600', marginBottom: '10px' }}>Request QCA Transfer</h3>
                 <p style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', marginBottom: '20px' }}>
-                  If you need to change your registered QCA, select the target QCA and effective date below to submit a transfer request to the NRLDC Admin.
+                  If you need to change your registered QCA, select the target QCA and effective date below to submit a transfer request to the {currentUser.region} Admin.
                 </p>
 
                 <Banner type="error" message={transferError} />
@@ -1216,11 +1223,17 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
             </div>
 
             <div className="form-group">
-              <label>Upload Supporting Documents (Optional - excel sheet from WBES recommended)</label>
+              <label>{netFileRequiredNow
+                ? 'Upload Supporting Documents (Net Schedule Summary from WBES required)'
+                : 'Upload Supporting Documents (Optional)'}</label>
               <div className="file-upload-zone" onClick={() => document.getElementById('file-picker').click()}>
                 <Upload size={32} style={{ color: 'var(--text-secondary)', marginBottom: '8px' }} />
-                <p style={{ fontSize: '0.9rem', fontWeight: '500' }}>Click to select Net Schedule Summary</p>
-                <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px' }}>File name must match format: NetSchdReportSummary@...</p>
+                <p style={{ fontSize: '0.9rem', fontWeight: '500' }}>Click to select files</p>
+                {netFileRequiredNow && (
+                  <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+                    One WBES Net Schedule Summary (name starts with NetSchdReportSummary@) is required. You may add other supporting files alongside it.
+                  </p>
+                )}
                 <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '2px' }}>{ALLOWED_DESCRIPTION} only, up to {MAX_UPLOAD_MB} MB per file.</p>
                 <input type="file" id="file-picker" multiple accept={ACCEPT_ATTRIBUTE} style={{ display: 'none' }} onChange={handleFileChange} />
               </div>
@@ -1255,7 +1268,7 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
               <div style={{ padding: '25px', background: 'var(--bg-secondary)', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
                 <h3 style={{ fontSize: '1rem', fontWeight: '600', marginBottom: '10px' }}>Request QCA Association</h3>
                 <p style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', marginBottom: '20px' }}>
-                  If you want to associate this independent plant with a Coordinating Agency (QCA), select the target QCA and effective date below to submit an association request to the NRLDC Admin.
+                  If you want to associate this independent plant with a Coordinating Agency (QCA), select the target QCA and effective date below to submit an association request to the {currentUser.region} Admin.
                 </p>
 
                 <Banner type="error" message={transferError} />

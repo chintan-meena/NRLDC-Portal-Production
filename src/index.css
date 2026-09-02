@@ -58,10 +58,12 @@
   --success-text: #0f766e;
   --link-text: #1d4ed8;
   /* Entity-category accents: purple = ISGS+RE ("both"), indigo = admin,
-     emerald = States. Light values, for the pale tint over a light surface. */
+     emerald = States, rose = Traders. Light values, for the pale tint over a
+     light surface. */
   --cat-both: #6d28d9;
   --cat-admin: #4f46e5;
   --cat-states: #047857;
+  --cat-traders: #be185d;
   --surface-subtle: #f8fafc;
 
   /* ── Surfaces that were written as literals ──────────────────────────────
@@ -168,6 +170,7 @@
     --cat-both: #c4b5fd;
     --cat-admin: #a5b4fc;
     --cat-states: #6ee7b7;
+    --cat-traders: #fda4af;
     --surface-subtle: #212c3a;
 
     /* Surface hierarchy, darkest to lightest: page → card → input/row.
@@ -265,6 +268,7 @@
   --cat-both: #c4b5fd;
   --cat-admin: #a5b4fc;
   --cat-states: #6ee7b7;
+  --cat-traders: #fda4af;
   --surface-subtle: #212c3a;
 
   /* Surface hierarchy, darkest to lightest: page → card → input/row.
@@ -820,6 +824,9 @@ button {
 .custom-table tr.States td {
   background-color: rgba(16, 185, 129, 0.04); /* Soft green tint */
 }
+.custom-table tr.Traders td {
+  background-color: rgba(190, 24, 93, 0.05); /* Soft rose tint */
+}
 .custom-table tr.QCA td {
   background-color: rgba(245, 158, 11, 0.04); /* Soft orange tint */
 }
@@ -837,6 +844,9 @@ button {
 .custom-table tr.States td:first-child {
   border-left: 4px solid var(--cat-states);
 }
+.custom-table tr.Traders td:first-child {
+  border-left: 4px solid var(--cat-traders);
+}
 .custom-table tr.QCA td:first-child {
   border-left: 4px solid var(--warn-strong);
 }
@@ -853,6 +863,9 @@ button {
 }
 .custom-table tr.States:hover td {
   background-color: rgba(16, 185, 129, 0.08);
+}
+.custom-table tr.Traders:hover td {
+  background-color: rgba(190, 24, 93, 0.1);
 }
 .custom-table tr.QCA:hover td {
   background-color: rgba(245, 158, 11, 0.08);
@@ -929,6 +942,11 @@ button {
 .energy-badge.States {
   background: rgba(16, 185, 129, 0.08);
   color: var(--cat-states);
+}
+
+.energy-badge.Traders {
+  background: rgba(190, 24, 93, 0.08);
+  color: var(--cat-traders);
 }
 
 .energy-badge.QCA {

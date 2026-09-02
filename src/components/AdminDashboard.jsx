@@ -16,7 +16,7 @@ import FlaggedTracker from './FlaggedTracker';
 import { isNational, regionLabel } from '../utils/regions';
 import ConfirmDialog from './ConfirmDialog';
 import { Banner, EmptyState, SkeletonRows } from './Feedback';
-import { categoryLabel, categoryShort } from '../utils/categories';
+import { categoryLabel, categoryShort, CATEGORIES } from '../utils/categories';
 import ConsentPanel from './ConsentPanel';
 import { isTrade, consentBadge } from '../utils/trade';
 import { useFeedback } from '../hooks/useFeedback';
@@ -108,6 +108,8 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
   const [outageISGS, setOutageISGS] = useState(true);
   const [outageRE, setOutageRE] = useState(true);
   const [outageStates, setOutageStates] = useState(false);
+  // Require ISGS / RE filers to attach the WBES Net Schedule Report Summary.
+  const [requireNetFile, setRequireNetFile] = useState(true);
   const [landingPref, setLandingPref] = useState('both');
   const [configSuccess, setConfigSuccess] = useState('');
 
@@ -153,6 +155,7 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
       setOutageISGS(cfg.outage_ISGS === true || cfg.outage_ISGS === 'true');
       setOutageRE(cfg.outage_RE === true || cfg.outage_RE === 'true');
       setOutageStates(cfg.outage_States === true || cfg.outage_States === 'true');
+      setRequireNetFile(cfg.requireNetScheduleFile !== false && cfg.requireNetScheduleFile !== 'false');
       setOtpTrustDays(cfg.otpTrustDays ?? 7);
       setResetOtpMinutes(cfg.resetOtpMinutes ?? 20);
       setMailDailyCap(cfg.mailDailyCap ?? 280);
@@ -399,6 +402,7 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
         outage_ISGS: String(outageISGS),
         outage_RE: String(outageRE),
         outage_States: String(outageStates),
+        requireNetScheduleFile: String(requireNetFile),
         otpTrustDays: parseInt(otpTrustDays),
         resetOtpMinutes: parseInt(resetOtpMinutes),
         mailDailyCap: parseInt(mailDailyCap),
@@ -684,7 +688,7 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
               <span>Operations Overview Dashboard</span>
             </h2>
             <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginTop: '4px' }}>
-              NRLDC system status metrics for energy scheduling discrepancies.
+              {currentUser.region || 'NLDC'} system status metrics for energy scheduling discrepancies.
             </p>
           </div>
 
@@ -760,10 +764,15 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
               <Repeat size={15} /> {showTracker ? 'Hide' : 'Flagged Filing'}
             </button>
             <div className="category-tabs">
+              {/* Rendered from the shared category list so a category added to
+                  the data model cannot be silently missing here — this row had
+                  gained States but not Traders. */}
               <button className={`category-tab ${categoryFilter === 'both' ? 'active' : ''}`} onClick={() => setCategoryFilter('both')}>All Categories</button>
-              <button className={`category-tab ${categoryFilter === 'ISGS' ? 'active' : ''}`} onClick={() => setCategoryFilter('ISGS')}>{categoryLabel('ISGS')}</button>
-              <button className={`category-tab ${categoryFilter === 'RE' ? 'active' : ''}`} onClick={() => setCategoryFilter('RE')}>{categoryLabel('RE')}</button>
-              <button className={`category-tab ${categoryFilter === 'States' ? 'active' : ''}`} onClick={() => setCategoryFilter('States')}>States</button>
+              {CATEGORIES.map(cat => (
+                <button key={cat}
+                  className={`category-tab ${categoryFilter === cat ? 'active' : ''}`}
+                  onClick={() => setCategoryFilter(cat)}>{categoryLabel(cat)}</button>
+              ))}
             </div>
           </div>
 
@@ -1371,6 +1380,23 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
                 </p>
               </div>
 
+              <div className={`settings-toggle-card${requireNetFile ? '' : ' off'}`}>
+                <label htmlFor="ad-require-net-file" className="settings-toggle-label">
+                  <input
+                    id="ad-require-net-file"
+                    type="checkbox"
+                    checked={requireNetFile}
+                    onChange={(e) => setRequireNetFile(e.target.checked)}
+                  />
+                  <span>Require the WBES Net Schedule Report Summary when filing</span>
+                </label>
+                <p className="settings-toggle-note">
+                  {requireNetFile
+                    ? `${categoryLabel('ISGS')} and ${categoryLabel('RE')} filers must attach the "NetSchdReportSummary@…" Excel downloaded from WBES. Other supporting files (PDFs etc.) stay optional and unrestricted.`
+                    : 'Switched off. Attachments are entirely optional and no filename is required.'}
+                </p>
+              </div>
+
               <fieldset className="settings-fieldset">
                 <legend>Unit outage filing</legend>
                 <p className="settings-hint">Which energy categories may submit unit outages.</p>
@@ -1505,9 +1531,9 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
                 <label htmlFor="ad-default-page-landing-view-preference">Default category when you open the portal</label>
                 <select id="ad-default-page-landing-view-preference" className="form-control" value={landingPref} onChange={(e) => setLandingPref(e.target.value)}>
                   <option value="both">All Categories</option>
-                  <option value="ISGS">{categoryLabel('ISGS')} only</option>
-                  <option value="RE">RE energy only</option>
-                  <option value="States">States only</option>
+                  {CATEGORIES.map(cat => (
+                    <option key={cat} value={cat}>{categoryLabel(cat)} only</option>
+                  ))}
                 </select>
               </div>
 

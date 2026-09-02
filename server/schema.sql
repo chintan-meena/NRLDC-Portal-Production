@@ -617,7 +617,11 @@ SELECT d.key, r.region, d.value
     ('postFactoCutoffDay', '15'),
     -- What share of a filer's discrepancies being marked flagged by the RLDC
     -- flags them in the tracker. 40 = 40%.
-    ('flaggedThresholdPercent', '40')
+    ('flaggedThresholdPercent', '40'),
+    -- Require ISGS / RE filers to attach the WBES Net Schedule Report Summary
+    -- (.xlsx) when filing a discrepancy. Other supporting files stay optional
+    -- and unrestricted. Off leaves attachments entirely optional.
+    ('requireNetScheduleFile', 'true')
   ) AS d(key, value)
   CROSS JOIN (VALUES ('NRLDC'), ('ERLDC'), ('WRLDC'), ('SRLDC'), ('NERLDC')) AS r(region)
 ON CONFLICT (key, region) DO NOTHING;

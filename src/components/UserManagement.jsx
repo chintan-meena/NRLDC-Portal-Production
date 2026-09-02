@@ -517,7 +517,7 @@ export default function UserManagement({ currentUser }) {
         + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
       const link = document.createElement('a');
       link.setAttribute('href', encodeURI(csvContent));
-      link.setAttribute('download', 'NRLDC_Registered_Users.csv');
+      link.setAttribute('download', `${currentUser?.region || 'RLDC'}_Registered_Users.csv`);
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);

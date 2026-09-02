@@ -29,3 +29,23 @@ export function defaultUsernameFor(acronym) {
     .replace(/^\.+|\.+$/g, '');
   return slug ? `${slug}${DOMAIN}` : '';
 }
+
+/**
+ * Build a username from a plant's WBES acronym *and* its region:
+ * <acronym-slug>@<region>, e.g. ('BIKANER_RE3', 'ERLDC') → 'bikaner.re3@erldc'.
+ *
+ * Self-service registration uses this once the applicant picks a registered
+ * acronym: the acronym's row carries the region, so the account is named for
+ * the centre that despatches it rather than always '@nrldc'.
+ *
+ * Mirror of usernameFromAcronym in server/utils/usernames.js.
+ */
+export function usernameFromAcronym(acronym, region) {
+  const slug = String(acronym || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '.')
+    .replace(/^\.+|\.+$/g, '');
+  const ns = String(region || '').trim().toLowerCase();
+  return slug && ns ? `${slug}@${ns}` : '';
+}

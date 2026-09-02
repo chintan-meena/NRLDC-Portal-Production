@@ -188,7 +188,7 @@ export default function Login({ onLoginSuccess }) {
               style={{ height: '75px', width: 'auto', objectFit: 'contain' }}
             />
           </div>
-          <h2 style={{ fontSize: '1.6rem', fontFamily: 'var(--font-display)', color: 'var(--text-primary)', fontWeight: 800 }}>NRLDC</h2>
+          <h2 style={{ fontSize: '1.6rem', fontFamily: 'var(--font-display)', color: 'var(--text-primary)', fontWeight: 800 }}>RLDC</h2>
           <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
             Scheduling Discrepancy Monitoring Portal
           </p>
@@ -316,7 +316,7 @@ export default function Login({ onLoginSuccess }) {
                   id="recovery-username"
                   type="text"
                   className="form-control"
-                  placeholder="e.g. user@nrldc"
+                  placeholder="e.g. acronym@rldc"
                   value={recoveryUsername}
                   onChange={(e) => setRecoveryUsername(e.target.value)}
                   disabled={loading}
@@ -391,7 +391,7 @@ export default function Login({ onLoginSuccess }) {
                   id="username"
                   type="text"
                   className="form-control"
-                  placeholder="e.g. user@nrldc or admin@nrldc"
+                  placeholder="e.g. acronym@rldc or admin@nldc"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   disabled={loading}
