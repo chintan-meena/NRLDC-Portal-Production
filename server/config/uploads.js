@@ -122,7 +122,16 @@ function createUploader(destinationDir) {
     destination: (req, file, cb) => cb(null, destinationDir),
     filename: (req, file, cb) => {
       const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
-      const cleanOriginalName = file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_');
+      // Keep the characters the WBES Net Schedule naming convention is built on
+      // — '@', '(' and ')' — so a file uploaded as
+      //   NetSchdReportSummary@ACR@rev(137)@date.xlsx
+      // still reads as one afterwards. Stripping them to '_' (as this did) left
+      // an ISGS/RE filer unable to submit: isNetScheduleSummary() no longer
+      // matched the stored name, and the mandatory-attachment rule refused the
+      // very file they had attached. '/' and every other path- or shell-unsafe
+      // character is still replaced; the unique prefix already guarantees the
+      // name cannot start with a dot or collide.
+      const cleanOriginalName = file.originalname.replace(/[^a-zA-Z0-9.@()_-]/g, '_');
       const finalName = uniqueSuffix + '-' + cleanOriginalName;
 
       // Remember what we started writing. multer streams to disk as it reads,
