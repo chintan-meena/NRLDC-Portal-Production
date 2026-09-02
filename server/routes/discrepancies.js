@@ -324,6 +324,24 @@ router.post('/', async (req, res) => {
 
     const targetAcronym = wbes_acronym || defaultAcronym;
 
+    // A blocked acronym is frozen for its current holder too, not merely closed
+    // to new claimants — that is the whole point of blocking one already in use.
+    // The check sits here rather than in the QCA branch below because a plain
+    // plant user never reaches that branch, and would otherwise keep filing.
+    if (targetAcronym) {
+      const blockRes = await pool.query(
+        'SELECT blocked, blocked_reason FROM wbes_entities WHERE UPPER(wbes_acronym) = UPPER($1)',
+        [targetAcronym]
+      );
+      if (blockRes.rows.length > 0 && blockRes.rows[0].blocked) {
+        await logEvent('error', `Filing BLOCKED: "${username}" attempted to file for blocked plant ${targetAcronym}.`);
+        return res.status(403).json({
+          error: `"${targetAcronym}" has been blocked by its RLDC and cannot be filed against`
+               + `${blockRes.rows[0].blocked_reason ? `: ${blockRes.rows[0].blocked_reason}` : '.'}`,
+        });
+      }
+    }
+
     if (userRole === 'QCA') {
       if (!targetAcronym) {
         return res.status(400).json({ error: 'Select the plant this discrepancy is being filed for.' });
@@ -372,6 +390,25 @@ router.post('/', async (req, res) => {
       if (!checked.ok) return res.status(400).json({ error: checked.error });
       trade = checked.trade;
       opening = openingState(trade);
+
+      // Neither side of a trade may be a blocked acronym. These columns carry no
+      // foreign key — a counterpart in a region that does not use this portal
+      // still has to be nameable — so a blocked one is only caught here.
+      const sides = [trade.buyerAcronym, trade.sellerAcronym].filter(Boolean);
+      if (sides.length > 0) {
+        const blockedSides = await pool.query(
+          `SELECT wbes_acronym, blocked_reason FROM wbes_entities
+            WHERE UPPER(wbes_acronym) = ANY($1::text[]) AND blocked = TRUE`,
+          [sides.map(s => String(s).toUpperCase())]
+        );
+        if (blockedSides.rows.length > 0) {
+          const b = blockedSides.rows[0];
+          return res.status(403).json({
+            error: `"${b.wbes_acronym}" has been blocked by its RLDC and cannot be named in a trade`
+                 + `${b.blocked_reason ? `: ${b.blocked_reason}` : '.'}`,
+          });
+        }
+      }
     } else if (buyerRegion || sellerRegion || buyerAcronym || sellerAcronym) {
       // Refused rather than ignored: silently dropping the fields would let a
       // station file something that looks like a trade and behaves like an

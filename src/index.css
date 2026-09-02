@@ -622,6 +622,26 @@ button {
   box-shadow: 0 2px 4px rgba(37, 99, 235, 0.2);
 }
 
+/* Tabs dividing a page rather than filtering a list.
+   .category-tab is sized to fit four across the navbar, which would render the
+   two tabs on User Management at a quarter width each with a gulf between
+   them. Here they take the width of their own labels instead. */
+.category-tabs.subtabs {
+  flex: 0 1 auto;
+  gap: 8px;
+}
+
+.category-tabs.subtabs .category-tab {
+  flex: 0 0 auto;
+  max-width: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 16px;
+  font-size: 0.83rem;
+}
+
 /* Stacked Date and Time */
 .nav-meta-dates {
   display: flex;

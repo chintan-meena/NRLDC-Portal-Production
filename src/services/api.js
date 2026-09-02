@@ -526,9 +526,22 @@ export const getAdminCycleUploads = async (fromDate = null, toDate = null) => {
 
 // ─── QCA & Plant Assignments ───────────────────────────────────────────────
 
-export const getWbesEntities = async (search = '') => {
-  const query = search ? `?search=${encodeURIComponent(search)}` : '';
-  return apiFetch(`/users/wbes-entities${query}`);
+/**
+ * The entity register.
+ *
+ * `region` narrows to one region and is honoured for a national caller only —
+ * everyone else is already confined to their own. `includeBlocked` is for the
+ * registry tab in User Management, which has to show blocked acronyms so an
+ * administrator can unblock them; every other caller is picking something to
+ * use and gets the usable ones.
+ */
+export const getWbesEntities = async (search = '', { region, includeBlocked } = {}) => {
+  const q = new URLSearchParams();
+  if (search) q.set('search', search);
+  if (region) q.set('region', region);
+  if (includeBlocked) q.set('includeBlocked', '1');
+  const query = q.toString();
+  return apiFetch(`/users/wbes-entities${query ? `?${query}` : ''}`);
 };
 
 // Register one WBES acronym in the caller's region. { wbes_acronym, name, energy_category }
@@ -536,8 +549,35 @@ export const registerWbesEntity = async (payload) => {
   return apiFetch('/users/wbes-entities', { method: 'POST', body: payload });
 };
 
-// Bulk-register WBES acronyms from an uploaded .xlsx. Pass a FormData carrying
-// the file under "file" and the batch "energy_category".
+/**
+ * Register up to ten acronyms typed or pasted into the grid.
+ *
+ * `entries` is [{ name, wbes_acronym }]. `region` is required of a national
+ * caller and ignored for a regional one, whose region comes from their account.
+ */
+export const batchRegisterWbesEntities = async (entries, region = null) => {
+  return apiFetch('/users/wbes-entities/batch', {
+    method: 'POST',
+    body: region ? { entries, region } : { entries },
+  });
+};
+
+/** Remove an acronym. Refused with 409 if anything references it. */
+export const deleteWbesEntity = async (acronym) => {
+  return apiFetch(`/users/wbes-entities/${encodeURIComponent(acronym)}`, { method: 'DELETE' });
+};
+
+/** Freeze or unfreeze an acronym. */
+export const setWbesEntityBlocked = async (acronym, blocked, reason = '') => {
+  return apiFetch(`/users/wbes-entities/${encodeURIComponent(acronym)}/block`, {
+    method: 'PATCH',
+    body: { blocked, reason },
+  });
+};
+
+// Load the national register from an uploaded .xlsx — national administrator
+// only. Pass a FormData carrying the file under "file". Each row lands in the
+// region its own Region column names.
 export const bulkUploadWbesEntities = async (formData) => {
   const res = await fetch(`${BASE}/users/wbes-entities/bulk`, {
     method: 'POST',

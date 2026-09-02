@@ -6,7 +6,10 @@
  * PATCH  /api/users/:username/profile → update profile details (name, email, email2, email3, mobile) OR password
  * PATCH  /api/users/:username/landing → update preferred landing
  * POST   /api/users/wbes-entities        → register one WBES acronym (regional)
- * POST   /api/users/wbes-entities/bulk   → register many from an .xlsx (regional)
+ * POST   /api/users/wbes-entities/batch  → register up to 10 typed/pasted at once
+ * POST   /api/users/wbes-entities/bulk   → register many from an .xlsx (national)
+ * DELETE /api/users/wbes-entities/:acronym       → remove one nothing references
+ * PATCH  /api/users/wbes-entities/:acronym/block → freeze/unfreeze one in use
  * POST   /api/users/:username/reset-password → Admin reset password to the default
  * GET    /api/users/registrations    → self-service registrations awaiting a decision
  * PATCH  /api/users/registrations/:id/process → approve (optionally with corrections) or reject
@@ -20,11 +23,12 @@ const bcrypt = require('bcryptjs');
 const pool = require('../db');
 const { logEvent } = require('../utils/log');
 const { withTransaction } = require('../db');
-const { requireAdmin, requireSelfOrAdmin, isAdmin } = require('../middleware/auth');
+const { requireAdmin, requireSuperAdmin, requireSelfOrAdmin, isAdmin, isSuperAdmin } = require('../middleware/auth');
 const {
   requireSameRegion, scopeToRegion, regionForNewRow, regionForNewAccount,
   canActOnRegion, crossRegionError,
 } = require('../middleware/region');
+const { regionExists } = require('../utils/regionRegistry');
 const { previousDayString } = require('../utils/dates');
 const { DEFAULT_PASSWORD, validatePassword } = require('../utils/password');
 const { usernameForRegion } = require('../utils/usernames');
@@ -51,6 +55,58 @@ const { upload: sheetUpload, handleUploadErrors: handleSheetUploadErrors } = cre
  * (BIKANER_RE3), and the column is VARCHAR(50).
  */
 const WBES_ACRONYM_RULE = /^[A-Z0-9][A-Z0-9._-]{0,49}$/;
+
+/**
+ * How many acronyms a single typed/pasted batch may carry.
+ *
+ * A regional administrator fills the register a handful at a time through the
+ * grid in the UI, which bounds the damage a compromised or careless admin
+ * account can do in one action. The national administrator's uncapped path is
+ * the spreadsheet upload, which is deliberately the only bulk route and is
+ * reserved for that one account.
+ */
+const MAX_BATCH = 10;
+
+/**
+ * Insert a prepared set of acronyms in chunks inside one transaction.
+ *
+ * `rows` is [{ acronym, name, region }] — already validated and de-duplicated by
+ * the caller. Returns the set of acronyms actually written; anything missing
+ * from it lost a race with an existing row and was left alone by the ON
+ * CONFLICT, which the caller reports as "already registered".
+ *
+ * The whole file goes in as a handful of multi-row INSERTs rather than one
+ * statement per row: the national register is over four thousand entries, and a
+ * round trip each would take minutes and leave a half-loaded register behind if
+ * it failed in the middle.
+ */
+const INSERT_CHUNK = 500;
+
+async function insertWbesRows(rows) {
+  const written = new Set();
+  if (rows.length === 0) return written;
+
+  await withTransaction(async (client) => {
+    for (let i = 0; i < rows.length; i += INSERT_CHUNK) {
+      const chunk = rows.slice(i, i + INSERT_CHUNK);
+      const params = [];
+      const values = chunk.map((r, n) => {
+        params.push(r.acronym, r.name, r.region);
+        return `($${n * 3 + 1}, $${n * 3 + 2}, $${n * 3 + 3})`;
+      });
+      const res = await client.query(
+        `INSERT INTO wbes_entities (wbes_acronym, name, region)
+         VALUES ${values.join(', ')}
+         ON CONFLICT (wbes_acronym) DO NOTHING
+         RETURNING wbes_acronym`,
+        params
+      );
+      for (const row of res.rows) written.add(row.wbes_acronym);
+    }
+  });
+
+  return written;
+}
 
 /**
  * Look up a plant's energy category. QCA coordination is permitted for
@@ -606,7 +662,8 @@ router.get('/wbes-directory', async (req, res) => {
   }
 
   const params = [`%${term.toLowerCase()}%`];
-  const conditions = ['(LOWER(w.wbes_acronym) LIKE $1 OR LOWER(w.name) LIKE $1)'];
+  // A blocked acronym is never offered as a trade counterpart.
+  const conditions = ['(LOWER(w.wbes_acronym) LIKE $1 OR LOWER(w.name) LIKE $1)', 'w.blocked = FALSE'];
 
   // Narrowing to one region is what the form does once a region is chosen, so
   // the suggestions match the side of the trade being filled in.
@@ -638,11 +695,20 @@ router.get('/wbes-directory', async (req, res) => {
 // GET /api/users/wbes-entities — Search WBES plants
 // A QCA caller only ever sees RE plants, since QCA coordination is limited to
 // Renewable Energy. Admins and plant users see the whole register.
+//
+// Blocked acronyms are left out by default, because every caller but one is
+// picking something to use. The exception is the registry tab in User
+// Management, which passes includeBlocked=1: an administrator has to be able to
+// see a blocked acronym in order to unblock it. Only an admin may ask.
 router.get('/wbes-entities', async (req, res) => {
   const { search, category } = req.query;
 
   const conditions = [];
   const params = [];
+
+  const includeBlocked = isAdmin(req)
+    && (req.query.includeBlocked === '1' || req.query.includeBlocked === 'true');
+  if (!includeBlocked) conditions.push('w.blocked = FALSE');
 
   if (search && search.trim()) {
     params.push(`%${search.trim().toLowerCase()}%`);
@@ -668,7 +734,12 @@ router.get('/wbes-entities', async (req, res) => {
          w.wbes_acronym,
          w.name,
          w.name AS plant_name,
+         w.region,
          w.energy_category,
+         w.blocked,
+         w.blocked_reason,
+         w.blocked_by,
+         w.blocked_at,
          owner.username AS current_owner,
          owner.qca_name AS current_owner_qca
        FROM wbes_entities w
@@ -742,24 +813,26 @@ router.post('/wbes-entities', requireAdmin, async (req, res) => {
   }
 });
 
-// POST /api/users/wbes-entities/bulk — register many WBES acronyms from a sheet.
+// POST /api/users/wbes-entities/bulk — load the national register from a sheet.
 //
 // The file carries three columns — Display Name, WBES Acronym, Region — in any
-// order, matched by header name. Every row is scoped to the administrator's own
-// region: a row naming another region is skipped rather than obeyed, because a
-// bulk upload must not become a way to plant an acronym in a region you do not
-// run. An acronym has no energy category of its own; a registering user states
-// their own, so the register only records the name, the acronym and the region.
-router.post('/wbes-entities/bulk', requireAdmin, handleSheetUploadErrors(sheetUpload.single('file')), async (req, res) => {
+// order, matched by header name. Each row lands in the region its OWN Region
+// column names, so one upload of the national WBES list fills all five regions
+// at once, including any that has no administrator yet.
+//
+// That is why this is the national administrator's route alone. A regional admin
+// uploading a file scoped to itself was the old behaviour, and it made the
+// national list unusable: uploading it as the NRLDC admin imported the 1,344
+// NRLDC rows and discarded the other 2,842. Letting a regional admin keep the
+// upload but honour the Region column would instead hand every admin a way to
+// plant acronyms in regions they do not run, so regional admins get the capped
+// /batch route below and this one is reserved.
+//
+// An acronym has no energy category of its own; a registering user states their
+// own, so the register only records the name, the acronym and the region.
+router.post('/wbes-entities/bulk', requireSuperAdmin, handleSheetUploadErrors(sheetUpload.single('file')), async (req, res) => {
   const cleanup = () => { try { if (req.file?.path) fs.unlinkSync(req.file.path); } catch { /* already gone */ } };
 
-  const region = regionForNewRow(req);
-  if (!region) {
-    cleanup();
-    return res.status(400).json({
-      error: 'A bulk WBES upload belongs to one region. Sign in as that region’s administrator.',
-    });
-  }
   if (!req.file) return res.status(400).json({ error: 'Please upload an .xlsx file.' });
 
   try {
@@ -789,8 +862,15 @@ router.post('/wbes-entities/bulk', requireAdmin, handleSheetUploadErrors(sheetUp
       return String(v ?? '').trim();
     };
 
-    let imported = 0;
+    // The regions a row may name, read once. Asking the registry per row would
+    // be four thousand round trips for an answer that cannot change mid-upload.
+    const regionRes = await pool.query('SELECT acronym FROM regions WHERE status = $1', ['Active']);
+    const validRegions = new Set(regionRes.rows.map(r => r.acronym));
+
     const skipped = [];   // one human-readable line per row not imported
+    const candidates = [];
+    const rowOf = new Map();   // acronym → sheet row, for the skip lines below
+    const seen = new Set();    // the file itself repeats acronyms
 
     for (let r = 2; r <= ws.rowCount; r++) {
       const row = ws.getRow(r);
@@ -801,25 +881,240 @@ router.post('/wbes-entities/bulk', requireAdmin, handleSheetUploadErrors(sheetUp
 
       if (!WBES_ACRONYM_RULE.test(acronym)) { skipped.push(`Row ${r}: invalid acronym “${acronym || '(blank)'}”.`); continue; }
       if (!name) { skipped.push(`Row ${r}: ${acronym} has no display name.`); continue; }
-      if (rowRegion !== region) { skipped.push(`Row ${r}: ${acronym} is for ${rowRegion || '(blank)'}, not ${region}.`); continue; }
+      // The region must be one this portal knows. Checked against the regions
+      // table rather than a hard-coded list, so a region opened later needs no
+      // change here — and a typo in the column is reported, not silently obeyed.
+      if (!validRegions.has(rowRegion)) {
+        skipped.push(`Row ${r}: ${acronym} names region “${rowRegion || '(blank)'}”, which does not exist.`);
+        continue;
+      }
+      if (seen.has(acronym)) { skipped.push(`Row ${r}: ${acronym} appears more than once in this file.`); continue; }
 
-      const ins = await pool.query(
-        `INSERT INTO wbes_entities (wbes_acronym, name, region)
-         VALUES ($1, $2, $3) ON CONFLICT (wbes_acronym) DO NOTHING`,
-        [acronym, name, region]
-      );
-      if (ins.rowCount > 0) imported++;
-      else skipped.push(`Row ${r}: ${acronym} is already registered.`);
+      seen.add(acronym);
+      rowOf.set(acronym, r);
+      candidates.push({ acronym, name, region: rowRegion });
+    }
+
+    const written = await insertWbesRows(candidates);
+
+    // Anything the INSERT did not return was already in the register.
+    const byRegion = {};
+    for (const c of candidates) {
+      if (written.has(c.acronym)) byRegion[c.region] = (byRegion[c.region] || 0) + 1;
+      else skipped.push(`Row ${rowOf.get(c.acronym)}: ${c.acronym} is already registered.`);
     }
 
     cleanup();
+    const summary = Object.keys(byRegion).sort().map(k => `${k} ${byRegion[k]}`).join(', ') || 'none';
     await logEvent('success',
-      `WBES bulk upload by "${req.auth.username}": ${imported} added, ${skipped.length} skipped.`, region);
-    res.json({ importedCount: imported, skippedCount: skipped.length, skipped: skipped.slice(0, 100) });
+      `WBES national upload by "${req.auth.username}": ${written.size} added (${summary}), ${skipped.length} skipped.`,
+      null);
+    res.json({
+      importedCount: written.size,
+      skippedCount: skipped.length,
+      skipped: skipped.slice(0, 100),
+      byRegion,
+    });
   } catch (err) {
     cleanup();
     console.error('[WBES BULK]', err);
     res.status(500).json({ error: 'Failed to process the WBES upload: ' + err.message });
+  }
+});
+
+// POST /api/users/wbes-entities/batch — register up to MAX_BATCH acronyms typed
+// or pasted into the grid in the UI.
+//
+// This is how a regional administrator fills its register. There is no file and
+// no header matching, which is the point: the format rules of a spreadsheet were
+// the thing regional admins got wrong, and a small typed batch cannot become a
+// bulk load of somebody else's region.
+//
+// Who may name the region is the whole security boundary here. A regional admin
+// cannot: theirs comes from the account making the request, so there is no field
+// to tamper with — the same rule regionForNewAccount applies to accounts. The
+// national administrator must name one, which is what lets it add a handful of
+// acronyms to a region that has no administrator of its own yet.
+router.post('/wbes-entities/batch', requireAdmin, async (req, res) => {
+  const entries = Array.isArray(req.body.entries) ? req.body.entries : null;
+  if (!entries || entries.length === 0) {
+    return res.status(400).json({ error: 'Add at least one acronym.' });
+  }
+  if (entries.length > MAX_BATCH) {
+    return res.status(400).json({
+      error: `Register at most ${MAX_BATCH} acronyms at a time. You sent ${entries.length}.`,
+    });
+  }
+
+  let region;
+  if (isSuperAdmin(req)) {
+    region = String(req.body.region || '').trim().toUpperCase();
+    if (!region) {
+      return res.status(400).json({ error: 'Choose the region these acronyms belong to.' });
+    }
+    if (!(await regionExists(region))) {
+      return res.status(400).json({ error: `“${region}” is not a region this portal knows.` });
+    }
+  } else {
+    region = regionForNewRow(req);
+    if (!region) {
+      return res.status(400).json({ error: 'Registering a WBES acronym belongs to one region.' });
+    }
+  }
+
+  const skipped = [];
+  const candidates = [];
+  const seen = new Set();
+
+  entries.forEach((entry, i) => {
+    const label = `Row ${i + 1}`;
+    const acronym = String(entry?.wbes_acronym || '').trim().toUpperCase();
+    const name = String(entry?.name || '').trim();
+    if (!acronym && !name) return;   // an untouched row in the grid
+
+    if (!WBES_ACRONYM_RULE.test(acronym)) { skipped.push(`${label}: invalid acronym “${acronym || '(blank)'}”.`); return; }
+    if (!name) { skipped.push(`${label}: ${acronym} has no display name.`); return; }
+    if (seen.has(acronym)) { skipped.push(`${label}: ${acronym} is repeated in this batch.`); return; }
+
+    seen.add(acronym);
+    candidates.push({ acronym, name, region, label });
+  });
+
+  if (candidates.length === 0 && skipped.length === 0) {
+    return res.status(400).json({ error: 'Every row was blank. Fill in at least one.' });
+  }
+
+  try {
+    const written = await insertWbesRows(candidates);
+    for (const c of candidates) {
+      if (!written.has(c.acronym)) skipped.push(`${c.label}: ${c.acronym} is already registered.`);
+    }
+
+    await logEvent('success',
+      `WBES batch by "${req.auth.username}": ${written.size} added to ${region}, ${skipped.length} skipped.`, region);
+    res.json({ importedCount: written.size, skippedCount: skipped.length, skipped, region });
+  } catch (err) {
+    console.error('[WBES BATCH]', err);
+    res.status(500).json({ error: 'Failed to register the acronyms.' });
+  }
+});
+
+/**
+ * Everything that would be damaged by deleting an acronym.
+ *
+ * The foreign keys as they stand would go quietly: user_plant_assignments and
+ * transfer_requests are ON DELETE CASCADE, and discrepancies.wbes_acronym is ON
+ * DELETE SET NULL — so a blind DELETE would erase assignment history and detach
+ * filed discrepancies from the plant they were filed for. Two more columns hold
+ * an acronym with no foreign key at all (users.wbes_acronym, and the trade
+ * counterpart columns), so the database would not even notice those.
+ *
+ * Returns [{ label, count }] for whatever is non-zero.
+ */
+async function wbesReferences(acronym) {
+  const checks = [
+    ['account holding it', 'SELECT COUNT(*)::int AS n FROM users WHERE UPPER(TRIM(wbes_acronym)) = $1'],
+    ['plant assignment', 'SELECT COUNT(*)::int AS n FROM user_plant_assignments WHERE UPPER(wbes_acronym) = $1'],
+    ['transfer request', 'SELECT COUNT(*)::int AS n FROM transfer_requests WHERE UPPER(wbes_acronym) = $1'],
+    ['filed discrepancy', `SELECT COUNT(*)::int AS n FROM discrepancies
+                            WHERE UPPER(wbes_acronym) = $1
+                               OR UPPER(buyer_wbes_acronym) = $1
+                               OR UPPER(seller_wbes_acronym) = $1`],
+    ['pending registration', `SELECT COUNT(*)::int AS n FROM registration_requests
+                               WHERE UPPER(TRIM(wbes_acronym)) = $1 AND status = 'Pending'`],
+  ];
+
+  const found = [];
+  for (const [label, sql] of checks) {
+    const res = await pool.query(sql, [acronym]);
+    if (res.rows[0].n > 0) found.push({ label, count: res.rows[0].n });
+  }
+  return found;
+}
+
+/** Load an acronym and check the caller may act on its region. */
+async function loadWbesForAdmin(req, res) {
+  const acronym = String(req.params.acronym || '').trim().toUpperCase();
+  const found = await pool.query(
+    'SELECT wbes_acronym, name, region, blocked FROM wbes_entities WHERE UPPER(wbes_acronym) = $1',
+    [acronym]
+  );
+  if (found.rows.length === 0) {
+    res.status(404).json({ error: `“${acronym}” is not in the register.` });
+    return null;
+  }
+  const entity = found.rows[0];
+  if (!canActOnRegion(req, entity.region)) {
+    res.status(403).json(crossRegionError(req));
+    return null;
+  }
+  return entity;
+}
+
+// DELETE /api/users/wbes-entities/:acronym — remove an acronym nothing uses.
+//
+// Deletion is for an acronym entered by mistake. One that is genuinely in use is
+// refused and blocked instead: see wbesReferences above for what "in use" costs
+// if it is ignored.
+router.delete('/wbes-entities/:acronym', requireAdmin, async (req, res) => {
+  try {
+    const entity = await loadWbesForAdmin(req, res);
+    if (!entity) return;
+
+    const refs = await wbesReferences(entity.wbes_acronym.toUpperCase());
+    if (refs.length > 0) {
+      const detail = refs.map(r => `${r.count} ${r.label}${r.count === 1 ? '' : 's'}`).join(', ');
+      return res.status(409).json({
+        error: `${entity.wbes_acronym} is in use (${detail}), so deleting it would take that history with it. `
+             + 'Block it instead — it stays on record but can no longer be claimed or filed against.',
+        references: refs,
+      });
+    }
+
+    await pool.query('DELETE FROM wbes_entities WHERE wbes_acronym = $1', [entity.wbes_acronym]);
+    await logEvent('success',
+      `WBES acronym ${entity.wbes_acronym} ("${entity.name}") deleted by "${req.auth.username}".`, entity.region);
+    res.json({ deleted: entity.wbes_acronym });
+  } catch (err) {
+    console.error('[WBES DELETE]', err);
+    res.status(500).json({ error: 'Failed to delete the acronym.' });
+  }
+});
+
+// PATCH /api/users/wbes-entities/:acronym/block — freeze or unfreeze an acronym.
+//
+// A blocked acronym is frozen completely: it disappears from the sign-up lookup,
+// the assignment picker and the trade directory, and whoever already holds it
+// can no longer file against it. What it does NOT do is rewrite history — past
+// discrepancies still name it, which is why blocking is the safe answer for an
+// acronym that cannot be deleted. Reversible; see the enforcement points marked
+// "blocked" across this file, routes/auth.js and routes/discrepancies.js.
+router.patch('/wbes-entities/:acronym/block', requireAdmin, async (req, res) => {
+  const blocked = req.body.blocked === true || req.body.blocked === 'true';
+  const reason = String(req.body.reason || '').trim();
+
+  try {
+    const entity = await loadWbesForAdmin(req, res);
+    if (!entity) return;
+
+    const result = await pool.query(
+      `UPDATE wbes_entities
+          SET blocked = $2,
+              blocked_reason = $3,
+              blocked_by = $4,
+              blocked_at = $5
+        WHERE wbes_acronym = $1
+        RETURNING wbes_acronym, name, region, blocked, blocked_reason, blocked_by, blocked_at`,
+      [entity.wbes_acronym, blocked, blocked ? reason : '', blocked ? req.auth.username : null, blocked ? new Date() : null]
+    );
+
+    await logEvent('warning',
+      `WBES acronym ${entity.wbes_acronym} ${blocked ? 'blocked' : 'unblocked'} by "${req.auth.username}"`
+      + `${blocked && reason ? `: ${reason}` : '.'}`, entity.region);
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('[WBES BLOCK]', err);
+    res.status(500).json({ error: 'Failed to update the acronym.' });
   }
 });
 
@@ -855,11 +1150,18 @@ router.post('/:username/assignments', requireSelfOrAdmin('username'), requireSam
 
   try {
     const plantRes = await pool.query(
-      'SELECT name, energy_category FROM wbes_entities WHERE wbes_acronym = $1',
+      'SELECT name, energy_category, blocked, blocked_reason FROM wbes_entities WHERE wbes_acronym = $1',
       [acronym]
     );
     if (plantRes.rows.length === 0) {
       return res.status(400).json({ error: `WBES Acronym "${acronym}" is not registered in the system.` });
+    }
+    // A blocked acronym cannot be newly claimed.
+    if (plantRes.rows[0].blocked) {
+      return res.status(403).json({
+        error: `"${acronym}" is blocked by its RLDC and cannot be assigned`
+             + `${plantRes.rows[0].blocked_reason ? `: ${plantRes.rows[0].blocked_reason}` : '.'}`,
+      });
     }
 
     // Plant assignments are the QCA mechanism: the holder must be a QCA, and
@@ -1347,9 +1649,18 @@ router.patch('/registrations/:id/process', requireAdmin, async (req, res) => {
       // on this plant, so the register follows it — but the reclassification
       // is recorded rather than done quietly.
       const existing = await client.query(
-        'SELECT energy_category FROM wbes_entities WHERE UPPER(wbes_acronym) = UPPER($1)',
+        'SELECT energy_category, blocked FROM wbes_entities WHERE UPPER(wbes_acronym) = UPPER($1)',
         [final.wbes_acronym]
       );
+      // The acronym may have been blocked while this application sat in the
+      // queue. Approving would hand it to an account the block was meant to
+      // keep it away from, and the upsert below would not notice.
+      if (existing.rows.length > 0 && existing.rows[0].blocked) {
+        return { status: 409, body: {
+          error: `WBES acronym "${final.wbes_acronym}" has been blocked and cannot be granted. `
+               + 'Unblock it first, edit this request to a different acronym, or reject it.',
+        } };
+      }
       if (existing.rows.length > 0 && existing.rows[0].energy_category !== final.energy_category) {
         changes.push(`WBES register: plant ${final.wbes_acronym} reclassified ${existing.rows[0].energy_category} → ${final.energy_category}`);
       }

@@ -693,6 +693,9 @@ router.get('/wbes-lookup', async (req, res) => {
       `SELECT w.wbes_acronym, w.name, w.region
          FROM wbes_entities w
         WHERE (LOWER(w.wbes_acronym) LIKE $1 OR LOWER(w.name) LIKE $1)
+          -- A blocked acronym is not registerable, so it never reaches the
+          -- sign-up screen. Blocking exists precisely to stop it being claimed.
+          AND w.blocked = FALSE
           AND NOT EXISTS (
             SELECT 1 FROM users u WHERE UPPER(TRIM(u.wbes_acronym)) = UPPER(w.wbes_acronym)
           )

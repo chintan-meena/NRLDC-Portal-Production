@@ -44,3 +44,7 @@ server/upload
 * [0-9].*
 * [0-9]
 ~$*.xlsx
+
+# WBES sample/export spreadsheets (real schedule data, not source)
+NetSchd*.xlsx
+WBES_Utility.xlsx

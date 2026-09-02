@@ -1,19 +1,20 @@
 import React, { useState, useEffect } from 'react';
-import { getUsers, toggleUserLock, registerUser, updateUserAdmin, resetUserPasswordAdmin, toggleUserBypass2FA, getRegistrations, processRegistration, getPasswordResets, processPasswordReset, getWbesEntities, registerWbesEntity, bulkUploadWbesEntities } from '../services/db';
+import { getUsers, toggleUserLock, registerUser, updateUserAdmin, resetUserPasswordAdmin, toggleUserBypass2FA, getRegistrations, processRegistration, getPasswordResets, processPasswordReset } from '../services/db';
 import { DEFAULT_PASSWORD, RULES as PASSWORD_RULES, validatePassword } from '../utils/password';
 import { defaultUsernameFor } from '../utils/usernames';
 import { REGIONS, isNational } from '../utils/regions';
 
 const ADMIN_ROLES = ['ADMIN', 'SUPERADMIN'];
 import ConfirmDialog from './ConfirmDialog';
+import WbesRegistry from './WbesRegistry';
 import { Banner, EmptyState, SkeletonRows } from './Feedback';
 import { categoryLabel, categoryShort } from '../utils/categories';
 import { useFeedback } from '../hooks/useFeedback';
 import { useModalDismiss } from '../hooks/useModalDismiss';
 import {
-  Users, UserPlus, FileUp, Download, Lock, Unlock, Search,
+  Users, UserPlus, Download, Lock, Unlock, Search,
   CheckCircle2, Edit, X, Check, Key, KeyRound, ShieldCheck,
-  Building2, Plus, FileSpreadsheet
+  Building2
 } from 'lucide-react';
 import { formatDateDMYHM } from '../utils/format';
 
@@ -76,16 +77,9 @@ export default function UserManagement({ currentUser }) {
   const [editSuccess, setEditSuccess] = useState('');
   const [editQcaName, setEditQcaName] = useState('');
 
-  // WBES Acronym Registry states
-  const [showWbes, setShowWbes] = useState(false);
-  const [wbesName, setWbesName] = useState('');
-  const [wbesRegAcr, setWbesRegAcr] = useState('');
-  const [wbesError, setWbesError] = useState('');
-  const [wbesSuccess, setWbesSuccess] = useState('');
-  const [wbesList, setWbesList] = useState([]);
-  const [wbesBusy, setWbesBusy] = useState(false);
-  const [bulkFile, setBulkFile] = useState(null);
-  const [bulkResult, setBulkResult] = useState(null);
+  // Which half of the page is showing. The acronym register lives in its own
+  // component — see WbesRegistry.jsx.
+  const [subTab, setSubTab] = useState('users');
 
   async function loadData() {
     setLoadError('');
@@ -445,67 +439,6 @@ export default function UserManagement({ currentUser }) {
     }
   };
 
-  const loadWbesList = async () => {
-    try {
-      setWbesList(await getWbesEntities(''));
-    } catch (err) {
-      setWbesError(err.message || 'Could not load the WBES register.');
-    }
-  };
-
-  const handleAddWbes = async (e) => {
-    e.preventDefault();
-    setWbesError(''); setWbesSuccess('');
-    if (!wbesName.trim() || !wbesRegAcr.trim()) {
-      setWbesError('Display name and WBES acronym are both required.');
-      return;
-    }
-    setWbesBusy(true);
-    try {
-      const ent = await registerWbesEntity({
-        name: wbesName.trim(),
-        wbes_acronym: wbesRegAcr.trim().toUpperCase(),
-      });
-      setWbesSuccess(`Registered ${ent.wbes_acronym} — ${ent.name}.`);
-      setWbesName(''); setWbesRegAcr('');
-      await loadWbesList();
-    } catch (err) {
-      setWbesError(err.message || 'Could not register the acronym.');
-    } finally {
-      setWbesBusy(false);
-    }
-  };
-
-  const handleWbesUpload = async (e) => {
-    e.preventDefault();
-    setWbesError(''); setWbesSuccess(''); setBulkResult(null);
-    if (!bulkFile) { setWbesError('Choose an .xlsx file to upload.'); return; }
-    setWbesBusy(true);
-    try {
-      const form = new FormData();
-      form.append('file', bulkFile);
-      const res = await bulkUploadWbesEntities(form);
-      setBulkResult(res);
-      setWbesSuccess(`Upload complete: ${res.importedCount} added, ${res.skippedCount} skipped.`);
-      setBulkFile(null);
-      const input = document.getElementById('wbes-file');
-      if (input) input.value = '';
-      await loadWbesList();
-    } catch (err) {
-      setWbesError(err.message || 'Upload failed.');
-    } finally {
-      setWbesBusy(false);
-    }
-  };
-
-  const toggleWbes = () => {
-    const next = !showWbes;
-    setShowWbes(next);
-    setShowAddForm(false);
-    setWbesError(''); setWbesSuccess(''); setBulkResult(null);
-    if (next) loadWbesList();
-  };
-
   const handleExportCSV = () => {
     try {
       const headers = ['Name', 'Role', 'Username', 'Email', 'Email2', 'Email3', 'Mobile', 'Category', 'WBES_Acronym', 'Bypass2FA', 'CycleUpload', 'Status'];
@@ -555,6 +488,65 @@ export default function UserManagement({ currentUser }) {
       )}
 
       <Banner type="error" message={loadError} onRetry={loadData} />
+
+      <div className="flex-row-between">
+        <div>
+          <h2 style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <Users />
+            <span>User Directory Registry</span>
+          </h2>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginTop: '4px' }}>
+            Register new energy stations, manage account locks, and maintain the WBES acronym registry.
+          </p>
+        </div>
+
+        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+          {subTab === 'users' && !isNational(currentUser) && (
+            <button className="btn btn-secondary" onClick={() => setShowAddForm(!showAddForm)}>
+              <UserPlus size={16} />
+              {showAddForm ? 'Close Add Form' : 'Register User'}
+            </button>
+          )}
+          {subTab === 'users' && (
+            <button className="btn btn-teal" onClick={handleExportCSV}>
+              <Download size={16} />
+              Download Directory
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* The two halves of this page. The acronym register used to be a
+          show/hide button beside Register User, which buried it — it is a
+          standing reference list an admin works in, not a form to pop open. */}
+      <div className="category-tabs subtabs">
+        <button type="button"
+          className={`category-tab ${subTab === 'users' ? 'active' : ''}`}
+          onClick={() => setSubTab('users')}>
+          <Users size={14} /> User List
+        </button>
+        <button type="button"
+          className={`category-tab ${subTab === 'wbes' ? 'active' : ''}`}
+          onClick={() => setSubTab('wbes')}>
+          <Building2 size={14} /> WBES Acronyms
+        </button>
+      </div>
+
+      {isNational(currentUser) && (
+        <div className="national-note">
+          <ShieldCheck size={15} />
+          <span>
+            You are the national administrator. Regions and their administrators are managed on
+            the <strong>National Admin</strong> page; a region’s users are created by that
+            region’s own administrator. You can view and manage every account here.
+          </span>
+        </div>
+      )}
+
+      {subTab === 'wbes' && <WbesRegistry currentUser={currentUser} />}
+
+      {subTab === 'users' && (
+      <>
 
       {/* ── Self-service registrations awaiting a decision ──────────────────
           Shown above the directory because it is work waiting on the admin,
@@ -901,48 +893,6 @@ export default function UserManagement({ currentUser }) {
         </div>
       )}
 
-      <div className="flex-row-between">
-        <div>
-          <h2 style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <Users />
-            <span>User Directory Registry</span>
-          </h2>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginTop: '4px' }}>
-            Register new energy stations, manage account locks, and maintain the WBES acronym registry.
-          </p>
-        </div>
-
-        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-          {!isNational(currentUser) && (
-            <button className="btn btn-secondary" onClick={() => { setShowAddForm(!showAddForm); setShowWbes(false); }}>
-              <UserPlus size={16} />
-              {showAddForm ? 'Close Add Form' : 'Register User'}
-            </button>
-          )}
-          {!isNational(currentUser) && (
-            <button className="btn btn-secondary" onClick={toggleWbes}>
-              <Building2 size={16} />
-              {showWbes ? 'Close WBES Registry' : 'WBES Acronyms'}
-            </button>
-          )}
-          <button className="btn btn-teal" onClick={handleExportCSV}>
-            <Download size={16} />
-            Download Directory
-          </button>
-        </div>
-      </div>
-
-      {isNational(currentUser) && (
-        <div className="national-note">
-          <ShieldCheck size={15} />
-          <span>
-            You are the national administrator. Regions and their administrators are managed on
-            the <strong>National Admin</strong> page; a region’s users are created by that
-            region’s own administrator. You can view and manage every account here.
-          </span>
-        </div>
-      )}
-
       {/* Register Individual Form */}
       {showAddForm && (
         <div className="glass-panel" style={{ padding: '24px', animation: 'modalFadeIn 0.2s ease-out' }}>
@@ -1107,105 +1057,6 @@ export default function UserManagement({ currentUser }) {
               <button type="submit" className="btn btn-primary">Create User Account</button>
             </div>
           </form>
-        </div>
-      )}
-
-      {/* WBES Acronym Registry */}
-      {showWbes && !isNational(currentUser) && (
-        <div className="glass-panel" style={{ padding: '24px', animation: 'modalFadeIn 0.2s ease-out' }}>
-          <h3 style={{ fontSize: '1.1rem', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Building2 size={18} /> WBES Acronym Registry — {currentUser.region}
-          </h3>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', marginBottom: '15px' }}>
-            Register the WBES acronyms your stations file against. Users self-register against these,
-            so an acronym must exist here first. Everything you add belongs to {currentUser.region}.
-          </p>
-
-          <Banner type="error" message={wbesError} />
-          <Banner type="success" message={wbesSuccess} />
-
-          {/* Add one */}
-          <form onSubmit={handleAddWbes} style={{ marginBottom: '22px' }}>
-            <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
-              <div className="form-group" style={{ flex: '2 1 220px', margin: 0 }}>
-                <label htmlFor="wbes-name">Display Name</label>
-                <input id="wbes-name" className="form-control" value={wbesName}
-                  onChange={(e) => setWbesName(e.target.value)}
-                  placeholder="e.g. Bhartiya Rail Bijlee Company Ltd" />
-              </div>
-              <div className="form-group" style={{ flex: '1 1 150px', margin: 0 }}>
-                <label htmlFor="wbes-acr">WBES Acronym</label>
-                <input id="wbes-acr" className="form-control" value={wbesRegAcr}
-                  onChange={(e) => setWbesRegAcr(e.target.value.toUpperCase())}
-                  placeholder="BRBCL" style={{ textTransform: 'uppercase' }} />
-              </div>
-              <button type="submit" className="btn btn-primary" disabled={wbesBusy}>
-                <Plus size={15} /> Add
-              </button>
-            </div>
-          </form>
-
-          {/* Bulk upload */}
-          <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '16px' }}>
-            <h4 style={{ fontSize: '0.92rem', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <FileSpreadsheet size={15} /> Bulk upload
-            </h4>
-            <p style={{ color: 'var(--text-secondary)', fontSize: '0.78rem', marginBottom: '12px' }}>
-              An <strong>.xlsx</strong> file with columns <strong>Display Name</strong>, <strong>WBES Acronym</strong>{' '}
-              and <strong>Region</strong>. Rows for a region other than {currentUser.region} are skipped, as are
-              acronyms already registered.
-            </p>
-            <form onSubmit={handleWbesUpload}>
-              <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
-                <div className="form-group" style={{ flex: '2 1 240px', margin: 0 }}>
-                  <label htmlFor="wbes-file">Spreadsheet (.xlsx)</label>
-                  <input id="wbes-file" type="file" accept=".xlsx" className="form-control"
-                    onChange={(e) => setBulkFile(e.target.files?.[0] || null)} />
-                </div>
-                <button type="submit" className="btn btn-teal" disabled={wbesBusy || !bulkFile}>
-                  <FileUp size={15} /> {wbesBusy ? 'Uploading…' : 'Upload'}
-                </button>
-              </div>
-            </form>
-
-            {bulkResult && bulkResult.skipped?.length > 0 && (
-              <div style={{ marginTop: '12px', maxHeight: '160px', overflowY: 'auto', fontSize: '0.76rem',
-                            color: 'var(--text-secondary)', background: 'rgba(0,0,0,0.04)',
-                            border: '1px solid var(--border-color)', borderRadius: '8px', padding: '10px 12px' }}>
-                <strong>{bulkResult.skippedCount} row(s) skipped:</strong>
-                <ul style={{ margin: '6px 0 0', paddingLeft: '18px' }}>
-                  {bulkResult.skipped.map((line, i) => <li key={i}>{line}</li>)}
-                </ul>
-              </div>
-            )}
-          </div>
-
-          {/* Existing acronyms */}
-          <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '16px', marginTop: '18px' }}>
-            <h4 style={{ fontSize: '0.92rem', marginBottom: '10px' }}>
-              Registered acronyms{' '}
-              <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>({wbesList.length})</span>
-            </h4>
-            {wbesList.length === 0 ? (
-              <p style={{ color: 'var(--text-muted)', fontSize: '0.82rem' }}>
-                No WBES acronyms registered in {currentUser.region} yet.
-              </p>
-            ) : (
-              <div style={{ maxHeight: '260px', overflowY: 'auto', border: '1px solid var(--border-color)', borderRadius: '8px' }}>
-                <table className="custom-table" style={{ margin: 0 }}>
-                  <thead><tr><th>Acronym</th><th>Display Name</th></tr></thead>
-                  <tbody>
-                    {wbesList.map((w) => (
-                      <tr key={w.wbes_acronym}>
-                        <td className="mono">{w.wbes_acronym}</td>
-                        <td>{w.name || w.plant_name}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
         </div>
       )}
 
@@ -1490,6 +1341,9 @@ export default function UserManagement({ currentUser }) {
             </form>
           </div>
         </div>
+      )}
+
+      </>
       )}
     </div>
   );

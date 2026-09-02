@@ -40,6 +40,15 @@ CREATE TABLE IF NOT EXISTS wbes_entities (
   -- whichever user currently holds the acronym. QCA management is permitted
   -- for RE plants only, so this column is what that rule is enforced against.
   energy_category VARCHAR(20) NOT NULL DEFAULT 'RE' CHECK (energy_category IN ('ISGS', 'RE', 'States', 'Traders')),
+  -- A blocked acronym is frozen rather than removed. Deleting one that anything
+  -- references would cascade away assignment history and detach filed
+  -- discrepancies, so an acronym that turns out to be unwanted but is already in
+  -- use is blocked instead: nobody may claim it, and whoever holds it may no
+  -- longer file against it. Past records keep naming it. Reversible.
+  blocked BOOLEAN NOT NULL DEFAULT FALSE,
+  blocked_reason TEXT NOT NULL DEFAULT '',
+  blocked_by VARCHAR(100),
+  blocked_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -446,10 +455,18 @@ END $$;
 
 -- A plant's region follows its registered user where one exists, so an
 -- existing multi-region import stays consistent.
+--
+-- The national administrator is excluded, and must be: it belongs to no region,
+-- so users.region is NULL for it, while it does hold an acronym (NLDC) that is a
+-- real row here. Without the guard this UPDATE drives that row's NOT NULL region
+-- to NULL and the whole migration aborts — which it did on every database that
+-- had a national admin, i.e. every one created since the national role was
+-- separated from NRLDC.
 UPDATE wbes_entities w
    SET region = u.region
   FROM users u
  WHERE UPPER(u.wbes_acronym) = UPPER(w.wbes_acronym)
+   AND u.region IS NOT NULL
    AND w.region IS DISTINCT FROM u.region;
 
 -- ─── Settings become per-region ─────────────────────────────────────────────
@@ -479,6 +496,15 @@ END $$;
 -- where one exists (plants with no user default to RE, matching prior behaviour).
 ALTER TABLE wbes_entities
   ADD COLUMN IF NOT EXISTS energy_category VARCHAR(20) NOT NULL DEFAULT 'RE';
+
+-- Blocking an acronym. See the comment on the CREATE TABLE above: this is the
+-- answer for an unwanted acronym that cannot be deleted because something
+-- already references it.
+ALTER TABLE wbes_entities
+  ADD COLUMN IF NOT EXISTS blocked        BOOLEAN NOT NULL DEFAULT FALSE,
+  ADD COLUMN IF NOT EXISTS blocked_reason TEXT NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS blocked_by     VARCHAR(100),
+  ADD COLUMN IF NOT EXISTS blocked_at     TIMESTAMPTZ;
 
 DO $$
 BEGIN
