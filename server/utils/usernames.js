@@ -3,10 +3,12 @@
  *
  * Accounts are named after the plant's WBES acronym, so the login name is
  * something the operator already knows rather than something they have to be
- * told: DADRI becomes dadri@nrldc, and BIKANER_RE3 becomes bikaner.re3@nrldc.
- * Every account in the existing registry follows this shape, and deriving it
- * in one place keeps self-service registration, the admin's add-user form and
- * the approval screen from drifting apart.
+ * told: DADRI becomes dadri@nrldc, and DADRI_THERMAL becomes dadri_thermal@nrldc.
+ * The acronym's own separators (underscores, hyphens, dots) are kept so the
+ * login name reads as the acronym itself, only lowercased. Every account
+ * follows this shape, and deriving it in one place keeps self-service
+ * registration, the admin's add-user form and the approval screen from drifting
+ * apart.
  *
  * Keep this in sync with the client-side mirror in src/utils/usernames.js.
  */
@@ -14,25 +16,33 @@
 const DOMAIN = '@nrldc';
 
 /**
- * Build the default username for a WBES acronym. Anything that is not a letter
- * or digit — underscores, spaces, hyphens — collapses to a single dot, which
- * is how the acronyms already in the registry were transliterated.
- *
- * Returns '' for an empty or unusable acronym, so callers can fall back to
- * whatever the user typed instead.
+ * Slugify a WBES acronym into the local part of a username: lowercased, with the
+ * acronym's own separators (dot, underscore, hyphen) kept as-is so the name
+ * stays the acronym. Anything else — a space or stray character — collapses to a
+ * dot. Leading/trailing separators are trimmed. Returns '' when nothing usable
+ * is left.
  */
-function defaultUsernameFor(acronym) {
-  const slug = String(acronym || '')
+function acronymSlug(acronym) {
+  return String(acronym || '')
     .trim()
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '.')
-    .replace(/^\.+|\.+$/g, '');
+    .replace(/[^a-z0-9._-]+/g, '.')
+    .replace(/^[.\-_]+|[.\-_]+$/g, '');
+}
+
+/**
+ * Build the default username for a WBES acronym: the lowercased acronym plus the
+ * '@nrldc' domain. Returns '' for an empty or unusable acronym, so callers can
+ * fall back to whatever the user typed instead.
+ */
+function defaultUsernameFor(acronym) {
+  const slug = acronymSlug(acronym);
   return slug ? `${slug}${DOMAIN}` : '';
 }
 
 /**
  * Build a username from a plant's WBES acronym *and* its region:
- * <acronym-slug>@<region>, e.g. ('BIKANER_RE3', 'ERLDC') → 'bikaner.re3@erldc'.
+ * <acronym>@<region>, e.g. ('BIKANER_RE3', 'ERLDC') → 'bikaner_re3@erldc'.
  *
  * This is the convention self-service registration follows once the applicant
  * picks a registered acronym — the acronym decides the local part and the
@@ -43,11 +53,7 @@ function defaultUsernameFor(acronym) {
  * Returns '' when either part is missing, so callers can fall back.
  */
 function usernameFromAcronym(acronym, region) {
-  const slug = String(acronym || '')
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '.')
-    .replace(/^\.+|\.+$/g, '');
+  const slug = acronymSlug(acronym);
   const ns = String(region || '').trim().toLowerCase();
   return slug && ns ? `${slug}@${ns}` : '';
 }
