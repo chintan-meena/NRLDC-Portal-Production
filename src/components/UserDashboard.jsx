@@ -87,7 +87,17 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
   const [reason, setReason] = useState('');
   const [selectedFiles, setSelectedFiles] = useState([]);
   const [formError, setFormError] = useState('');
-  const [formSuccess, setFormSuccess] = useState('');
+  // The outcome of a filing submit, shown as a modal dialog rather than an
+  // inline banner: null | { ok: true, message } | { ok: false, error }.
+  const [fileResult, setFileResult] = useState(null);
+
+  // Dismiss the outcome dialog on Escape, matching the app's other dialogs.
+  useEffect(() => {
+    if (!fileResult) return undefined;
+    const onKey = (e) => { if (e.key === 'Escape') setFileResult(null); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [fileResult]);
 
   // The trade a discrepancy is being filed against. Traders only — every other
   // category leaves these empty and the server refuses them if they are not.
@@ -283,7 +293,7 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
   const handleFormSubmit = async (e) => {
     e.preventDefault();
     setFormError('');
-    setFormSuccess('');
+    setFileResult(null);
 
     if (isSubmitting) return;   // guard against a double click
     if (isQcaUser && !selectedPlantAcronym) { setFormError('Please select a plant from your assignments.'); return; }
@@ -354,7 +364,7 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
       if (reRaiseReqNo) {
         // Re-raise submission
         await reRaiseDiscrepancy(reRaiseReqNo, currentUser.username, reason, discrepancyType, uploadedFilenames);
-        setFormSuccess('Discrepancy re-raised successfully!');
+        setFileResult({ ok: true, message: 'Discrepancy re-raised successfully.' });
       } else {
         // Standard new creation
         const targetAcronym = isQcaUser ? selectedPlantAcronym : currentUser.wbes_acronym;
@@ -365,11 +375,11 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
         // An inter-regional trade does not go to operations yet: it goes to the
         // selling region to be confirmed, and saying so here is the difference
         // between a user waiting patiently and a user filing it again.
-        setFormSuccess(
+        setFileResult({ ok: true, message:
           trade && buyerRegion !== sellerRegion
             ? `Filed. ${sellerRegion} must confirm the trade was theirs before ${buyerRegion} can apply the fix — you will see it as “Awaiting consent” until they do.`
             : `Discrepancy filed successfully and dispatched to ${currentUser.region} operations!`
-        );
+        });
       }
 
       setCorrectionDate(''); 
@@ -384,7 +394,9 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
       setReRaiseReqNo(null);
       await loadData();
     } catch (err) {
-      setFormError(err.message || 'Failed to file discrepancy.');
+      // A failed submit is shown as a dialog, and the form is left intact so it
+      // can be corrected and resubmitted.
+      setFileResult({ ok: false, error: err.message || 'Failed to file discrepancy.' });
     } finally {
       setIsSubmitting(false);
     }
@@ -910,8 +922,6 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
           </p>
 
           <Banner type="error" message={formError} />
-
-          <Banner type="success" message={formSuccess} />
 
           {isRenewableUser && qcaAssociation?.qcaEligible && qcaAssociation?.assignedToQCA ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '25px', width: '100%' }}>
@@ -1812,6 +1822,48 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
                 </div>
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Filing outcome — success offers home vs. file another; failure shows the reason. */}
+      {fileResult && (
+        <div className="modal-overlay" role="dialog" aria-modal="true"
+          onClick={(e) => { if (e.target === e.currentTarget) setFileResult(null); }}>
+          <div className="modal-content glass-panel" style={{ maxWidth: '460px' }}>
+            <div className="modal-header">
+              <h3 style={{ display: 'flex', alignItems: 'center', gap: '9px' }}>
+                {fileResult.ok
+                  ? <CheckCircle2 size={20} style={{ color: 'var(--success-text)' }} />
+                  : <XCircle size={20} style={{ color: 'var(--danger-text)' }} />}
+                <span>{fileResult.ok ? 'Discrepancy filed' : 'Filing failed'}</span>
+              </h3>
+              <button type="button" className="modal-close" onClick={() => setFileResult(null)} aria-label="Close dialog">&times;</button>
+            </div>
+
+            <p className="modal-message" style={{ marginBottom: '20px' }}>
+              {fileResult.ok ? fileResult.message : fileResult.error}
+            </p>
+
+            {fileResult.ok ? (
+              <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                <button type="button" className="btn btn-secondary"
+                  onClick={() => { setFileResult(null); setActiveTab('dashboard'); }}>
+                  Back to home
+                </button>
+                <button type="button" className="btn btn-primary" autoFocus
+                  onClick={() => setFileResult(null)}>
+                  File another discrepancy
+                </button>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                <button type="button" className="btn btn-primary" autoFocus
+                  onClick={() => setFileResult(null)}>
+                  OK
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
