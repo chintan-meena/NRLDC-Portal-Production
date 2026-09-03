@@ -273,10 +273,11 @@ async function ensureDefaultConfig() {
   const regionalDefaults = {
     maxDays: '5',
     lockoutAttempts: '3',
-    // Which WBES utility types may self-register in this region. Everything but
-    // EMBEDDED_IN_STATE by default; a region widens or narrows it in System
-    // Parameters. See utils/wbesTypes.js (DEFAULT_SIGNUP_TYPES).
-    signupUtilityTypes: 'ISGS,REGIONAL_ENTITY,TRADER,PARENT_STATE',
+    // Which WBES types may self-register in this region. Everything but
+    // EMBEDDED_IN_STATE by default — renewable regional entities (RENEWABLE)
+    // register alongside conventional ones; a region widens or narrows it in
+    // System Parameters. See utils/wbesTypes.js (DEFAULT_SIGNUP_TYPES).
+    signupUtilityTypes: 'ISGS,REGIONAL_ENTITY,RENEWABLE,TRADER,PARENT_STATE',
   };
 
   try {
@@ -294,6 +295,15 @@ async function ensureDefaultConfig() {
          ON CONFLICT (key, region) DO NOTHING`, [key, value]
       );
     }
+    // Renewable regional entities used to be admitted implicitly, as part of
+    // REGIONAL_ENTITY. Now that RENEWABLE is a signup type of its own, grandfather
+    // any existing row so those plants keep registering exactly as before. Idempotent.
+    await pool.query(
+      `UPDATE config SET value = value || ',RENEWABLE'
+        WHERE key = 'signupUtilityTypes'
+          AND value LIKE '%REGIONAL_ENTITY%'
+          AND value NOT LIKE '%RENEWABLE%'`
+    );
     console.log('[CONFIG] Default system and SMTP parameters verified in DB.');
   } catch (err) {
     console.error('[CONFIG ERROR] Failed to ensure default configs:', err.message);

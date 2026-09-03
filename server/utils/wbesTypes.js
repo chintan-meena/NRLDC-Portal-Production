@@ -27,11 +27,30 @@ const UTILITY_TYPE_LABELS = {
   EMBEDDED_IN_STATE: 'Embedded in State',
 };
 
-// Everything but EMBEDDED_IN_STATE — the default a region self-registers with
-// until its administrator narrows or widens it in System Parameters.
-const DEFAULT_SIGNUP_TYPES = ['ISGS', 'REGIONAL_ENTITY', 'TRADER', 'PARENT_STATE'];
-
 const GENERATOR_TYPES = ['RENEWABLE', 'THERMAL', 'HYDRO', 'GAS', 'NUCLEAR'];
+
+/**
+ * The signup types — the vocabulary the self-registration gate and the register's
+ * "Type" column speak. It is the Utility Types with one extra split: a
+ * REGIONAL_ENTITY whose generator is renewable is its own type, RENEWABLE, so a
+ * region can admit renewable and conventional regional entities separately.
+ * EMBEDDED_IN_STATE stays one bucket whether or not it is renewable.
+ */
+const SIGNUP_TYPES = ['ISGS', 'REGIONAL_ENTITY', 'RENEWABLE', 'TRADER', 'PARENT_STATE', 'EMBEDDED_IN_STATE'];
+
+const SIGNUP_TYPE_LABELS = {
+  ISGS: 'ISGS',
+  REGIONAL_ENTITY: 'Regional Entity',
+  RENEWABLE: 'Renewable',
+  TRADER: 'Trader',
+  PARENT_STATE: 'Parent State',
+  EMBEDDED_IN_STATE: 'Embedded in State',
+};
+
+// Everything but EMBEDDED_IN_STATE — the default a region self-registers with
+// until its administrator narrows or widens it in System Parameters. Renewable
+// regional entities register by default, alongside conventional ones.
+const DEFAULT_SIGNUP_TYPES = ['ISGS', 'REGIONAL_ENTITY', 'RENEWABLE', 'TRADER', 'PARENT_STATE'];
 
 /**
  * Fold a raw cell value onto a canonical Utility Type, or null if unrecognised.
@@ -70,15 +89,37 @@ function deriveEnergyCategory(utilityType, generatorType) {
   }
 }
 
-/** Parse a stored `signupUtilityTypes` CSV into a Set of canonical types. */
+/** Fold a raw cell value onto a canonical Signup Type, or null if unrecognised. */
+function normalizeSignupType(raw) {
+  const key = String(raw || '').trim().toUpperCase().replace(/[\s-]+/g, '_');
+  if (SIGNUP_TYPES.includes(key)) return key;
+  // RENEWABLE is a signup type of its own; anything else folds onto a utility type.
+  return key === 'RENEWABLE' ? 'RENEWABLE' : normalizeUtilityType(key);
+}
+
+/**
+ * The signup type for a utility/generator pair — what the register's Type column
+ * shows and what the self-registration gate matches on. A renewable regional
+ * entity becomes RENEWABLE; everything else keeps its utility type. Null when the
+ * row is unclassified (which the gate treats as allowed).
+ */
+function deriveSignupType(utilityType, generatorType) {
+  const u = normalizeUtilityType(utilityType);
+  if (u === 'REGIONAL_ENTITY' && normalizeGeneratorType(generatorType) === 'RENEWABLE') return 'RENEWABLE';
+  return u;
+}
+
+/** Parse a stored `signupUtilityTypes` CSV into a Set of canonical signup types. */
 function parseSignupTypes(csv) {
   return new Set(String(csv || '')
     .split(',')
-    .map(s => normalizeUtilityType(s))
+    .map(s => normalizeSignupType(s))
     .filter(Boolean));
 }
 
 module.exports = {
   UTILITY_TYPES, UTILITY_TYPE_LABELS, DEFAULT_SIGNUP_TYPES, GENERATOR_TYPES,
-  normalizeUtilityType, normalizeGeneratorType, deriveEnergyCategory, parseSignupTypes,
+  SIGNUP_TYPES, SIGNUP_TYPE_LABELS,
+  normalizeUtilityType, normalizeGeneratorType, normalizeSignupType,
+  deriveEnergyCategory, deriveSignupType, parseSignupTypes,
 };

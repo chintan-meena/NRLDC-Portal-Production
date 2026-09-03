@@ -4,7 +4,7 @@ import {
   deleteWbesEntity, setWbesEntityBlocked, updateWbesEntity, downloadFile,
 } from '../services/db';
 import { REGIONS, isNational } from '../utils/regions';
-import { UTILITY_TYPES, GENERATOR_TYPES, utilityTypeLabel } from '../utils/wbesTypes';
+import { UTILITY_TYPES, GENERATOR_TYPES, utilityTypeLabel, deriveSignupType, signupTypeLabel } from '../utils/wbesTypes';
 import ConfirmDialog from './ConfirmDialog';
 import { Banner, EmptyState } from './Feedback';
 import { useFeedback } from '../hooks/useFeedback';
@@ -490,7 +490,7 @@ export default function WbesRegistry({ currentUser }) {
                     <td>{w.name || w.plant_name}</td>
                     <td style={{ fontSize: '0.82rem' }}>
                       {w.utility_type
-                        ? utilityTypeLabel(w.utility_type)
+                        ? signupTypeLabel(deriveSignupType(w.utility_type, w.generator_type))
                         : <span style={{ color: 'var(--text-muted)' }}>—</span>}
                     </td>
                     {national && <td>{w.region}</td>}

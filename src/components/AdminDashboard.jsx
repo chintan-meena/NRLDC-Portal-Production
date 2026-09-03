@@ -17,7 +17,7 @@ import { isNational, regionLabel } from '../utils/regions';
 import ConfirmDialog from './ConfirmDialog';
 import { Banner, EmptyState, SkeletonRows } from './Feedback';
 import { categoryLabel, categoryShort, CATEGORIES } from '../utils/categories';
-import { UTILITY_TYPES, utilityTypeLabel, parseSignupTypes } from '../utils/wbesTypes';
+import { SIGNUP_TYPES, signupTypeLabel, parseSignupTypes } from '../utils/wbesTypes';
 import ConsentPanel from './ConsentPanel';
 import { isTrade, consentBadge } from '../utils/trade';
 import { useFeedback } from '../hooks/useFeedback';
@@ -122,7 +122,7 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
   const [postFactoCutoffDay, setPostFactoCutoffDay] = useState(15);
   const [flaggedThreshold, setFlaggedThreshold] = useState(40);
   // Which WBES utility types may self-register in this region. See wbesTypes.js.
-  const [signupTypes, setSignupTypes] = useState(['ISGS', 'REGIONAL_ENTITY', 'TRADER', 'PARENT_STATE']);
+  const [signupTypes, setSignupTypes] = useState(['ISGS', 'REGIONAL_ENTITY', 'RENEWABLE', 'TRADER', 'PARENT_STATE']);
   const [landingPref, setLandingPref] = useState('both');
   const [configSuccess, setConfigSuccess] = useState('');
 
@@ -171,7 +171,7 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
       setRequireNetFile(cfg.requireNetScheduleFile !== false && cfg.requireNetScheduleFile !== 'false');
       setPostFactoCutoffDay(cfg.postFactoCutoffDay ?? 15);
       setFlaggedThreshold(cfg.flaggedThresholdPercent ?? 40);
-      setSignupTypes(parseSignupTypes(cfg.signupUtilityTypes ?? 'ISGS,REGIONAL_ENTITY,TRADER,PARENT_STATE'));
+      setSignupTypes(parseSignupTypes(cfg.signupUtilityTypes ?? 'ISGS,REGIONAL_ENTITY,RENEWABLE,TRADER,PARENT_STATE'));
       setOtpTrustDays(cfg.otpTrustDays ?? 7);
       setResetOtpMinutes(cfg.resetOtpMinutes ?? 20);
       setMailDailyCap(cfg.mailDailyCap ?? 280);
@@ -1479,16 +1479,17 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
               <fieldset className="settings-fieldset">
                 <legend>Who may self-register</legend>
                 <p className="settings-hint">
-                  Which WBES utility types can create an account for themselves in {currentUser.region}.
-                  An unchecked type is hidden from the sign-up search and refused if requested;
-                  accounts an administrator creates are not affected.
+                  Which WBES types can create an account for themselves in {currentUser.region}.
+                  A renewable regional entity counts as <strong>Renewable</strong>, not Regional Entity,
+                  so the two can be admitted separately. An unchecked type is hidden from the sign-up
+                  search and refused if requested; accounts an administrator creates are not affected.
                 </p>
-                {UTILITY_TYPES.map(t => (
+                {SIGNUP_TYPES.map(t => (
                   <label key={t} className="settings-check">
                     <input type="checkbox" checked={signupTypes.includes(t)}
                       onChange={(e) => setSignupTypes(prev =>
                         e.target.checked ? [...prev, t] : prev.filter(x => x !== t))} />
-                    <span>{utilityTypeLabel(t)}</span>
+                    <span>{signupTypeLabel(t)}</span>
                   </label>
                 ))}
               </fieldset>

@@ -23,7 +23,7 @@ const { issueToken } = require('../auth/tokens');
 const { validatePassword } = require('../utils/password');
 const { usernameFromAcronym } = require('../utils/usernames');
 const { getBoolean, getNumber, getSetting } = require('../utils/settings');
-const { parseSignupTypes, normalizeUtilityType, deriveEnergyCategory, DEFAULT_SIGNUP_TYPES } = require('../utils/wbesTypes');
+const { parseSignupTypes, deriveSignupType, deriveEnergyCategory, DEFAULT_SIGNUP_TYPES } = require('../utils/wbesTypes');
 const { setContextRegion } = require('../utils/requestContext');
 const { sendMail, numericConfig } = require('../utils/mailer');
 const {
@@ -545,7 +545,7 @@ router.post('/register', async (req, res) => {
     // the username follows from the acronym and that region (dadri@nrldc,
     // dadri@erldc), so a non-NRLDC applicant is no longer misnamed '@nrldc'.
     const entity = await pool.query(
-      'SELECT wbes_acronym, name, region, utility_type, energy_category FROM wbes_entities WHERE UPPER(wbes_acronym) = $1',
+      'SELECT wbes_acronym, name, region, utility_type, generator_type, energy_category FROM wbes_entities WHERE UPPER(wbes_acronym) = $1',
       [cleanAcronym]
     );
     if (entity.rows.length === 0) {
@@ -563,13 +563,15 @@ router.post('/register', async (req, res) => {
     // The category is the acronym's own — derived from the WBES type at upload,
     // never the applicant's word for it.
     const energyCategory = entity.rows[0].energy_category || 'RE';
-    const utilityType = normalizeUtilityType(entity.rows[0].utility_type);
+    // A renewable regional entity gates as its own type, RENEWABLE — distinct
+    // from a conventional regional entity and from an embedded-in-state renewable.
+    const signupType = deriveSignupType(entity.rows[0].utility_type, entity.rows[0].generator_type);
 
-    // Who may self-register is the region's choice. A utility type it does not
-    // admit is refused — the acronym would not have appeared in the sign-up
-    // search either, so this is the backstop for a hand-crafted request.
+    // Who may self-register is the region's choice. A type it does not admit is
+    // refused — the acronym would not have appeared in the sign-up search either,
+    // so this is the backstop for a hand-crafted request.
     const allowed = parseSignupTypes(await getSetting('signupUtilityTypes', region, DEFAULT_SIGNUP_TYPES.join(',')));
-    if (utilityType && !allowed.has(utilityType)) {
+    if (signupType && !allowed.has(signupType)) {
       return res.status(403).json({
         error: `This entity type cannot self-register in ${region}. `
              + 'Contact your RLDC if you believe this is a mistake.',
@@ -703,7 +705,7 @@ router.get('/wbes-lookup', async (req, res) => {
 
   try {
     const result = await pool.query(
-      `SELECT w.wbes_acronym, w.name, w.region, w.utility_type, w.energy_category
+      `SELECT w.wbes_acronym, w.name, w.region, w.utility_type, w.generator_type, w.energy_category
          FROM wbes_entities w
         WHERE (LOWER(w.wbes_acronym) LIKE $1 OR LOWER(w.name) LIKE $1)
           -- A blocked acronym is not registerable, so it never reaches the
@@ -721,16 +723,19 @@ router.get('/wbes-lookup', async (req, res) => {
       [`%${term.toLowerCase()}%`, term.toLowerCase()]
     );
 
-    // Each region decides which utility types may self-register. A type the
-    // region does not admit — EMBEDDED_IN_STATE by default — is dropped here, so
-    // those acronyms never appear on the sign-up screen at all. An acronym with
-    // no type yet has nothing to gate on and is shown. (Over-fetch, then trim to
-    // 25, so filtering never starves the list.)
+    // Each region decides which types may self-register. A type the region does
+    // not admit — EMBEDDED_IN_STATE by default — is dropped here, so those
+    // acronyms never appear on the sign-up screen at all. A renewable regional
+    // entity gates as RENEWABLE, so a region can admit or refuse it on its own.
+    // An acronym with no type yet has nothing to gate on and is shown. (Over-fetch,
+    // then trim to 25, so filtering never starves the list.)
     const cfg = await pool.query(`SELECT region, value FROM config WHERE key = 'signupUtilityTypes'`);
     const allow = new Map(cfg.rows.map(r => [r.region, parseSignupTypes(r.value)]));
     const fallback = new Set(DEFAULT_SIGNUP_TYPES);
-    const permitted = (row) =>
-      !row.utility_type || (allow.get(row.region) || fallback).has(row.utility_type);
+    const permitted = (row) => {
+      const type = deriveSignupType(row.utility_type, row.generator_type);
+      return !type || (allow.get(row.region) || fallback).has(type);
+    };
 
     res.json(result.rows.filter(permitted).slice(0, 25));
   } catch (err) {
