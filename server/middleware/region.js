@@ -71,22 +71,26 @@ function scopeToRegion(req, column, conditions, params) {
 }
 
 /**
- * As scopeToRegion, but also admits rows the region is a party to.
+ * As scopeToRegion, but for discrepancies that may carry a trade.
  *
- * Only discrepancies have such rows, and only trades: an inter-regional trade
- * is listed by the buyer's region and the seller's alike, because the seller
- * has to read what it is being asked to consent to and the buyer has to finish
- * it afterwards. `columns` are OR-ed against the same single region parameter.
+ * A trade is the only row two regions have a claim on: the buyer's region and
+ * the seller's alike, because one confirms the trade and the other applies the
+ * fix. Its `region` column, though, holds the *filer's* own home region — which
+ * on an inter-regional trade is often neither end. So a trade must be scoped by
+ * its trade parties only; letting `region` widen it would leak an ERLDC↔SRLDC
+ * trade to the filer's unrelated home region (e.g. NRLDC).
  *
- * On every ordinary filing the extra columns are NULL, so this admits exactly
- * the same rows scopeToRegion would.
+ * Hence: a trade (`tradeCols[0]` non-NULL) is admitted only to the buyer's and
+ * seller's regions; an ordinary filing (all trade columns NULL) keeps its plain
+ * `ownCol` region visibility. National (regionScope null) still sees everything.
  */
-function scopeToRegionOrParty(req, columns, conditions, params) {
+function scopeToRegionOrTradeParty(req, { ownCol, tradeCols }, conditions, params) {
   const region = regionScope(req);
   if (!region) return null;
   params.push(region);
   const n = params.length;
-  conditions.push(`(${columns.map(c => `${c} = $${n}`).join(' OR ')})`);
+  const tradeOr = tradeCols.map(c => `${c} = $${n}`).join(' OR ');
+  conditions.push(`((${tradeOr}) OR (${tradeCols[0]} IS NULL AND ${ownCol} = $${n}))`);
   return region;
 }
 
@@ -238,7 +242,7 @@ function requireSameRegion(param = 'username') {
 }
 
 module.exports = {
-  scopeToRegionOrParty,
+  scopeToRegionOrTradeParty,
   get REGIONS() { return regionCodes(); },
   requireSameRegion,
   GLOBAL_REGION,

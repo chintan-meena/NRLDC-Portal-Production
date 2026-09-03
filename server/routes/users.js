@@ -33,6 +33,7 @@ const { previousDayString } = require('../utils/dates');
 const { DEFAULT_PASSWORD, validatePassword } = require('../utils/password');
 const { usernameForRegion } = require('../utils/usernames');
 const { getBoolean } = require('../utils/settings');
+const { findTransferConflicts, transferConflictMessage } = require('../utils/transferConflicts');
 const { FILING_CATEGORIES } = require('../utils/trade');
 const {
   UTILITY_TYPES, GENERATOR_TYPES, GENERATOR_SUBTYPES,
@@ -1592,6 +1593,22 @@ router.post('/transfer-requests', async (req, res) => {
     );
     const from_username = ownerRes.rows[0]?.username || null;
 
+    // A QCA may only transfer a plant it actually holds on the effective date.
+    // The RE-plant-user "change my QCA" flow is exempt: there the requester is
+    // the plant account, not the owner.
+    if (req.auth.role === 'QCA'
+        && (!from_username || from_username.toLowerCase() !== req.auth.username.toLowerCase())) {
+      return res.status(403).json({ error: 'You can only transfer a plant that is currently assigned to you on the effective date.' });
+    }
+
+    // Refuse early if the outgoing QCA has already filed for this plant on or
+    // after the effective date — approving it would strand that discrepancy in
+    // the receiving QCA's window. Re-checked authoritatively at approval.
+    const conflicts = await findTransferConflicts(pool, { fromUsername: from_username, acronym, effectiveDate: effective_date });
+    if (conflicts.length > 0) {
+      return res.status(409).json({ error: transferConflictMessage(conflicts) });
+    }
+
     const result = await pool.query(
       `INSERT INTO transfer_requests (wbes_acronym, from_username, to_username, effective_date, status, requested_by)
        VALUES ($1, $2, $3, $4, 'Pending', $5) RETURNING *`,
@@ -1639,6 +1656,18 @@ router.patch('/transfer-requests/:id/process', requireAdmin, async (req, res) =>
       }
 
       if (status === 'Approved') {
+        // Authoritative conflict re-check: a discrepancy may have been filed
+        // between the request and this approval. If moving the plant would
+        // strand one of the outgoing QCA's filings in the new QCA's window,
+        // refuse — returning here rolls the whole transaction back, so no
+        // assignment is opened or closed (nothing is partially applied).
+        const conflicts = await findTransferConflicts(client, {
+          fromUsername: tr.from_username, acronym: tr.wbes_acronym, effectiveDate: tr.effective_date,
+        });
+        if (conflicts.length > 0) {
+          return { status: 409, body: { error: transferConflictMessage(conflicts) } };
+        }
+
         // Close the outgoing assignment the day before the transfer takes
         // effect. Local-time formatting keeps the boundary on the intended day.
         const prevDayStr = previousDayString(tr.effective_date);

@@ -18,7 +18,7 @@ const { getSettings, getBoolean } = require('../utils/settings');
 const { checkFilingWindow } = require('../utils/filingWindow');
 const { originalFilename, isNetScheduleSummary } = require('../utils/filenames');
 const { requireAdmin, isAdmin, isSuperAdmin } = require('../middleware/auth');
-const { scopeToRegion, scopeToRegionOrParty, canActOnRegion, crossRegionError } = require('../middleware/region');
+const { scopeToRegion, scopeToRegionOrTradeParty, canActOnRegion, crossRegionError } = require('../middleware/region');
 const { toDateString, daysSince } = require('../utils/dates');
 const { parseTimeBlocks } = require('../utils/timeBlocks');
 const { typeMatchPattern } = require('../utils/discrepancyTypes');
@@ -107,7 +107,7 @@ router.get('/', async (req, res) => {
     // the buyer has to be able to finish it. Both columns are NULL on every
     // ordinary filing, so nothing else widens by a single row.
     if (isAdmin(req)) {
-      scopeToRegionOrParty(req, ['d.region', 'd.buyer_region', 'd.seller_region'], conditions, params);
+      scopeToRegionOrTradeParty(req, { ownCol: 'd.region', tradeCols: ['d.buyer_region', 'd.seller_region'] }, conditions, params);
     }
 
     // Role-based visibility

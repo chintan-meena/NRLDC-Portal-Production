@@ -51,6 +51,14 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
   const [assignSuccess, setAssignSuccess] = useState('');
   const [assignError, setAssignError] = useState('');
 
+  // QCA-initiated transfer of held plants to another QCA (one request per plant).
+  const [qcaXferPlants, setQcaXferPlants] = useState([]);       // selected acronyms
+  const [qcaXferTarget, setQcaXferTarget] = useState('');
+  const [qcaXferDate, setQcaXferDate] = useState(() => daysAgoISO(-1)); // tomorrow
+  const [qcaXferError, setQcaXferError] = useState('');
+  const [qcaXferResult, setQcaXferResult] = useState(null);    // { created:[], failed:[{acronym,error}] }
+  const [qcaXferBusy, setQcaXferBusy] = useState(false);
+
   // QCA Transfer states for plant users
   const [qcasList, setQcasList] = useState([]);
   const [selectedTargetQca, setSelectedTargetQca] = useState('');
@@ -147,6 +155,9 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
   const outagesPageEnabled = config.feature_outages !== false && config.feature_outages !== 'false';
   const cyclePageEnabled = config.feature_cycle_data !== false && config.feature_cycle_data !== 'false';
 
+  // A QCA can only transfer plants it currently holds (open-ended assignments).
+  const activePlants = qcaAssignments.filter(a => !a.to_date);
+
   /** Which tabs display the discrepancy list or its statistics. */
   const TABS_NEEDING_DISCREPANCIES = ['dashboard', 'raise_request'];
 
@@ -187,8 +198,14 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
       }
 
       if (isQcaUser) {
-        const assignments = await getUserAssignments(currentUser.username);
+        // Assignments to list/transfer, and the QCA roster for the receiving-QCA
+        // picker on the transfer panel.
+        const [assignments, qcasData] = await Promise.all([
+          getUserAssignments(currentUser.username),
+          getQcas().catch(() => []),
+        ]);
         setQcaAssignments(assignments || []);
+        setQcasList(qcasData || []);
       } else if (isRenewableUser) {
         // Only an RE plant can sit under a QCA, so only RE users need any of
         // the QCA association, roster or transfer data.
@@ -462,6 +479,36 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
       }
     } catch (err) {
       setAssignError(err.message || 'Failed to assign plant.');
+    }
+  };
+
+  // A QCA hands one or more of its plants to another QCA. Each plant is an
+  // independent request (per-plant, partial-allowed): a plant refused for a
+  // discrepancy conflict is reported while the clean ones still go through.
+  const handleQcaTransferSubmit = async (e) => {
+    e.preventDefault();
+    setQcaXferError('');
+    setQcaXferResult(null);
+    if (qcaXferPlants.length === 0) { setQcaXferError('Select at least one plant to transfer.'); return; }
+    if (!qcaXferTarget) { setQcaXferError('Choose the receiving QCA.'); return; }
+    if (!qcaXferDate) { setQcaXferError('Specify the effective date.'); return; }
+    setQcaXferBusy(true);
+    const created = [];
+    const failed = [];
+    for (const acronym of qcaXferPlants) {
+      try {
+        await createTransferRequest(acronym, qcaXferTarget, qcaXferDate, currentUser.username);
+        created.push(acronym);
+      } catch (err) {
+        failed.push({ acronym, error: err.message || 'Request failed.' });
+      }
+    }
+    setQcaXferBusy(false);
+    setQcaXferResult({ created, failed });
+    if (created.length > 0) {
+      setQcaXferPlants([]);
+      setQcaXferTarget('');
+      await loadData();
     }
   };
 
@@ -1856,6 +1903,73 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
                 </div>
               )}
             </div>
+          </div>
+
+          {/* QCA-initiated transfer of held plants to another QCA. */}
+          <div className="glass-panel" style={{ padding: '25px' }}>
+            <h3 style={{ fontSize: '1rem', marginBottom: '10px', fontWeight: '600' }}>Transfer Plant(s) to Another QCA</h3>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', marginBottom: '15px' }}>
+              Hand one or more of your plants to another QCA from a chosen effective date. Each plant
+              is sent to the {currentUser.region} Admin for approval. A plant is refused if you have
+              already filed a discrepancy for it on or after the effective date.
+            </p>
+
+            <Banner type="error" message={qcaXferError} />
+
+            {qcaXferResult && (
+              <div style={{ marginBottom: '12px' }}>
+                {qcaXferResult.created.length > 0 && (
+                  <Banner type="success" message={`Transfer request submitted for: ${qcaXferResult.created.join(', ')}.`} />
+                )}
+                {qcaXferResult.failed.map((f) => (
+                  <Banner key={f.acronym} type="error" message={`${f.acronym}: ${f.error}`} />
+                ))}
+              </div>
+            )}
+
+            {activePlants.length === 0 ? (
+              <EmptyState title="No active plants" hint="You have no currently-held plants to transfer." />
+            ) : (
+              <form onSubmit={handleQcaTransferSubmit}>
+                <div style={{ marginBottom: '12px' }}>
+                  <label style={{ fontSize: '0.8rem', fontWeight: 600, display: 'block', marginBottom: '6px' }}>Plants to transfer</label>
+                  <div style={{ maxHeight: '160px', overflowY: 'auto', border: '1px solid var(--border-color)', borderRadius: '8px' }}>
+                    {activePlants.map((a) => (
+                      <label key={a.wbes_acronym} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px', borderBottom: '1px solid var(--border-color)', fontSize: '0.82rem', cursor: 'pointer' }}>
+                        <input
+                          type="checkbox"
+                          checked={qcaXferPlants.includes(a.wbes_acronym)}
+                          onChange={(e) => setQcaXferPlants((prev) => e.target.checked
+                            ? [...prev, a.wbes_acronym]
+                            : prev.filter((x) => x !== a.wbes_acronym))}
+                        />
+                        <span><strong>{a.wbes_acronym}</strong> — {a.plant_name}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '15px' }}>
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label htmlFor="ud-qca-xfer-target" style={{ fontSize: '0.8rem' }}>Receiving QCA <span style={{ color: 'var(--danger-text)' }}>*</span></label>
+                    <select id="ud-qca-xfer-target" className="form-control" value={qcaXferTarget} onChange={(e) => setQcaXferTarget(e.target.value)} required>
+                      <option value="">-- Select QCA --</option>
+                      {qcasList.filter((q) => q.username !== currentUser.username).map((q) => (
+                        <option key={q.username} value={q.username}>{q.qca_name} ({q.name})</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label htmlFor="ud-qca-xfer-date" style={{ fontSize: '0.8rem' }}>Effective Date <span style={{ color: 'var(--danger-text)' }}>*</span></label>
+                    <input id="ud-qca-xfer-date" type="date" className="form-control" value={qcaXferDate} onChange={(e) => setQcaXferDate(e.target.value)} required />
+                  </div>
+                </div>
+
+                <button type="submit" className="btn btn-primary" disabled={qcaXferBusy} style={{ width: '100%', padding: '10px' }}>
+                  {qcaXferBusy ? 'Submitting…' : `Submit Transfer Request${qcaXferPlants.length > 1 ? 's' : ''}`}
+                </button>
+              </form>
+            )}
           </div>
         </div>
       )}
