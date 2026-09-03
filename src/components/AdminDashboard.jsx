@@ -173,7 +173,7 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
       setRequireNetFile(cfg.requireNetScheduleFile !== false && cfg.requireNetScheduleFile !== 'false');
       setPostFactoCutoffDay(cfg.postFactoCutoffDay ?? 15);
       setFlaggedThreshold(cfg.flaggedThresholdPercent ?? 40);
-      setSignupTypes(parseSignupTypes(cfg.signupUtilityTypes ?? 'ISGS,REGIONAL_ENTITY,RENEWABLE,TRADER,PARENT_STATE'));
+      setSignupTypes(parseSignupTypes(cfg.signupUtilityTypes ?? 'ISGS,REGIONAL_ENTITY,RENEWABLE,TRADER,PARENT_STATE,QCA'));
       setOtpTrustDays(cfg.otpTrustDays ?? 7);
       setResetOtpMinutes(cfg.resetOtpMinutes ?? 20);
       setMailDailyCap(cfg.mailDailyCap ?? 280);

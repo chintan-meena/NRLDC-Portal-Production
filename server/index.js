@@ -275,9 +275,10 @@ async function ensureDefaultConfig() {
     lockoutAttempts: '3',
     // Which WBES types may self-register in this region. Everything but
     // EMBEDDED_IN_STATE by default — renewable regional entities (RENEWABLE)
-    // register alongside conventional ones; a region widens or narrows it in
-    // System Parameters. See utils/wbesTypes.js (DEFAULT_SIGNUP_TYPES).
-    signupUtilityTypes: 'ISGS,REGIONAL_ENTITY,RENEWABLE,TRADER,PARENT_STATE',
+    // register alongside conventional ones, and QCA coordinating agencies
+    // register as QCA accounts; a region widens or narrows it in System
+    // Parameters. See utils/wbesTypes.js (DEFAULT_SIGNUP_TYPES).
+    signupUtilityTypes: 'ISGS,REGIONAL_ENTITY,RENEWABLE,TRADER,PARENT_STATE,QCA',
   };
 
   try {
@@ -303,6 +304,14 @@ async function ensureDefaultConfig() {
         WHERE key = 'signupUtilityTypes'
           AND value LIKE '%REGIONAL_ENTITY%'
           AND value NOT LIKE '%RENEWABLE%'`
+    );
+    // QCA became a signup type of its own (a QCA-classified acronym registers as
+    // a QCA account). Grandfather any existing row so QCAs can self-register
+    // without an admin having to re-open System Parameters. Idempotent.
+    await pool.query(
+      `UPDATE config SET value = value || ',QCA'
+        WHERE key = 'signupUtilityTypes'
+          AND value NOT LIKE '%QCA%'`
     );
     console.log('[CONFIG] Default system and SMTP parameters verified in DB.');
   } catch (err) {
