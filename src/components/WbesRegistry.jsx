@@ -1,14 +1,15 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   getWbesEntities, batchRegisterWbesEntities, bulkUploadWbesEntities,
-  deleteWbesEntity, setWbesEntityBlocked,
+  deleteWbesEntity, setWbesEntityBlocked, updateWbesEntity, downloadFile,
 } from '../services/db';
 import { REGIONS, isNational } from '../utils/regions';
+import { UTILITY_TYPES, GENERATOR_TYPES, utilityTypeLabel } from '../utils/wbesTypes';
 import ConfirmDialog from './ConfirmDialog';
 import { Banner, EmptyState } from './Feedback';
 import { useFeedback } from '../hooks/useFeedback';
 import {
-  Building2, FileUp, FileSpreadsheet, Plus, Search, Trash2, Ban, RotateCcw, X,
+  Building2, FileUp, FileSpreadsheet, FileDown, Plus, Search, Trash2, Ban, RotateCcw, Pencil, X,
 } from 'lucide-react';
 
 /**
@@ -85,6 +86,10 @@ export default function WbesRegistry({ currentUser }) {
   // Blocking asks for a reason, which ConfirmDialog has nowhere to put.
   const [blocking, setBlocking] = useState(null);   // the entity being blocked
   const [blockReason, setBlockReason] = useState('');
+
+  // Re-classifying a mis-imported acronym: the entity being edited and its form.
+  const [editing, setEditing] = useState(null);
+  const [editForm, setEditForm] = useState({ name: '', utility_type: '', generator_type: '' });
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -261,6 +266,40 @@ export default function WbesRegistry({ currentUser }) {
     }
   };
 
+  // ─── Re-classify (correct a mis-imported type) ───────────────────────────────
+
+  const openEdit = (w) => {
+    setEditForm({
+      name: w.name || w.plant_name || '',
+      utility_type: w.utility_type || '',
+      generator_type: w.generator_type || '',
+    });
+    setEditing(w);
+  };
+
+  const submitEdit = async (e) => {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      const res = await updateWbesEntity(editing.wbes_acronym, {
+        name: editForm.name.trim(),
+        utility_type: editForm.utility_type || null,
+        generator_type: editForm.generator_type || null,
+      });
+      setEditing(null);
+      notify('success', `${res.wbes_acronym} updated — category is now ${res.energy_category}.`);
+      await load();
+    } catch (err) {
+      notify('error', err.message || 'Could not update the acronym.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const downloadTemplate = () =>
+    downloadFile('/users/wbes-entities/template', 'WBES_Upload_Template.xlsx')
+      .catch(err => notify('error', err.message || 'Could not download the template.'));
+
   // ─── Render ────────────────────────────────────────────────────────────────
 
   const scopeLabel = national ? 'all regions' : currentUser.region;
@@ -290,8 +329,15 @@ export default function WbesRegistry({ currentUser }) {
             </h4>
             <p style={{ color: 'var(--text-secondary)', fontSize: '0.78rem', marginBottom: '12px' }}>
               An <strong>.xlsx</strong> with columns <strong>Display Name</strong>,{' '}
-              <strong>WBES Acronym</strong> and <strong>Region</strong>, in any order. Acronyms
-              already registered are left as they are.
+              <strong>WBES Acronym</strong> and <strong>Region</strong> (required), plus{' '}
+              <strong>Utility Type</strong> and <strong>Generator Type</strong> (recommended), in any
+              order. Re-uploading re-classifies acronyms already registered.{' '}
+              <button type="button" onClick={downloadTemplate}
+                style={{ border: 'none', background: 'none', padding: 0, cursor: 'pointer',
+                         color: 'var(--link-text)', textDecoration: 'underline', display: 'inline-flex',
+                         alignItems: 'center', gap: '4px', font: 'inherit' }}>
+                <FileDown size={13} /> Download a template
+              </button>
             </p>
             <form onSubmit={submitUpload}>
               <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
@@ -431,9 +477,10 @@ export default function WbesRegistry({ currentUser }) {
                 <tr>
                   <th>Acronym</th>
                   <th>Display Name</th>
+                  <th>Type</th>
                   {national && <th>Region</th>}
                   <th>Status</th>
-                  <th style={{ width: '160px' }}>Actions</th>
+                  <th style={{ width: '210px' }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -441,6 +488,11 @@ export default function WbesRegistry({ currentUser }) {
                   <tr key={w.wbes_acronym}>
                     <td className="mono">{w.wbes_acronym}</td>
                     <td>{w.name || w.plant_name}</td>
+                    <td style={{ fontSize: '0.82rem' }}>
+                      {w.utility_type
+                        ? utilityTypeLabel(w.utility_type)
+                        : <span style={{ color: 'var(--text-muted)' }}>—</span>}
+                    </td>
                     {national && <td>{w.region}</td>}
                     <td>
                       {w.blocked ? (
@@ -458,6 +510,11 @@ export default function WbesRegistry({ currentUser }) {
                     </td>
                     <td>
                       <div style={{ display: 'flex', gap: '6px' }}>
+                        <button type="button" className="btn btn-secondary"
+                          style={{ padding: '4px 9px', fontSize: '0.74rem' }}
+                          onClick={() => openEdit(w)} title="Correct the type / name">
+                          <Pencil size={13} /> Edit
+                        </button>
                         {w.blocked ? (
                           <button type="button" className="btn btn-secondary"
                             style={{ padding: '4px 9px', fontSize: '0.74rem' }}
@@ -517,6 +574,58 @@ export default function WbesRegistry({ currentUser }) {
                 </button>
                 <button type="submit" className="btn btn-danger" disabled={busy}>
                   <Ban size={15} /> {busy ? 'Blocking…' : 'Block'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Re-classify a mis-imported acronym. Changing the Utility Type re-derives
+          the working category on the server. */}
+      {editing && (
+        <div className="modal-overlay" onClick={() => !busy && setEditing(null)}>
+          <div className="modal-content" style={{ maxWidth: '480px' }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3 style={{ margin: 0 }}>Edit {editing.wbes_acronym}</h3>
+              <button type="button" className="modal-close" onClick={() => setEditing(null)}
+                disabled={busy} aria-label="Close dialog"
+                style={{ border: 'none', background: 'transparent', cursor: 'pointer' }}>
+                <X size={18} />
+              </button>
+            </div>
+            <form onSubmit={submitEdit} style={{ padding: '18px' }}>
+              <p style={{ color: 'var(--text-secondary)', fontSize: '0.83rem', marginTop: 0 }}>
+                Fix a wrongly-imported classification. The Utility Type decides whether this entity
+                may self-register, and the working category is derived from it.
+              </p>
+              <div className="form-group">
+                <label htmlFor="wbes-edit-name">Display name</label>
+                <input id="wbes-edit-name" className="form-control" value={editForm.name}
+                  onChange={(e) => setEditForm(f => ({ ...f, name: e.target.value }))} />
+              </div>
+              <div className="form-group">
+                <label htmlFor="wbes-edit-util">Utility Type</label>
+                <select id="wbes-edit-util" className="form-control" value={editForm.utility_type}
+                  onChange={(e) => setEditForm(f => ({ ...f, utility_type: e.target.value }))}>
+                  <option value="">— not set —</option>
+                  {UTILITY_TYPES.map(t => <option key={t} value={t}>{utilityTypeLabel(t)}</option>)}
+                </select>
+              </div>
+              <div className="form-group">
+                <label htmlFor="wbes-edit-gen">Generator Type <span style={{ color: 'var(--text-muted)' }}>(for a Regional Entity, decides RE vs ISGS)</span></label>
+                <select id="wbes-edit-gen" className="form-control" value={editForm.generator_type}
+                  onChange={(e) => setEditForm(f => ({ ...f, generator_type: e.target.value }))}>
+                  <option value="">— none —</option>
+                  {GENERATOR_TYPES.map(t => <option key={t} value={t}>{t.charAt(0) + t.slice(1).toLowerCase()}</option>)}
+                </select>
+              </div>
+              <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+                <button type="button" className="btn btn-secondary" onClick={() => setEditing(null)} disabled={busy}>
+                  Cancel
+                </button>
+                <button type="submit" className="btn btn-primary" disabled={busy}>
+                  <Pencil size={15} /> {busy ? 'Saving…' : 'Save'}
                 </button>
               </div>
             </form>

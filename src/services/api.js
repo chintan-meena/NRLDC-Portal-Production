@@ -586,6 +586,18 @@ export const setWbesEntityBlocked = async (acronym, blocked, reason = '') => {
   });
 };
 
+/**
+ * Correct a mis-imported acronym's classification. `changes` may carry
+ * utility_type, generator_type and/or name; the server re-derives the working
+ * energy_category from the type.
+ */
+export const updateWbesEntity = async (acronym, changes) => {
+  return apiFetch(`/users/wbes-entities/${encodeURIComponent(acronym)}`, {
+    method: 'PATCH',
+    body: changes,
+  });
+};
+
 // Load the national register from an uploaded .xlsx — national administrator
 // only. Pass a FormData carrying the file under "file". Each row lands in the
 // region its own Region column names.

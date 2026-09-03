@@ -33,6 +33,7 @@ const { previousDayString } = require('../utils/dates');
 const { DEFAULT_PASSWORD, validatePassword } = require('../utils/password');
 const { usernameForRegion } = require('../utils/usernames');
 const { FILING_CATEGORIES } = require('../utils/trade');
+const { UTILITY_TYPES, GENERATOR_TYPES, normalizeUtilityType, normalizeGeneratorType, deriveEnergyCategory } = require('../utils/wbesTypes');
 const { sendMail, mailUsage } = require('../utils/mailer');
 const { forgetDevices, listDevices } = require('../auth/devices');
 const path = require('path');
@@ -106,6 +107,51 @@ async function insertWbesRows(rows) {
   });
 
   return written;
+}
+
+/**
+ * Insert or re-classify rows that carry a type, for the national upload.
+ *
+ * Unlike insertWbesRows, an acronym already on the register is *updated* rather
+ * than skipped: re-uploading the national file is how the 4,000-odd rows that
+ * predate the type columns get classified. COALESCE keeps an existing value
+ * when the incoming cell is blank, so a re-upload with a missing Utility Type
+ * column never wipes a type an administrator has set by hand. `inserted` uses
+ * Postgres's xmax=0 to tell a fresh row from a refreshed one.
+ */
+async function upsertWbesTypedRows(rows) {
+  const inserted = new Set();
+  const updated = new Set();
+  if (rows.length === 0) return { inserted, updated };
+
+  await withTransaction(async (client) => {
+    for (let i = 0; i < rows.length; i += INSERT_CHUNK) {
+      const chunk = rows.slice(i, i + INSERT_CHUNK);
+      const params = [];
+      const values = chunk.map((r, n) => {
+        const b = n * 6;
+        params.push(r.acronym, r.name, r.region, r.utility_type, r.generator_type, r.energy_category);
+        return `($${b + 1}, $${b + 2}, $${b + 3}, $${b + 4}, $${b + 5}, $${b + 6})`;
+      });
+      const res = await client.query(
+        `INSERT INTO wbes_entities (wbes_acronym, name, region, utility_type, generator_type, energy_category)
+         VALUES ${values.join(', ')}
+         ON CONFLICT (wbes_acronym) DO UPDATE SET
+           utility_type    = COALESCE(EXCLUDED.utility_type,    wbes_entities.utility_type),
+           generator_type  = COALESCE(EXCLUDED.generator_type,  wbes_entities.generator_type),
+           -- Only re-derive the category when this upload actually carried a
+           -- type; a blank Utility Type cell must not reset it to the default.
+           energy_category = CASE WHEN EXCLUDED.utility_type IS NOT NULL
+                                  THEN EXCLUDED.energy_category
+                                  ELSE wbes_entities.energy_category END
+         RETURNING wbes_acronym, (xmax = 0) AS inserted`,
+        params
+      );
+      for (const row of res.rows) (row.inserted ? inserted : updated).add(row.wbes_acronym);
+    }
+  });
+
+  return { inserted, updated };
 }
 
 /**
@@ -736,6 +782,8 @@ router.get('/wbes-entities', async (req, res) => {
          w.name AS plant_name,
          w.region,
          w.energy_category,
+         w.utility_type,
+         w.generator_type,
          w.blocked,
          w.blocked_reason,
          w.blocked_by,
@@ -813,12 +861,54 @@ router.post('/wbes-entities', requireAdmin, async (req, res) => {
   }
 });
 
+// GET /api/users/wbes-entities/template — the sample .xlsx to fill in and upload.
+//
+// So the national administrator never has to guess the format. Sheet one is the
+// exact header row the bulk parser matches, with worked examples; sheet two
+// documents the vocabulary. Extra columns are ignored on upload, so the real
+// WBES export can be pasted straight in.
+router.get('/wbes-entities/template', requireSuperAdmin, async (req, res) => {
+  try {
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('Entities');
+    ws.columns = [
+      { header: 'Display Name', key: 'name', width: 44 },
+      { header: 'WBES Acronym', key: 'acr', width: 22 },
+      { header: 'Utility Type', key: 'util', width: 20 },
+      { header: 'Region', key: 'region', width: 12 },
+      { header: 'Generator Type', key: 'gen', width: 18 },
+    ];
+    ws.getRow(1).font = { bold: true };
+    ws.addRow({ name: 'Example Solar Park Pvt Ltd', acr: 'EXAMPLE_SOLAR', util: 'REGIONAL_ENTITY', region: 'NRLDC', gen: 'RENEWABLE' });
+    ws.addRow({ name: 'Example Thermal Power Station', acr: 'EXAMPLE_TPS', util: 'ISGS', region: 'NRLDC', gen: 'THERMAL' });
+    ws.addRow({ name: 'Example Captive Consumer HTSC 0001', acr: 'EXAMPLE_HTSC', util: 'EMBEDDED_IN_STATE', region: 'NRLDC', gen: '' });
+
+    const legend = wb.addWorksheet('Allowed values');
+    legend.columns = [{ header: 'Column', key: 'c', width: 18 }, { header: 'Allowed values', key: 'v', width: 74 }];
+    legend.getRow(1).font = { bold: true };
+    legend.addRow({ c: 'Utility Type', v: UTILITY_TYPES.join(', ') });
+    legend.addRow({ c: 'Generator Type', v: GENERATOR_TYPES.join(', ') + '  (leave blank for non-generators)' });
+    legend.addRow({ c: 'Region', v: 'The RLDC acronym the entity belongs to (e.g. NRLDC, ERLDC, WRLDC, SRLDC, NERLDC)' });
+    legend.addRow({ c: 'Note', v: 'Display Name, WBES Acronym and Region are required. Utility Type / Generator Type are optional but recommended — without them an acronym is uncategorised until an admin sets its type.' });
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename="WBES_Upload_Template.xlsx"');
+    await wb.xlsx.write(res);
+    res.end();
+  } catch (err) {
+    console.error('[WBES TEMPLATE]', err);
+    res.status(500).json({ error: 'Failed to build the template.' });
+  }
+});
+
 // POST /api/users/wbes-entities/bulk — load the national register from a sheet.
 //
-// The file carries three columns — Display Name, WBES Acronym, Region — in any
-// order, matched by header name. Each row lands in the region its OWN Region
-// column names, so one upload of the national WBES list fills all five regions
-// at once, including any that has no administrator yet.
+// The file is matched by header name, in any order: Display Name, WBES Acronym
+// and Region are required; Utility Type and Generator Type are read when present
+// and used to classify the row and derive its energy category. Each row lands in
+// the region its OWN Region column names, so one upload of the national WBES list
+// fills all five regions at once, including any that has no administrator yet.
+// Re-uploading re-classifies rows already on the register.
 //
 // That is why this is the national administrator's route alone. A regional admin
 // uploading a file scoped to itself was the old behaviour, and it made the
@@ -827,9 +917,6 @@ router.post('/wbes-entities', requireAdmin, async (req, res) => {
 // upload but honour the Region column would instead hand every admin a way to
 // plant acronyms in regions they do not run, so regional admins get the capped
 // /batch route below and this one is reserved.
-//
-// An acronym has no energy category of its own; a registering user states their
-// own, so the register only records the name, the acronym and the region.
 router.post('/wbes-entities/bulk', requireSuperAdmin, handleSheetUploadErrors(sheetUpload.single('file')), async (req, res) => {
   const cleanup = () => { try { if (req.file?.path) fs.unlinkSync(req.file.path); } catch { /* already gone */ } };
 
@@ -851,6 +938,11 @@ router.post('/wbes-entities/bulk', requireSuperAdmin, handleSheetUploadErrors(sh
     const nameCol = findCol(['display name', 'name']);
     const acrCol  = findCol(['wbes', 'acronym']);
     const regCol  = findCol(['region', 'rldc']);
+    // Optional — present in the real WBES export, absent from a hand-made sheet.
+    // When absent, a row simply carries no type (energy_category defaults to RE)
+    // and an administrator can classify it later.
+    const utilCol = findCol(['utility type', 'utility']);
+    const genCol  = findCol(['generator type', 'generator']);
     if (nameCol === -1 || acrCol === -1 || regCol === -1) {
       cleanup();
       return res.status(400).json({ error: 'The file needs Display Name, WBES Acronym and Region columns.' });
@@ -890,27 +982,33 @@ router.post('/wbes-entities/bulk', requireSuperAdmin, handleSheetUploadErrors(sh
       }
       if (seen.has(acronym)) { skipped.push(`Row ${r}: ${acronym} appears more than once in this file.`); continue; }
 
+      const utility_type = utilCol > 0 ? normalizeUtilityType(text(row, utilCol)) : null;
+      const generator_type = genCol > 0 ? normalizeGeneratorType(text(row, genCol)) : null;
+      const energy_category = deriveEnergyCategory(utility_type, generator_type);
+
       seen.add(acronym);
       rowOf.set(acronym, r);
-      candidates.push({ acronym, name, region: rowRegion });
+      candidates.push({ acronym, name, region: rowRegion, utility_type, generator_type, energy_category });
     }
 
-    const written = await insertWbesRows(candidates);
+    // A re-upload re-classifies rows already on the register rather than
+    // skipping them — that is how the type reaches rows loaded before it existed.
+    const { inserted, updated } = await upsertWbesTypedRows(candidates);
 
-    // Anything the INSERT did not return was already in the register.
     const byRegion = {};
     for (const c of candidates) {
-      if (written.has(c.acronym)) byRegion[c.region] = (byRegion[c.region] || 0) + 1;
-      else skipped.push(`Row ${rowOf.get(c.acronym)}: ${c.acronym} is already registered.`);
+      if (inserted.has(c.acronym)) byRegion[c.region] = (byRegion[c.region] || 0) + 1;
     }
 
     cleanup();
     const summary = Object.keys(byRegion).sort().map(k => `${k} ${byRegion[k]}`).join(', ') || 'none';
     await logEvent('success',
-      `WBES national upload by "${req.auth.username}": ${written.size} added (${summary}), ${skipped.length} skipped.`,
+      `WBES national upload by "${req.auth.username}": ${inserted.size} added (${summary}), `
+      + `${updated.size} re-classified, ${skipped.length} skipped.`,
       null);
     res.json({
-      importedCount: written.size,
+      importedCount: inserted.size,
+      updatedCount: updated.size,
       skippedCount: skipped.length,
       skipped: skipped.slice(0, 100),
       byRegion,
@@ -1036,7 +1134,7 @@ async function wbesReferences(acronym) {
 async function loadWbesForAdmin(req, res) {
   const acronym = String(req.params.acronym || '').trim().toUpperCase();
   const found = await pool.query(
-    'SELECT wbes_acronym, name, region, blocked FROM wbes_entities WHERE UPPER(wbes_acronym) = $1',
+    'SELECT wbes_acronym, name, region, blocked, utility_type, generator_type FROM wbes_entities WHERE UPPER(wbes_acronym) = $1',
     [acronym]
   );
   if (found.rows.length === 0) {
@@ -1114,6 +1212,50 @@ router.patch('/wbes-entities/:acronym/block', requireAdmin, async (req, res) => 
     res.json(result.rows[0]);
   } catch (err) {
     console.error('[WBES BLOCK]', err);
+    res.status(500).json({ error: 'Failed to update the acronym.' });
+  }
+});
+
+// PATCH /api/users/wbes-entities/:acronym — correct a mis-imported classification.
+//
+// The type comes from the national upload, which now and then has a row wrong.
+// The RLDC that owns the acronym (or the national account) fixes it here.
+// Changing the Utility Type re-derives the working energy_category in one edit,
+// so the sign-up gate and the filing rules stay consistent with the correction.
+router.patch('/wbes-entities/:acronym', requireAdmin, async (req, res) => {
+  const { utility_type, generator_type, name } = req.body || {};
+
+  if (utility_type !== undefined && utility_type !== null && utility_type !== ''
+      && !UTILITY_TYPES.includes(String(utility_type).toUpperCase())) {
+    return res.status(400).json({ error: `Utility type must be one of: ${UTILITY_TYPES.join(', ')}.` });
+  }
+
+  try {
+    const entity = await loadWbesForAdmin(req, res);
+    if (!entity) return;
+
+    // Absent field → keep what is there; blank → clear it.
+    const newUtility = utility_type === undefined ? entity.utility_type
+                     : (utility_type ? String(utility_type).toUpperCase() : null);
+    const newGenerator = generator_type === undefined ? entity.generator_type
+                       : (generator_type ? normalizeGeneratorType(generator_type) : null);
+    const newName = (name !== undefined && String(name).trim()) ? String(name).trim() : entity.name;
+    const energy_category = deriveEnergyCategory(newUtility, newGenerator);
+
+    const result = await pool.query(
+      `UPDATE wbes_entities
+          SET name = $2, utility_type = $3, generator_type = $4, energy_category = $5
+        WHERE wbes_acronym = $1
+        RETURNING wbes_acronym, name, region, utility_type, generator_type, energy_category, blocked, blocked_reason`,
+      [entity.wbes_acronym, newName, newUtility, newGenerator, energy_category]
+    );
+
+    await logEvent('info',
+      `WBES acronym ${entity.wbes_acronym} re-classified by "${req.auth.username}": `
+      + `utility_type=${newUtility || '—'}, category=${energy_category}.`, entity.region);
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('[WBES PATCH]', err);
     res.status(500).json({ error: 'Failed to update the acronym.' });
   }
 });

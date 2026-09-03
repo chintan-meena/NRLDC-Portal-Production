@@ -28,6 +28,9 @@ const WRITABLE_KEYS = new Set([
   'postFactoCutoffDay', 'flaggedThresholdPercent',
   // Whether ISGS / RE filers must attach the WBES Net Schedule Report Summary.
   'requireNetScheduleFile',
+  // Comma-separated WBES utility types this region admits to self-registration.
+  // See utils/wbesTypes.js.
+  'signupUtilityTypes',
   // Mail budget controls. otpTrustDays is the lever that matters: it decides
   // how often a user is asked for a code, and so how much mail the portal
   // needs. See auth/devices.js.

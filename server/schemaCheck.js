@@ -34,6 +34,7 @@ const REQUIRED_TABLES = [
 // Columns added after the table itself existed.
 const REQUIRED_COLUMNS = [
   ['wbes_entities', 'energy_category'],   // added for the QCA/RE rule
+  ['wbes_entities', 'utility_type'],      // added for the self-registration type gate
   ['login_otps', 'purpose'],              // added when reset codes joined login codes
 ];
 

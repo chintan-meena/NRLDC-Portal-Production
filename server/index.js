@@ -270,7 +270,14 @@ async function ensureDefaultConfig() {
     smtpPass: process.env.SMTP_PASS || '',
     smtpFrom: process.env.SMTP_FROM || 'NRLDC Schedule Portal <noreply@example.invalid>',
   };
-  const regionalDefaults = { maxDays: '5', lockoutAttempts: '3' };
+  const regionalDefaults = {
+    maxDays: '5',
+    lockoutAttempts: '3',
+    // Which WBES utility types may self-register in this region. Everything but
+    // EMBEDDED_IN_STATE by default; a region widens or narrows it in System
+    // Parameters. See utils/wbesTypes.js (DEFAULT_SIGNUP_TYPES).
+    signupUtilityTypes: 'ISGS,REGIONAL_ENTITY,TRADER,PARENT_STATE',
+  };
 
   try {
     for (const [key, value] of Object.entries(globalDefaults)) {

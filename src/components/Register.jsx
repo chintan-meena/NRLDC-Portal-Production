@@ -45,6 +45,9 @@ export default function Register({ onBackToLogin }) {
     setName(row.name || '');
     setRegion(row.region || '');
     setUsername(usernameFromAcronym(row.wbes_acronym, row.region));
+    // The category is the acronym's own, from the register — the applicant no
+    // longer declares it, only sees it.
+    if (row.energy_category) setEnergyCategory(row.energy_category);
   };
 
   // Typing after a selection clears it, so the derived fields clear with it —
@@ -218,14 +221,15 @@ export default function Register({ onBackToLogin }) {
 
             {!isQca && (
               <div className="form-group">
-                <label htmlFor="reg-category">Energy category</label>
-                <select id="reg-category" className="form-control" value={energyCategory}
-                  onChange={(e) => setEnergyCategory(e.target.value)}>
-                  <option value="ISGS">{categoryLabel('ISGS')}</option>
-                  <option value="RE">{categoryLabel('RE')}</option>
-                  <option value="States">States</option>
-                  <option value="Traders">Traders</option>
-                </select>
+                <label>Category</label>
+                <div className="form-control" style={{ background: 'var(--bg-tertiary)', display: 'flex', alignItems: 'center', minHeight: '38px' }}>
+                  {wbesAcronym
+                    ? <strong>{categoryLabel(energyCategory)}</strong>
+                    : <span style={{ color: 'var(--text-muted)' }}>Set from your WBES acronym once you pick it</span>}
+                </div>
+                <span className="settings-field-hint">
+                  Taken from the WBES register — it is not chosen at sign-up.
+                </span>
               </div>
             )}
           </fieldset>

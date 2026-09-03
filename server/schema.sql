@@ -315,6 +315,15 @@ CREATE TABLE IF NOT EXISTS password_reset_requests (
 ALTER TABLE discrepancies ADD COLUMN IF NOT EXISTS flagged BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE discrepancies ADD COLUMN IF NOT EXISTS flag_note TEXT NOT NULL DEFAULT '';
 
+-- ─── WBES entity classification ────────────────────────────────────────────
+-- The finer type the national WBES list carries, captured so self-registration
+-- can be gated on it (EMBEDDED_IN_STATE kept off the sign-up screen) and so
+-- energy_category is derived from real data rather than defaulted to 'RE'.
+-- Nullable: acronyms typed into the grid, or uploaded before this existed, have
+-- none until an administrator sets one. See utils/wbesTypes.js.
+ALTER TABLE wbes_entities ADD COLUMN IF NOT EXISTS utility_type   VARCHAR(30);
+ALTER TABLE wbes_entities ADD COLUMN IF NOT EXISTS generator_type VARCHAR(20);
+
 -- The tracker counts marked rejections per filer over a rolling window.
 CREATE INDEX IF NOT EXISTS idx_disc_flagged
   ON discrepancies (region, flagged, resolved_time DESC) WHERE flagged;

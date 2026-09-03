@@ -19,11 +19,11 @@ const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const pool = require('../db');
 const { logEvent } = require('../utils/log');
-const { FILING_CATEGORIES } = require('../utils/trade');
 const { issueToken } = require('../auth/tokens');
 const { validatePassword } = require('../utils/password');
 const { usernameFromAcronym } = require('../utils/usernames');
-const { getBoolean, getNumber } = require('../utils/settings');
+const { getBoolean, getNumber, getSetting } = require('../utils/settings');
+const { parseSignupTypes, normalizeUtilityType, deriveEnergyCategory, DEFAULT_SIGNUP_TYPES } = require('../utils/wbesTypes');
 const { setContextRegion } = require('../utils/requestContext');
 const { sendMail, numericConfig } = require('../utils/mailer');
 const {
@@ -509,13 +509,13 @@ router.post('/logout', async (req, res) => {
 // The WBES acronym given here is final — it identifies the plant, and neither
 // the applicant nor the approving admin can change it afterwards.
 router.post('/register', async (req, res) => {
-  const { name, role, email, mobile, password, energy_category, wbes_acronym, qca_name } = req.body || {};
+  const { name, role, email, mobile, password, wbes_acronym, qca_name } = req.body || {};
 
-  // The acronym is the anchor now: it must be one the RLDC has already
-  // registered, and it decides both the region (which despatch centre reviews
-  // and administers this) and the username. The applicant no longer types
-  // either — both are derived from the wbes_entities row looked up below.
-  const required = { name, role, email, password, energy_category, wbes_acronym };
+  // The acronym is the anchor: it must be one the RLDC has already registered,
+  // and it decides the region (which despatch centre reviews and administers
+  // this), the username, AND the energy category — all derived from the
+  // wbes_entities row looked up below. The applicant declares none of them.
+  const required = { name, role, email, password, wbes_acronym };
   const missing = Object.entries(required).filter(([, v]) => !v || !String(v).trim()).map(([k]) => k);
   if (missing.length > 0) {
     return res.status(400).json({ error: `These fields are required: ${missing.join(', ')}.` });
@@ -524,19 +524,11 @@ router.post('/register', async (req, res) => {
   if (!['USER', 'QCA'].includes(role)) {
     return res.status(400).json({ error: 'Choose either a plant user or a QCA account.' });
   }
-  if (!FILING_CATEGORIES.includes(energy_category)) {
-    return res.status(400).json({ error: `Choose a valid energy category: ${FILING_CATEGORIES.join(', ')}.` });
-  }
 
-  // QCAs coordinate Renewable Energy plants only — the same rule the rest of
-  // the portal enforces, applied before the account exists.
-  if (role === 'QCA') {
-    if (energy_category !== 'RE') {
-      return res.status(400).json({ error: 'QCA accounts are for Renewable Energy (RE) plants only.' });
-    }
-    if (!qca_name || !qca_name.trim()) {
-      return res.status(400).json({ error: 'Enter the name of your coordinating agency.' });
-    }
+  // A QCA names its agency up front; whether the plant is actually RE is checked
+  // against the register once the acronym resolves.
+  if (role === 'QCA' && (!qca_name || !qca_name.trim())) {
+    return res.status(400).json({ error: 'Enter the name of your coordinating agency.' });
   }
 
   const passwordError = validatePassword(password);
@@ -553,7 +545,7 @@ router.post('/register', async (req, res) => {
     // the username follows from the acronym and that region (dadri@nrldc,
     // dadri@erldc), so a non-NRLDC applicant is no longer misnamed '@nrldc'.
     const entity = await pool.query(
-      'SELECT wbes_acronym, name, region FROM wbes_entities WHERE UPPER(wbes_acronym) = $1',
+      'SELECT wbes_acronym, name, region, utility_type, energy_category FROM wbes_entities WHERE UPPER(wbes_acronym) = $1',
       [cleanAcronym]
     );
     if (entity.rows.length === 0) {
@@ -566,6 +558,27 @@ router.post('/register', async (req, res) => {
     const finalName = (name && String(name).trim()) ? String(name).trim() : entity.rows[0].name;
     if (!cleanUsername) {
       return res.status(400).json({ error: 'Could not build a username from that acronym.' });
+    }
+
+    // The category is the acronym's own — derived from the WBES type at upload,
+    // never the applicant's word for it.
+    const energyCategory = entity.rows[0].energy_category || 'RE';
+    const utilityType = normalizeUtilityType(entity.rows[0].utility_type);
+
+    // Who may self-register is the region's choice. A utility type it does not
+    // admit is refused — the acronym would not have appeared in the sign-up
+    // search either, so this is the backstop for a hand-crafted request.
+    const allowed = parseSignupTypes(await getSetting('signupUtilityTypes', region, DEFAULT_SIGNUP_TYPES.join(',')));
+    if (utilityType && !allowed.has(utilityType)) {
+      return res.status(403).json({
+        error: `This entity type cannot self-register in ${region}. `
+             + 'Contact your RLDC if you believe this is a mistake.',
+      });
+    }
+
+    // QCAs coordinate Renewable Energy plants only.
+    if (role === 'QCA' && energyCategory !== 'RE') {
+      return res.status(400).json({ error: 'QCA accounts are for Renewable Energy (RE) plants only — this acronym is not RE.' });
     }
 
     // Taken by an existing account?
@@ -597,14 +610,14 @@ router.post('/register', async (req, res) => {
       [
         cleanUsername, finalName, role, cleanEmail,
         mobile && mobile.trim() ? mobile.trim() : null,
-        hash, energy_category, cleanAcronym,
+        hash, energyCategory, cleanAcronym,
         role === 'QCA' ? qca_name.trim() : null,
         region,
       ]
     );
 
     await logEvent('info',
-      `Registration request #${result.rows[0].id} submitted: "${cleanUsername}" (${region}, ${role}, ${energy_category}, WBES ${cleanAcronym}) — awaiting admin approval.`,
+      `Registration request #${result.rows[0].id} submitted: "${cleanUsername}" (${region}, ${role}, ${energyCategory}, WBES ${cleanAcronym}) — awaiting admin approval.`,
       region);
 
     return res.status(201).json({
@@ -690,7 +703,7 @@ router.get('/wbes-lookup', async (req, res) => {
 
   try {
     const result = await pool.query(
-      `SELECT w.wbes_acronym, w.name, w.region
+      `SELECT w.wbes_acronym, w.name, w.region, w.utility_type, w.energy_category
          FROM wbes_entities w
         WHERE (LOWER(w.wbes_acronym) LIKE $1 OR LOWER(w.name) LIKE $1)
           -- A blocked acronym is not registerable, so it never reaches the
@@ -704,10 +717,22 @@ router.get('/wbes-lookup', async (req, res) => {
              WHERE UPPER(TRIM(r.wbes_acronym)) = UPPER(w.wbes_acronym) AND r.status = 'Pending'
           )
         ORDER BY (LOWER(w.wbes_acronym) = $2) DESC, w.wbes_acronym ASC
-        LIMIT 25`,
+        LIMIT 60`,
       [`%${term.toLowerCase()}%`, term.toLowerCase()]
     );
-    res.json(result.rows);
+
+    // Each region decides which utility types may self-register. A type the
+    // region does not admit — EMBEDDED_IN_STATE by default — is dropped here, so
+    // those acronyms never appear on the sign-up screen at all. An acronym with
+    // no type yet has nothing to gate on and is shown. (Over-fetch, then trim to
+    // 25, so filtering never starves the list.)
+    const cfg = await pool.query(`SELECT region, value FROM config WHERE key = 'signupUtilityTypes'`);
+    const allow = new Map(cfg.rows.map(r => [r.region, parseSignupTypes(r.value)]));
+    const fallback = new Set(DEFAULT_SIGNUP_TYPES);
+    const permitted = (row) =>
+      !row.utility_type || (allow.get(row.region) || fallback).has(row.utility_type);
+
+    res.json(result.rows.filter(permitted).slice(0, 25));
   } catch (err) {
     console.error('[AUTH /wbes-lookup]', err);
     res.status(500).json({ error: 'Could not search the WBES register.' });
