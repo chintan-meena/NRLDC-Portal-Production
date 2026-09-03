@@ -10,6 +10,7 @@ import { Banner, EmptyState, SkeletonRows } from './Feedback';
 import { categoryLabel } from '../utils/categories';
 import { GRID_REGIONS, isTraderCategory, consentBadge } from '../utils/trade';
 import AcronymPicker from './AcronymPicker';
+import RequestNewPlant from './RequestNewPlant';
 import { useFeedback } from '../hooks/useFeedback';
 import { useModalDismiss } from '../hooks/useModalDismiss';
 import { originalFilename, isNetScheduleSummary } from '../utils/filenames';
@@ -1756,7 +1757,9 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
             <div className="glass-panel" style={{ padding: '25px' }}>
               <h3 style={{ fontSize: '1rem', marginBottom: '10px', fontWeight: '600' }}>Add / Request Plant Assignment</h3>
               <p style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', marginBottom: '15px' }}>
-                Search for a registered WBES station. Direct assignment takes place if it has no active owner; otherwise, a Transfer Request will be sent to the administrator.
+                Search for a registered WBES station. Every plant you take on — even one nobody
+                currently holds — is sent to the {currentUser.region} Admin for approval before it
+                becomes active. You can file against it once the request is approved.
               </p>
 
               <Banner type="error" message={assignError} />
@@ -1814,7 +1817,7 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
                           style={{ padding: '6px 12px', fontSize: '0.75rem' }}
                           onClick={() => handleAddPlantAssignment(entity.wbes_acronym)}
                         >
-                          {entity.current_owner ? 'Request Transfer' : 'Assign'}
+                          {entity.current_owner ? 'Request Transfer' : 'Request'}
                         </button>
                       </div>
                     ))}
@@ -1823,6 +1826,9 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
               )}
             </div>
           </div>
+
+          {/* A QCA can also request a brand-new plant / WBES id under itself. */}
+          <RequestNewPlant currentUser={currentUser} onSubmitted={loadData} />
         </div>
       )}
 

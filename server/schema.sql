@@ -324,6 +324,48 @@ ALTER TABLE discrepancies ADD COLUMN IF NOT EXISTS flag_note TEXT NOT NULL DEFAU
 ALTER TABLE wbes_entities ADD COLUMN IF NOT EXISTS utility_type   VARCHAR(30);
 ALTER TABLE wbes_entities ADD COLUMN IF NOT EXISTS generator_type VARCHAR(20);
 
+-- The rest of the shared WBES_Utility.xlsx format, captured so the registry
+-- matches the national list column-for-column. All descriptive and nullable —
+-- none is gated on. generator_subtype is a finer split of generator_type
+-- (SOLAR / COAL / ROR …); from_date and date_of_commissioning are the plant's
+-- own dates, distinct from a QCA assignment's from_date.
+ALTER TABLE wbes_entities ADD COLUMN IF NOT EXISTS generator_subtype     VARCHAR(30);
+ALTER TABLE wbes_entities ADD COLUMN IF NOT EXISTS from_date             DATE;
+ALTER TABLE wbes_entities ADD COLUMN IF NOT EXISTS date_of_commissioning DATE;
+
+-- ─── New-acronym requests ──────────────────────────────────────────────────
+-- A plant not yet on the register asks to be added and to be placed under a
+-- chosen QCA. Modelled on registration_requests: nothing takes effect until an
+-- RLDC admin approves, at which point the wbes_entities row is created and the
+-- QCA assignment opened. Kept separate from transfer_requests because that row
+-- cannot carry a new acronym's name, region and classification.
+CREATE TABLE IF NOT EXISTS new_acronym_requests (
+  id SERIAL PRIMARY KEY,
+  region VARCHAR(10) NOT NULL DEFAULT 'NRLDC' REFERENCES regions(acronym) ON UPDATE CASCADE,
+  wbes_acronym VARCHAR(50) NOT NULL,
+  name VARCHAR(200) NOT NULL,
+  utility_type VARCHAR(30),
+  generator_type VARCHAR(20),
+  generator_subtype VARCHAR(30),
+  from_date DATE,
+  date_of_commissioning DATE,
+  -- The QCA the requester wants this plant placed under. Optional: an admin can
+  -- register the acronym without an assignment and let a QCA claim it later.
+  requested_qca_username VARCHAR(100) REFERENCES users(username) ON UPDATE CASCADE ON DELETE SET NULL,
+  effective_date DATE,
+  requested_by VARCHAR(100),
+  status VARCHAR(20) NOT NULL DEFAULT 'Pending' CHECK (status IN ('Pending', 'Approved', 'Rejected')),
+  review_note TEXT NOT NULL DEFAULT '',
+  reviewed_by VARCHAR(100),
+  reviewed_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- At most one pending request per acronym, so two people cannot queue the same
+-- new id. Approved/rejected rows stay as history and do not block a re-request.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_new_acronym_pending
+  ON new_acronym_requests (UPPER(wbes_acronym)) WHERE status = 'Pending';
+
 -- The tracker counts marked rejections per filer over a rolling window.
 CREATE INDEX IF NOT EXISTS idx_disc_flagged
   ON discrepancies (region, flagged, resolved_time DESC) WHERE flagged;

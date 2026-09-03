@@ -13,6 +13,8 @@ import {
 import UserManagement from './UserManagement';
 import NationalAdmin from './NationalAdmin';
 import FlaggedTracker from './FlaggedTracker';
+import QcaStatus from './QcaStatus';
+import NewAcronymRequests from './NewAcronymRequests';
 import { isNational, regionLabel } from '../utils/regions';
 import ConfirmDialog from './ConfirmDialog';
 import { Banner, EmptyState, SkeletonRows } from './Feedback';
@@ -1720,6 +1722,14 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
             </div>
           </div>
         </div>
+      )}
+
+      {activeTab === 'qca_status' && (
+        <QcaStatus />
+      )}
+
+      {activeTab === 'new_acronyms' && (
+        <NewAcronymRequests />
       )}
 
       {activeTab === 'users' && (

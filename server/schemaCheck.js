@@ -29,12 +29,15 @@ const REQUIRED_TABLES = [
   'password_reset_requests', // added with admin-approved password resets
   'trusted_devices',      // added when OTP moved to once-per-device-per-week
   'mail_quota',           // added with the daily mail allowance guard
+  'new_acronym_requests', // added with new-plant / new-id requests
 ];
 
 // Columns added after the table itself existed.
 const REQUIRED_COLUMNS = [
   ['wbes_entities', 'energy_category'],   // added for the QCA/RE rule
   ['wbes_entities', 'utility_type'],      // added for the self-registration type gate
+  ['wbes_entities', 'generator_subtype'], // added with the full WBES_Utility format
+  ['wbes_entities', 'date_of_commissioning'],
   ['login_otps', 'purpose'],              // added when reset codes joined login codes
 ];
 

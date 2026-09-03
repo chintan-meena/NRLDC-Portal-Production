@@ -656,3 +656,33 @@ export const getQcas = async () => {
   return apiFetch('/users/qcas');
 };
 
+/** The QCA Status page: every QCA in the region with the plants under it. */
+export const getQcaStatus = async () => {
+  return apiFetch('/users/qca-status');
+};
+
+// ─── New-acronym requests ──────────────────────────────────────────────────
+
+/**
+ * Ask an RLDC admin to register a brand-new plant / WBES id and, optionally,
+ * place it under a chosen QCA. `payload` carries wbes_acronym, name, the
+ * WBES_Utility fields (utility_type, generator_type, generator_subtype,
+ * from_date, date_of_commissioning) and requested_qca_username.
+ */
+export const createNewAcronymRequest = async (payload) => {
+  return apiFetch('/users/new-acronym-requests', { method: 'POST', body: payload });
+};
+
+/** Admins see their region's queue; a requester sees only their own. */
+export const getNewAcronymRequests = async (status = 'ALL') => {
+  const q = status && status !== 'ALL' ? `?status=${encodeURIComponent(status)}` : '';
+  return apiFetch(`/users/new-acronym-requests${q}`);
+};
+
+export const processNewAcronymRequest = async (id, status, note = '') => {
+  return apiFetch(`/users/new-acronym-requests/${id}/process`, {
+    method: 'PATCH',
+    body: { status, note },
+  });
+};
+

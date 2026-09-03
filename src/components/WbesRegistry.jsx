@@ -4,7 +4,10 @@ import {
   deleteWbesEntity, setWbesEntityBlocked, updateWbesEntity, downloadFile,
 } from '../services/db';
 import { REGIONS, isNational } from '../utils/regions';
-import { UTILITY_TYPES, GENERATOR_TYPES, utilityTypeLabel, deriveSignupType, signupTypeLabel } from '../utils/wbesTypes';
+import {
+  UTILITY_TYPES, GENERATOR_TYPES, GENERATOR_SUBTYPES,
+  utilityTypeLabel, generatorSubTypeLabel, deriveSignupType, signupTypeLabel,
+} from '../utils/wbesTypes';
 import ConfirmDialog from './ConfirmDialog';
 import { Banner, EmptyState } from './Feedback';
 import { useFeedback } from '../hooks/useFeedback';
@@ -41,7 +44,12 @@ import {
 /** Rows in the grid. The server enforces the same cap; this only shapes the UI. */
 const MAX_ROWS = 10;
 
-const emptyRow = () => ({ name: '', wbes_acronym: '' });
+const emptyRow = () => ({
+  name: '', wbes_acronym: '',
+  // The rest of the WBES_Utility format — all optional, set per row.
+  utility_type: '', generator_type: '', generator_subtype: '',
+  from_date: '', date_of_commissioning: '',
+});
 const emptyGrid = () => Array.from({ length: MAX_ROWS }, emptyRow);
 
 /**
@@ -89,7 +97,10 @@ export default function WbesRegistry({ currentUser }) {
 
   // Re-classifying a mis-imported acronym: the entity being edited and its form.
   const [editing, setEditing] = useState(null);
-  const [editForm, setEditForm] = useState({ name: '', utility_type: '', generator_type: '' });
+  const [editForm, setEditForm] = useState({
+    name: '', utility_type: '', generator_type: '',
+    generator_subtype: '', from_date: '', date_of_commissioning: '',
+  });
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -268,11 +279,18 @@ export default function WbesRegistry({ currentUser }) {
 
   // ─── Re-classify (correct a mis-imported type) ───────────────────────────────
 
+  // The API serialises DATE columns to ISO strings; an <input type="date"> wants
+  // a bare YYYY-MM-DD.
+  const toDateInput = (v) => (v ? String(v).slice(0, 10) : '');
+
   const openEdit = (w) => {
     setEditForm({
       name: w.name || w.plant_name || '',
       utility_type: w.utility_type || '',
       generator_type: w.generator_type || '',
+      generator_subtype: w.generator_subtype || '',
+      from_date: toDateInput(w.from_date),
+      date_of_commissioning: toDateInput(w.date_of_commissioning),
     });
     setEditing(w);
   };
@@ -285,6 +303,9 @@ export default function WbesRegistry({ currentUser }) {
         name: editForm.name.trim(),
         utility_type: editForm.utility_type || null,
         generator_type: editForm.generator_type || null,
+        generator_subtype: editForm.generator_subtype || null,
+        from_date: editForm.from_date || null,
+        date_of_commissioning: editForm.date_of_commissioning || null,
       });
       setEditing(null);
       notify('success', `${res.wbes_acronym} updated — category is now ${res.energy_category}.`);
@@ -361,7 +382,9 @@ export default function WbesRegistry({ currentUser }) {
           </h4>
           <p style={{ color: 'var(--text-secondary)', fontSize: '0.78rem', marginBottom: '12px' }}>
             Type them in, or copy two columns (name, then acronym) from a spreadsheet and paste
-            into the first cell — the rows fill themselves.
+            into the first cell — the rows fill themselves. The classification columns
+            (Utility Type, Generator Type, SubType and the dates) are optional; set them here or
+            correct them later with Edit. The working Category is derived from the Utility Type.
           </p>
 
           <form onSubmit={submitGrid}>
@@ -376,13 +399,18 @@ export default function WbesRegistry({ currentUser }) {
               </div>
             )}
 
-            <div style={{ border: '1px solid var(--border-color)', borderRadius: '8px', overflow: 'hidden' }}>
-              <table className="custom-table" style={{ margin: 0 }}>
+            <div style={{ border: '1px solid var(--border-color)', borderRadius: '8px', overflowX: 'auto' }}>
+              <table className="custom-table" style={{ margin: 0, minWidth: '980px' }}>
                 <thead>
                   <tr>
-                    <th style={{ width: '40px' }}>#</th>
-                    <th>Display Name</th>
-                    <th style={{ width: '38%' }}>WBES Acronym</th>
+                    <th style={{ width: '36px' }}>#</th>
+                    <th style={{ minWidth: '180px' }}>Display Name</th>
+                    <th style={{ minWidth: '130px' }}>WBES Acronym</th>
+                    <th style={{ minWidth: '150px' }}>Utility Type</th>
+                    <th style={{ minWidth: '120px' }}>Generator Type</th>
+                    <th style={{ minWidth: '120px' }}>SubType</th>
+                    <th style={{ minWidth: '135px' }}>From Date</th>
+                    <th style={{ minWidth: '150px' }}>Date of Commissioning</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -403,6 +431,40 @@ export default function WbesRegistry({ currentUser }) {
                           onChange={(e) => setCell(i, 'wbes_acronym', e.target.value)}
                           onPaste={handlePaste(i, 'wbes_acronym')}
                           placeholder={i === 0 ? 'BRBCL' : ''} />
+                      </td>
+                      <td style={{ padding: '4px 8px' }}>
+                        <select className="form-control" value={row.utility_type}
+                          aria-label={`Utility type, row ${i + 1}`}
+                          onChange={(e) => setCell(i, 'utility_type', e.target.value)}>
+                          <option value="">—</option>
+                          {UTILITY_TYPES.map(t => <option key={t} value={t}>{utilityTypeLabel(t)}</option>)}
+                        </select>
+                      </td>
+                      <td style={{ padding: '4px 8px' }}>
+                        <select className="form-control" value={row.generator_type}
+                          aria-label={`Generator type, row ${i + 1}`}
+                          onChange={(e) => setCell(i, 'generator_type', e.target.value)}>
+                          <option value="">—</option>
+                          {GENERATOR_TYPES.map(t => <option key={t} value={t}>{t.charAt(0) + t.slice(1).toLowerCase()}</option>)}
+                        </select>
+                      </td>
+                      <td style={{ padding: '4px 8px' }}>
+                        <select className="form-control" value={row.generator_subtype}
+                          aria-label={`Generator sub-type, row ${i + 1}`}
+                          onChange={(e) => setCell(i, 'generator_subtype', e.target.value)}>
+                          <option value="">—</option>
+                          {GENERATOR_SUBTYPES.map(t => <option key={t} value={t}>{generatorSubTypeLabel(t)}</option>)}
+                        </select>
+                      </td>
+                      <td style={{ padding: '4px 8px' }}>
+                        <input type="date" className="form-control" value={row.from_date}
+                          aria-label={`From date, row ${i + 1}`}
+                          onChange={(e) => setCell(i, 'from_date', e.target.value)} />
+                      </td>
+                      <td style={{ padding: '4px 8px' }}>
+                        <input type="date" className="form-control" value={row.date_of_commissioning}
+                          aria-label={`Date of commissioning, row ${i + 1}`}
+                          onChange={(e) => setCell(i, 'date_of_commissioning', e.target.value)} />
                       </td>
                     </tr>
                   ))}
@@ -619,6 +681,26 @@ export default function WbesRegistry({ currentUser }) {
                   <option value="">— none —</option>
                   {GENERATOR_TYPES.map(t => <option key={t} value={t}>{t.charAt(0) + t.slice(1).toLowerCase()}</option>)}
                 </select>
+              </div>
+              <div className="form-group">
+                <label htmlFor="wbes-edit-sub">Generator SubType</label>
+                <select id="wbes-edit-sub" className="form-control" value={editForm.generator_subtype}
+                  onChange={(e) => setEditForm(f => ({ ...f, generator_subtype: e.target.value }))}>
+                  <option value="">— none —</option>
+                  {GENERATOR_SUBTYPES.map(t => <option key={t} value={t}>{generatorSubTypeLabel(t)}</option>)}
+                </select>
+              </div>
+              <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+                <div className="form-group" style={{ flex: '1 1 160px' }}>
+                  <label htmlFor="wbes-edit-from">From Date</label>
+                  <input id="wbes-edit-from" type="date" className="form-control" value={editForm.from_date}
+                    onChange={(e) => setEditForm(f => ({ ...f, from_date: e.target.value }))} />
+                </div>
+                <div className="form-group" style={{ flex: '1 1 160px' }}>
+                  <label htmlFor="wbes-edit-com">Date of Commissioning</label>
+                  <input id="wbes-edit-com" type="date" className="form-control" value={editForm.date_of_commissioning}
+                    onChange={(e) => setEditForm(f => ({ ...f, date_of_commissioning: e.target.value }))} />
+                </div>
               </div>
               <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
                 <button type="button" className="btn btn-secondary" onClick={() => setEditing(null)} disabled={busy}>

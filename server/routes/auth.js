@@ -578,6 +578,23 @@ router.post('/register', async (req, res) => {
       });
     }
 
+    // The acronym's own classification decides which kind of account may claim
+    // it. A QCA-classified acronym is a coordinating agency and can only become
+    // a QCA account; every other acronym is a plant and can only become a plant
+    // user. This is the gate behind "an RE plant registers as a plant user, and
+    // only a QCA acronym registers as a QCA".
+    const isQcaAcronym = signupType === 'QCA';
+    if (role === 'QCA' && !isQcaAcronym) {
+      return res.status(400).json({
+        error: 'This WBES acronym is a plant, not a QCA coordinating agency. Register it as a plant user instead.',
+      });
+    }
+    if (role === 'USER' && isQcaAcronym) {
+      return res.status(400).json({
+        error: 'This WBES acronym belongs to a QCA coordinating agency. Register it as a QCA account instead.',
+      });
+    }
+
     // QCAs coordinate Renewable Energy plants only.
     if (role === 'QCA' && energyCategory !== 'RE') {
       return res.status(400).json({ error: 'QCA accounts are for Renewable Energy (RE) plants only — this acronym is not RE.' });

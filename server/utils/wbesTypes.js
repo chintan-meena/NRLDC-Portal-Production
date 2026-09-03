@@ -17,7 +17,10 @@
  */
 
 // The canonical Utility Types, in the order they should be offered on screen.
-const UTILITY_TYPES = ['ISGS', 'REGIONAL_ENTITY', 'TRADER', 'PARENT_STATE', 'EMBEDDED_IN_STATE'];
+// QCA is a coordinating agency rather than a plant, but it is carried here as a
+// classification so the sign-up gate can tell "this acronym belongs to a QCA"
+// from "this acronym is a plant" — see deriveSignupType.
+const UTILITY_TYPES = ['ISGS', 'REGIONAL_ENTITY', 'TRADER', 'PARENT_STATE', 'EMBEDDED_IN_STATE', 'QCA'];
 
 const UTILITY_TYPE_LABELS = {
   ISGS: 'ISGS',
@@ -25,9 +28,29 @@ const UTILITY_TYPE_LABELS = {
   TRADER: 'Trader',
   PARENT_STATE: 'Parent State',
   EMBEDDED_IN_STATE: 'Embedded in State',
+  QCA: 'QCA — Coordinating Agency',
 };
 
 const GENERATOR_TYPES = ['RENEWABLE', 'THERMAL', 'HYDRO', 'GAS', 'NUCLEAR'];
+
+// The Generator SubType carried by WBES_Utility.xlsx, finer than Generator Type.
+// Optional: it is descriptive metadata on the register, not something the gate
+// or the energy category turns on.
+const GENERATOR_SUBTYPES = ['SOLAR', 'WIND', 'HYBRID', 'STORAGE', 'PSP', 'COAL', 'LIGNITE', 'GAS', 'ROR', 'ROR_WITH_PONDAGE', 'SPD'];
+
+const GENERATOR_SUBTYPE_LABELS = {
+  SOLAR: 'Solar',
+  WIND: 'Wind',
+  HYBRID: 'Hybrid',
+  STORAGE: 'Storage',
+  PSP: 'Pumped Storage (PSP)',
+  COAL: 'Coal',
+  LIGNITE: 'Lignite',
+  GAS: 'Gas',
+  ROR: 'Run of River',
+  ROR_WITH_PONDAGE: 'Run of River with Pondage',
+  SPD: 'SPD',
+};
 
 /**
  * The signup types — the vocabulary the self-registration gate and the register's
@@ -36,7 +59,7 @@ const GENERATOR_TYPES = ['RENEWABLE', 'THERMAL', 'HYDRO', 'GAS', 'NUCLEAR'];
  * region can admit renewable and conventional regional entities separately.
  * EMBEDDED_IN_STATE stays one bucket whether or not it is renewable.
  */
-const SIGNUP_TYPES = ['ISGS', 'REGIONAL_ENTITY', 'RENEWABLE', 'TRADER', 'PARENT_STATE', 'EMBEDDED_IN_STATE'];
+const SIGNUP_TYPES = ['ISGS', 'REGIONAL_ENTITY', 'RENEWABLE', 'TRADER', 'PARENT_STATE', 'EMBEDDED_IN_STATE', 'QCA'];
 
 const SIGNUP_TYPE_LABELS = {
   ISGS: 'ISGS',
@@ -45,12 +68,17 @@ const SIGNUP_TYPE_LABELS = {
   TRADER: 'Trader',
   PARENT_STATE: 'Parent State',
   EMBEDDED_IN_STATE: 'Embedded in State',
+  QCA: 'QCA — Coordinating Agency',
 };
 
-// Everything but EMBEDDED_IN_STATE — the default a region self-registers with
-// until its administrator narrows or widens it in System Parameters. Renewable
-// regional entities register by default, alongside conventional ones.
-const DEFAULT_SIGNUP_TYPES = ['ISGS', 'REGIONAL_ENTITY', 'RENEWABLE', 'TRADER', 'PARENT_STATE'];
+// Everything but the EMBEDDED_IN_STATE family — the default a region
+// self-registers with until its administrator narrows or widens it in System
+// Parameters. Renewable regional entities and QCAs register by default,
+// alongside conventional regional entities, ISGS, traders and parent states.
+// EMBEDDED_IN_STATE (and its aliases DISCOM / STATE_UTIL / BENEFICIARY /
+// EMBEDDED_IN_DISCOM) is excluded, which is also how the portal bars it from
+// filing: with no account it can file nothing.
+const DEFAULT_SIGNUP_TYPES = ['ISGS', 'REGIONAL_ENTITY', 'RENEWABLE', 'TRADER', 'PARENT_STATE', 'QCA'];
 
 /**
  * Fold a raw cell value onto a canonical Utility Type, or null if unrecognised.
@@ -63,7 +91,13 @@ function normalizeUtilityType(raw) {
   // A couple of spellings the WBES exports have used.
   if (key === 'REGIONAL_ENTITIES') return 'REGIONAL_ENTITY';
   if (key === 'STATE' || key === 'PARENT') return 'PARENT_STATE';
-  if (key === 'EMBEDDED') return 'EMBEDDED_IN_STATE';
+  // The embedded-in-state family: a DISCOM, a state utility, a beneficiary or an
+  // embedded-in-DISCOM consumer are all treated as embedded in the state's
+  // schedule — none may self-register or file, same as EMBEDDED_IN_STATE.
+  if (key === 'EMBEDDED' || key === 'EMBEDDED_IN_DISCOM' || key === 'DISCOM'
+      || key === 'STATE_UTIL' || key === 'STATE_UTILITY' || key === 'BENEFICIARY') {
+    return 'EMBEDDED_IN_STATE';
+  }
   return null;
 }
 
@@ -71,6 +105,12 @@ function normalizeUtilityType(raw) {
 function normalizeGeneratorType(raw) {
   const key = String(raw || '').trim().toUpperCase().replace(/[\s-]+/g, '_');
   return GENERATOR_TYPES.includes(key) ? key : null;
+}
+
+/** Fold a raw generator sub-type onto a canonical Generator SubType, or null. */
+function normalizeGeneratorSubType(raw) {
+  const key = String(raw || '').trim().toUpperCase().replace(/[\s-]+/g, '_');
+  return GENERATOR_SUBTYPES.includes(key) ? key : null;
 }
 
 /**
@@ -85,6 +125,9 @@ function deriveEnergyCategory(utilityType, generatorType) {
     case 'PARENT_STATE':
     case 'EMBEDDED_IN_STATE': return 'States';
     case 'TRADER': return 'Traders';
+    // A QCA coordinates RE plants, so its own account is RE — this keeps the
+    // qca_is_renewable_only constraint satisfied.
+    case 'QCA': return 'RE';
     default: return 'RE';
   }
 }
@@ -119,7 +162,8 @@ function parseSignupTypes(csv) {
 
 module.exports = {
   UTILITY_TYPES, UTILITY_TYPE_LABELS, DEFAULT_SIGNUP_TYPES, GENERATOR_TYPES,
+  GENERATOR_SUBTYPES, GENERATOR_SUBTYPE_LABELS,
   SIGNUP_TYPES, SIGNUP_TYPE_LABELS,
-  normalizeUtilityType, normalizeGeneratorType, normalizeSignupType,
+  normalizeUtilityType, normalizeGeneratorType, normalizeGeneratorSubType, normalizeSignupType,
   deriveEnergyCategory, deriveSignupType, parseSignupTypes,
 };

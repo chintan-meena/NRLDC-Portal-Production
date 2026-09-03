@@ -5,6 +5,7 @@ import { usernameFromAcronym } from '../utils/usernames';
 import { regionLabel } from '../utils/regions';
 import { Banner } from './Feedback';
 import { categoryLabel } from '../utils/categories';
+import { deriveSignupType, isQcaSignupType } from '../utils/wbesTypes';
 import AcronymPicker from './AcronymPicker';
 import { UserPlus, ArrowLeft, CheckCircle2, Building2, Lock } from 'lucide-react';
 
@@ -28,6 +29,8 @@ export default function Register({ onBackToLogin }) {
 
   const [email, setEmail] = useState('');
   const [mobile, setMobile] = useState('');
+  // Derived from the picked acronym's classification, not chosen freely: a
+  // QCA-classified acronym becomes a QCA account, anything else a plant user.
   const [accountType, setAccountType] = useState('USER');   // USER | QCA
   const [energyCategory, setEnergyCategory] = useState('ISGS');
   const [qcaName, setQcaName] = useState('');
@@ -48,13 +51,18 @@ export default function Register({ onBackToLogin }) {
     // The category is the acronym's own, from the register — the applicant no
     // longer declares it, only sees it.
     if (row.energy_category) setEnergyCategory(row.energy_category);
+    // The acronym's classification decides the account type: a QCA acronym
+    // registers as a QCA, everything else as a plant user. The applicant does
+    // not choose — the register does.
+    const signupType = deriveSignupType(row.utility_type, row.generator_type);
+    setAccountType(isQcaSignupType(signupType) ? 'QCA' : 'USER');
   };
 
   // Typing after a selection clears it, so the derived fields clear with it —
   // there is no half-chosen state where the name and acronym disagree.
   const handleAcronymChange = (val) => {
     setWbesAcronym(val);
-    if (!val) { setName(''); setRegion(''); setUsername(''); }
+    if (!val) { setName(''); setRegion(''); setUsername(''); setAccountType('USER'); }
   };
 
   const isQca = accountType === 'QCA';
@@ -162,27 +170,9 @@ export default function Register({ onBackToLogin }) {
           <fieldset className="register-section">
             <legend><Building2 size={14} /> Who is registering</legend>
 
-            <div className="form-group">
-              <label htmlFor="reg-account-type">Account type</label>
-              <select
-                id="reg-account-type"
-                className="form-control"
-                value={accountType}
-                onChange={(e) => setAccountType(e.target.value)}
-              >
-                <option value="USER">Plant / station user</option>
-                <option value="QCA">QCA — coordinating agency</option>
-              </select>
-              <span className="settings-field-hint">
-                {isQca
-                  ? 'A QCA coordinates Renewable Energy plants, so the category is fixed to RE.'
-                  : 'Choose this if you file discrepancies for your own station.'}
-              </span>
-            </div>
-
             {/* The acronym anchors everything: it must be one the RLDC has
                 registered, and picking it fills in the name, region and
-                username below. */}
+                username below — and decides the account type. */}
             <AcronymPicker
               label={<>WBES acronym <span style={{ color: 'var(--danger-text)' }}>*</span></>}
               value={wbesAcronym}
@@ -208,6 +198,22 @@ export default function Register({ onBackToLogin }) {
                 placeholder="Filled in from the WBES acronym you pick"
                 readOnly disabled />
               <span className="settings-field-hint">The centre that despatches this plant reviews and administers the account.</span>
+            </div>
+
+            <div className="form-group">
+              <label>Account type</label>
+              <div className="form-control" style={{ background: 'var(--bg-tertiary)', display: 'flex', alignItems: 'center', minHeight: '38px' }}>
+                {wbesAcronym
+                  ? <strong>{isQca ? 'QCA — Coordinating Agency' : 'Plant / station user'}</strong>
+                  : <span style={{ color: 'var(--text-muted)' }}>Set from your WBES acronym once you pick it</span>}
+              </div>
+              <span className="settings-field-hint">
+                {wbesAcronym
+                  ? (isQca
+                      ? 'This WBES acronym is a QCA coordinating agency, so it registers as a QCA account (category fixed to RE).'
+                      : 'This WBES acronym is a plant, so it registers as a plant / station user.')
+                  : 'The account type is decided by the WBES acronym you pick — a QCA acronym registers as a QCA, a plant as a plant user.'}
+              </span>
             </div>
 
             {isQca && (

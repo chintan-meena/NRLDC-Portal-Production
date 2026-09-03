@@ -33,7 +33,10 @@ const { previousDayString } = require('../utils/dates');
 const { DEFAULT_PASSWORD, validatePassword } = require('../utils/password');
 const { usernameForRegion } = require('../utils/usernames');
 const { FILING_CATEGORIES } = require('../utils/trade');
-const { UTILITY_TYPES, GENERATOR_TYPES, normalizeUtilityType, normalizeGeneratorType, deriveEnergyCategory } = require('../utils/wbesTypes');
+const {
+  UTILITY_TYPES, GENERATOR_TYPES, GENERATOR_SUBTYPES,
+  normalizeUtilityType, normalizeGeneratorType, normalizeGeneratorSubType, deriveEnergyCategory,
+} = require('../utils/wbesTypes');
 const { sendMail, mailUsage } = require('../utils/mailer');
 const { forgetDevices, listDevices } = require('../auth/devices');
 const path = require('path');
@@ -71,10 +74,14 @@ const MAX_BATCH = 10;
 /**
  * Insert a prepared set of acronyms in chunks inside one transaction.
  *
- * `rows` is [{ acronym, name, region }] — already validated and de-duplicated by
- * the caller. Returns the set of acronyms actually written; anything missing
- * from it lost a race with an existing row and was left alone by the ON
- * CONFLICT, which the caller reports as "already registered".
+ * `rows` is [{ acronym, name, region, utility_type?, generator_type?,
+ * generator_subtype?, from_date?, date_of_commissioning? }] — already validated
+ * and de-duplicated by the caller. The type fields are optional; when a Utility
+ * Type is given the energy category is derived from it, otherwise the column
+ * keeps its neutral 'RE' default (an uncategorised acronym, classified later).
+ * Returns the set of acronyms actually written; anything missing from it lost a
+ * race with an existing row and was left alone by the ON CONFLICT, which the
+ * caller reports as "already registered".
  *
  * The whole file goes in as a handful of multi-row INSERTs rather than one
  * statement per row: the national register is over four thousand entries, and a
@@ -87,16 +94,25 @@ async function insertWbesRows(rows) {
   const written = new Set();
   if (rows.length === 0) return written;
 
+  const COLS = 9;
   await withTransaction(async (client) => {
     for (let i = 0; i < rows.length; i += INSERT_CHUNK) {
       const chunk = rows.slice(i, i + INSERT_CHUNK);
       const params = [];
       const values = chunk.map((r, n) => {
-        params.push(r.acronym, r.name, r.region);
-        return `($${n * 3 + 1}, $${n * 3 + 2}, $${n * 3 + 3})`;
+        const b = n * COLS;
+        const utility_type = r.utility_type || null;
+        const energy_category = utility_type ? deriveEnergyCategory(utility_type, r.generator_type) : 'RE';
+        params.push(
+          r.acronym, r.name, r.region,
+          utility_type, r.generator_type || null, r.generator_subtype || null,
+          r.from_date || null, r.date_of_commissioning || null, energy_category,
+        );
+        return `($${b + 1}, $${b + 2}, $${b + 3}, $${b + 4}, $${b + 5}, $${b + 6}, $${b + 7}, $${b + 8}, $${b + 9})`;
       });
       const res = await client.query(
-        `INSERT INTO wbes_entities (wbes_acronym, name, region)
+        `INSERT INTO wbes_entities
+           (wbes_acronym, name, region, utility_type, generator_type, generator_subtype, from_date, date_of_commissioning, energy_category)
          VALUES ${values.join(', ')}
          ON CONFLICT (wbes_acronym) DO NOTHING
          RETURNING wbes_acronym`,
@@ -127,18 +143,27 @@ async function upsertWbesTypedRows(rows) {
   await withTransaction(async (client) => {
     for (let i = 0; i < rows.length; i += INSERT_CHUNK) {
       const chunk = rows.slice(i, i + INSERT_CHUNK);
+      const COLS = 9;
       const params = [];
       const values = chunk.map((r, n) => {
-        const b = n * 6;
-        params.push(r.acronym, r.name, r.region, r.utility_type, r.generator_type, r.energy_category);
-        return `($${b + 1}, $${b + 2}, $${b + 3}, $${b + 4}, $${b + 5}, $${b + 6})`;
+        const b = n * COLS;
+        params.push(
+          r.acronym, r.name, r.region,
+          r.utility_type, r.generator_type, r.generator_subtype || null,
+          r.from_date || null, r.date_of_commissioning || null, r.energy_category,
+        );
+        return `($${b + 1}, $${b + 2}, $${b + 3}, $${b + 4}, $${b + 5}, $${b + 6}, $${b + 7}, $${b + 8}, $${b + 9})`;
       });
       const res = await client.query(
-        `INSERT INTO wbes_entities (wbes_acronym, name, region, utility_type, generator_type, energy_category)
+        `INSERT INTO wbes_entities
+           (wbes_acronym, name, region, utility_type, generator_type, generator_subtype, from_date, date_of_commissioning, energy_category)
          VALUES ${values.join(', ')}
          ON CONFLICT (wbes_acronym) DO UPDATE SET
-           utility_type    = COALESCE(EXCLUDED.utility_type,    wbes_entities.utility_type),
-           generator_type  = COALESCE(EXCLUDED.generator_type,  wbes_entities.generator_type),
+           utility_type      = COALESCE(EXCLUDED.utility_type,      wbes_entities.utility_type),
+           generator_type    = COALESCE(EXCLUDED.generator_type,    wbes_entities.generator_type),
+           generator_subtype = COALESCE(EXCLUDED.generator_subtype, wbes_entities.generator_subtype),
+           from_date             = COALESCE(EXCLUDED.from_date,             wbes_entities.from_date),
+           date_of_commissioning = COALESCE(EXCLUDED.date_of_commissioning, wbes_entities.date_of_commissioning),
            -- Only re-derive the category when this upload actually carried a
            -- type; a blank Utility Type cell must not reset it to the default.
            energy_category = CASE WHEN EXCLUDED.utility_type IS NOT NULL
@@ -784,6 +809,9 @@ router.get('/wbes-entities', async (req, res) => {
          w.energy_category,
          w.utility_type,
          w.generator_type,
+         w.generator_subtype,
+         w.from_date,
+         w.date_of_commissioning,
          w.blocked,
          w.blocked_reason,
          w.blocked_by,
@@ -834,19 +862,29 @@ router.post('/wbes-entities', requireAdmin, async (req, res) => {
   }
   if (!name) return res.status(400).json({ error: 'Give the entity a display name.' });
 
+  // The full WBES_Utility format — all optional. When a Utility Type is given
+  // the energy category is derived from it; otherwise the column keeps its
+  // neutral 'RE' default and an admin can classify the row later.
+  const utility_type = normalizeUtilityType(req.body.utility_type);
+  const generator_type = normalizeGeneratorType(req.body.generator_type);
+  const generator_subtype = normalizeGeneratorSubType(req.body.generator_subtype);
+  const isoDate = (v) => { const s = String(v || '').trim(); return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null; };
+  const from_date = isoDate(req.body.from_date);
+  const date_of_commissioning = isoDate(req.body.date_of_commissioning);
+  const energy_category = utility_type ? deriveEnergyCategory(utility_type, generator_type) : 'RE';
+
   try {
     const clash = await pool.query('SELECT region FROM wbes_entities WHERE UPPER(wbes_acronym) = $1', [acronym]);
     if (clash.rows.length > 0) {
       return res.status(409).json({ error: `WBES acronym "${acronym}" is already registered (${clash.rows[0].region}).` });
     }
 
-    // A WBES acronym carries no energy category of its own — a registering user
-    // states their own category. The column is stored at its neutral default.
     const result = await pool.query(
-      `INSERT INTO wbes_entities (wbes_acronym, name, region)
-       VALUES ($1, $2, $3)
-       RETURNING wbes_acronym, name, region, created_at`,
-      [acronym, name, region]
+      `INSERT INTO wbes_entities
+         (wbes_acronym, name, region, utility_type, generator_type, generator_subtype, from_date, date_of_commissioning, energy_category)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       RETURNING wbes_acronym, name, region, utility_type, generator_type, generator_subtype, from_date, date_of_commissioning, energy_category, created_at`,
+      [acronym, name, region, utility_type, generator_type, generator_subtype, from_date, date_of_commissioning, energy_category]
     );
 
     await logEvent('success',
@@ -877,19 +915,25 @@ router.get('/wbes-entities/template', requireSuperAdmin, async (req, res) => {
       { header: 'Utility Type', key: 'util', width: 20 },
       { header: 'Region', key: 'region', width: 12 },
       { header: 'Generator Type', key: 'gen', width: 18 },
+      { header: 'Generator SubType', key: 'sub', width: 20 },
+      { header: 'From Date', key: 'from', width: 14 },
+      { header: 'Date of Commissioning', key: 'com', width: 20 },
     ];
     ws.getRow(1).font = { bold: true };
-    ws.addRow({ name: 'Example Solar Park Pvt Ltd', acr: 'EXAMPLE_SOLAR', util: 'REGIONAL_ENTITY', region: 'NRLDC', gen: 'RENEWABLE' });
-    ws.addRow({ name: 'Example Thermal Power Station', acr: 'EXAMPLE_TPS', util: 'ISGS', region: 'NRLDC', gen: 'THERMAL' });
-    ws.addRow({ name: 'Example Captive Consumer HTSC 0001', acr: 'EXAMPLE_HTSC', util: 'EMBEDDED_IN_STATE', region: 'NRLDC', gen: '' });
+    ws.addRow({ name: 'Example Solar Park Pvt Ltd', acr: 'EXAMPLE_SOLAR', util: 'REGIONAL_ENTITY', region: 'NRLDC', gen: 'RENEWABLE', sub: 'SOLAR', from: '2023-04-01', com: '2022-11-15' });
+    ws.addRow({ name: 'Example Thermal Power Station', acr: 'EXAMPLE_TPS', util: 'ISGS', region: 'NRLDC', gen: 'THERMAL', sub: 'COAL', from: '', com: '' });
+    ws.addRow({ name: 'Example Captive Consumer HTSC 0001', acr: 'EXAMPLE_HTSC', util: 'EMBEDDED_IN_STATE', region: 'NRLDC', gen: '', sub: '', from: '', com: '' });
 
     const legend = wb.addWorksheet('Allowed values');
-    legend.columns = [{ header: 'Column', key: 'c', width: 18 }, { header: 'Allowed values', key: 'v', width: 74 }];
+    legend.columns = [{ header: 'Column', key: 'c', width: 20 }, { header: 'Allowed values', key: 'v', width: 74 }];
     legend.getRow(1).font = { bold: true };
     legend.addRow({ c: 'Utility Type', v: UTILITY_TYPES.join(', ') });
     legend.addRow({ c: 'Generator Type', v: GENERATOR_TYPES.join(', ') + '  (leave blank for non-generators)' });
+    legend.addRow({ c: 'Generator SubType', v: GENERATOR_SUBTYPES.join(', ') + '  (optional)' });
+    legend.addRow({ c: 'From Date', v: 'YYYY-MM-DD (optional)' });
+    legend.addRow({ c: 'Date of Commissioning', v: 'YYYY-MM-DD (optional)' });
     legend.addRow({ c: 'Region', v: 'The RLDC acronym the entity belongs to (e.g. NRLDC, ERLDC, WRLDC, SRLDC, NERLDC)' });
-    legend.addRow({ c: 'Note', v: 'Display Name, WBES Acronym and Region are required. Utility Type / Generator Type are optional but recommended — without them an acronym is uncategorised until an admin sets its type.' });
+    legend.addRow({ c: 'Note', v: 'Display Name, WBES Acronym and Region are required. Everything else is optional but recommended — without a Utility Type an acronym is uncategorised until an admin sets its type.' });
 
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', 'attachment; filename="WBES_Upload_Template.xlsx"');
@@ -943,6 +987,14 @@ router.post('/wbes-entities/bulk', requireSuperAdmin, handleSheetUploadErrors(sh
     // and an administrator can classify it later.
     const utilCol = findCol(['utility type', 'utility']);
     const genCol  = findCol(['generator type', 'generator']);
+    // The rest of the WBES_Utility format — descriptive, read when present.
+    // findCol matches on `includes`, so search 'sub' before the bare 'generator'
+    // match above cannot shadow it: findCol returns the first header containing
+    // the needle, and 'generator subtype' contains 'generator' too, so we look
+    // for the sub-type by its own distinctive word.
+    const subCol  = findCol(['subtype', 'sub type', 'sub-type']);
+    const fromCol = findCol(['from date']);
+    const comCol  = findCol(['date of commissioning', 'commissioning']);
     if (nameCol === -1 || acrCol === -1 || regCol === -1) {
       cleanup();
       return res.status(400).json({ error: 'The file needs Display Name, WBES Acronym and Region columns.' });
@@ -952,6 +1004,17 @@ router.post('/wbes-entities/bulk', requireSuperAdmin, handleSheetUploadErrors(sh
       const v = row.getCell(col).value;
       if (v && typeof v === 'object' && 'text' in v) return String(v.text).trim(); // rich text / hyperlink
       return String(v ?? '').trim();
+    };
+
+    // A sheet date cell may be a JS Date, an ISO string, or a display string.
+    // Keep only a clean YYYY-MM-DD; anything else becomes null rather than a
+    // bad DATE that would abort the whole upload.
+    const sheetDate = (row, col) => {
+      if (col <= 0) return null;
+      const v = row.getCell(col).value;
+      if (v instanceof Date) return v.toISOString().slice(0, 10);
+      const s = String(v ?? '').trim();
+      return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null;
     };
 
     // The regions a row may name, read once. Asking the registry per row would
@@ -984,11 +1047,14 @@ router.post('/wbes-entities/bulk', requireSuperAdmin, handleSheetUploadErrors(sh
 
       const utility_type = utilCol > 0 ? normalizeUtilityType(text(row, utilCol)) : null;
       const generator_type = genCol > 0 ? normalizeGeneratorType(text(row, genCol)) : null;
+      const generator_subtype = subCol > 0 ? normalizeGeneratorSubType(text(row, subCol)) : null;
+      const from_date = sheetDate(row, fromCol);
+      const date_of_commissioning = sheetDate(row, comCol);
       const energy_category = deriveEnergyCategory(utility_type, generator_type);
 
       seen.add(acronym);
       rowOf.set(acronym, r);
-      candidates.push({ acronym, name, region: rowRegion, utility_type, generator_type, energy_category });
+      candidates.push({ acronym, name, region: rowRegion, utility_type, generator_type, generator_subtype, from_date, date_of_commissioning, energy_category });
     }
 
     // A re-upload re-classifies rows already on the register rather than
@@ -1064,6 +1130,11 @@ router.post('/wbes-entities/batch', requireAdmin, async (req, res) => {
   const candidates = [];
   const seen = new Set();
 
+  const cleanDate = (v) => {
+    const s = String(v || '').trim();
+    return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null;   // the grid sends ISO dates
+  };
+
   entries.forEach((entry, i) => {
     const label = `Row ${i + 1}`;
     const acronym = String(entry?.wbes_acronym || '').trim().toUpperCase();
@@ -1074,8 +1145,17 @@ router.post('/wbes-entities/batch', requireAdmin, async (req, res) => {
     if (!name) { skipped.push(`${label}: ${acronym} has no display name.`); return; }
     if (seen.has(acronym)) { skipped.push(`${label}: ${acronym} is repeated in this batch.`); return; }
 
+    // The full WBES_Utility format — all optional, normalised so a typo becomes
+    // "no type" rather than a bad value, and the energy category is derived in
+    // insertWbesRows from the utility type.
+    const utility_type = normalizeUtilityType(entry?.utility_type);
+    const generator_type = normalizeGeneratorType(entry?.generator_type);
+    const generator_subtype = normalizeGeneratorSubType(entry?.generator_subtype);
+    const from_date = cleanDate(entry?.from_date);
+    const date_of_commissioning = cleanDate(entry?.date_of_commissioning);
+
     seen.add(acronym);
-    candidates.push({ acronym, name, region, label });
+    candidates.push({ acronym, name, region, utility_type, generator_type, generator_subtype, from_date, date_of_commissioning, label });
   });
 
   if (candidates.length === 0 && skipped.length === 0) {
@@ -1134,7 +1214,9 @@ async function wbesReferences(acronym) {
 async function loadWbesForAdmin(req, res) {
   const acronym = String(req.params.acronym || '').trim().toUpperCase();
   const found = await pool.query(
-    'SELECT wbes_acronym, name, region, blocked, utility_type, generator_type FROM wbes_entities WHERE UPPER(wbes_acronym) = $1',
+    `SELECT wbes_acronym, name, region, blocked, utility_type, generator_type,
+            generator_subtype, from_date, date_of_commissioning
+       FROM wbes_entities WHERE UPPER(wbes_acronym) = $1`,
     [acronym]
   );
   if (found.rows.length === 0) {
@@ -1223,7 +1305,7 @@ router.patch('/wbes-entities/:acronym/block', requireAdmin, async (req, res) => 
 // Changing the Utility Type re-derives the working energy_category in one edit,
 // so the sign-up gate and the filing rules stay consistent with the correction.
 router.patch('/wbes-entities/:acronym', requireAdmin, async (req, res) => {
-  const { utility_type, generator_type, name } = req.body || {};
+  const { utility_type, generator_type, generator_subtype, from_date, date_of_commissioning, name } = req.body || {};
 
   if (utility_type !== undefined && utility_type !== null && utility_type !== ''
       && !UTILITY_TYPES.includes(String(utility_type).toUpperCase())) {
@@ -1239,15 +1321,23 @@ router.patch('/wbes-entities/:acronym', requireAdmin, async (req, res) => {
                      : (utility_type ? String(utility_type).toUpperCase() : null);
     const newGenerator = generator_type === undefined ? entity.generator_type
                        : (generator_type ? normalizeGeneratorType(generator_type) : null);
+    const newSubtype = generator_subtype === undefined ? entity.generator_subtype
+                     : (generator_subtype ? normalizeGeneratorSubType(generator_subtype) : null);
+    const isoOrKeep = (v, current) => v === undefined ? current
+                     : (/^\d{4}-\d{2}-\d{2}$/.test(String(v || '').trim()) ? String(v).trim() : null);
+    const newFrom = isoOrKeep(from_date, entity.from_date);
+    const newCommission = isoOrKeep(date_of_commissioning, entity.date_of_commissioning);
     const newName = (name !== undefined && String(name).trim()) ? String(name).trim() : entity.name;
     const energy_category = deriveEnergyCategory(newUtility, newGenerator);
 
     const result = await pool.query(
       `UPDATE wbes_entities
-          SET name = $2, utility_type = $3, generator_type = $4, energy_category = $5
+          SET name = $2, utility_type = $3, generator_type = $4, generator_subtype = $5,
+              from_date = $6, date_of_commissioning = $7, energy_category = $8
         WHERE wbes_acronym = $1
-        RETURNING wbes_acronym, name, region, utility_type, generator_type, energy_category, blocked, blocked_reason`,
-      [entity.wbes_acronym, newName, newUtility, newGenerator, energy_category]
+        RETURNING wbes_acronym, name, region, utility_type, generator_type, generator_subtype,
+                  from_date, date_of_commissioning, energy_category, blocked, blocked_reason`,
+      [entity.wbes_acronym, newName, newUtility, newGenerator, newSubtype, newFrom, newCommission, energy_category]
     );
 
     await logEvent('info',
@@ -1257,6 +1347,41 @@ router.patch('/wbes-entities/:acronym', requireAdmin, async (req, res) => {
   } catch (err) {
     console.error('[WBES PATCH]', err);
     res.status(500).json({ error: 'Failed to update the acronym.' });
+  }
+});
+
+// GET /api/users/qca-status — the QCA Status page.
+//
+// Every QCA in the admin's region with the plants under it, current and past,
+// so an administrator can see who coordinates what and correct an assignment's
+// active dates (via PATCH /assignments/:id). Scoped on the QCA account's own
+// region so a QCA with no plants yet still appears (a LEFT JOIN leaves the plant
+// columns NULL). A QCA and the plants it coordinates share a region.
+router.get('/qca-status', requireAdmin, async (req, res) => {
+  try {
+    const params = [];
+    const conditions = ["u.role = 'QCA'"];
+    scopeToRegion(req, 'u.region', conditions, params);
+    const where = `WHERE ${conditions.join(' AND ')}`;
+
+    const result = await pool.query(
+      `SELECT a.id AS assignment_id, a.from_date, a.to_date, a.created_at,
+              u.username AS qca_username, u.name AS qca_full_name, u.qca_name,
+              u.region AS qca_region, u.locked AS qca_locked,
+              w.wbes_acronym, w.name AS plant_name, w.region AS plant_region,
+              w.energy_category, w.blocked,
+              (a.to_date IS NULL OR a.to_date >= CURRENT_DATE) AS is_active
+         FROM users u
+         LEFT JOIN user_plant_assignments a ON LOWER(a.username) = LOWER(u.username)
+         LEFT JOIN wbes_entities w ON UPPER(w.wbes_acronym) = UPPER(a.wbes_acronym)
+         ${where}
+        ORDER BY u.username ASC, a.from_date DESC NULLS LAST`,
+      params
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error('[QCA STATUS GET]', err);
+    res.status(500).json({ error: 'Failed to fetch QCA status.' });
   }
 });
 
@@ -1342,18 +1467,39 @@ router.post('/:username/assignments', requireSelfOrAdmin('username'), requireSam
       }
     }
 
+    // The plant is unowned for this date. Who may make it live depends on who is
+    // asking. An admin IS the approving authority, so an admin assigns directly.
+    // A QCA claiming a plant — even one nobody holds, even for the first time —
+    // no longer takes effect on its own word: it raises a claim request
+    // (a transfer with no outgoing party) for an RLDC admin to approve, exactly
+    // like claiming an owned plant. Until approved there is no active assignment,
+    // so the discrepancy filing gate keeps the QCA from filing against it.
+    if (!isAdmin(req)) {
+      await pool.query(
+        `INSERT INTO transfer_requests (wbes_acronym, from_username, to_username, effective_date, status, requested_by)
+         VALUES ($1, NULL, $2, $3, 'Pending', $4)`,
+        [acronym, username, from_date, username]
+      );
+      await logEvent('info', `Plant claim request submitted for unassigned plant ${acronym} by QCA ${username} effective ${from_date}`);
+      return res.json({
+        success: true,
+        status: 'ClaimPending',
+        message: `Your request to manage "${acronym}" has been submitted for RLDC Admin approval. You can file against it once it is approved.`,
+      });
+    }
+
     const result = await pool.query(
       `INSERT INTO user_plant_assignments (username, wbes_acronym, from_date, to_date)
        VALUES ($1, $2, $3, $4)
        RETURNING *`,
       [username, acronym, from_date, to_date || null]
     );
-    await logEvent('success', `Direct plant assignment: ${acronym} assigned to user ${username} from ${from_date}`);
-    res.status(201).json({ 
-      success: true, 
-      status: 'Assigned', 
+    await logEvent('success', `Direct plant assignment by admin "${req.auth.username}": ${acronym} assigned to user ${username} from ${from_date}`);
+    res.status(201).json({
+      success: true,
+      status: 'Assigned',
       assignment: result.rows[0],
-      message: `Plant "${acronym}" has been successfully assigned to you.`
+      message: `Plant "${acronym}" has been successfully assigned to ${username}.`
     });
   } catch (err) {
     console.error('[ASSIGNMENT CREATE]', err);
@@ -1637,6 +1783,207 @@ router.get('/qcas', async (req, res) => {
   } catch (err) {
     console.error('[QCAS GET]', err);
     res.status(500).json({ error: 'Failed to fetch QCA users.' });
+  }
+});
+
+// ─── New-acronym requests ───────────────────────────────────────────────────
+//
+// A plant not yet on the register asks an RLDC admin to add it and, optionally,
+// to place it under a chosen QCA. The acronym and the QCA assignment take effect
+// only on approval — the same "nothing is live until an admin says so" rule the
+// QCA claim and the self-service registration follow. See new_acronym_requests
+// in schema.sql.
+
+const ISO_DATE = (v) => { const s = String(v || '').trim(); return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null; };
+
+// POST /api/users/new-acronym-requests — any signed-in user raises one.
+router.post('/new-acronym-requests', async (req, res) => {
+  const acronym = String(req.body.wbes_acronym || '').trim().toUpperCase();
+  const name = String(req.body.name || '').trim();
+
+  if (!WBES_ACRONYM_RULE.test(acronym)) {
+    return res.status(400).json({ error: 'The WBES acronym must be 1–50 characters: letters and digits, with dots, hyphens or underscores.' });
+  }
+  if (!name) return res.status(400).json({ error: 'Give the plant a display name.' });
+
+  // The request belongs to the requester's region. A super-admin has none of its
+  // own, so it must name one.
+  let region = req.auth.region;
+  if (!region) {
+    region = String(req.body.region || '').trim().toUpperCase();
+    if (!region) return res.status(400).json({ error: 'Choose the region this plant belongs to.' });
+    if (!(await regionExists(region))) return res.status(400).json({ error: `“${region}” is not a region this portal knows.` });
+  }
+
+  const utility_type = normalizeUtilityType(req.body.utility_type);
+  const generator_type = normalizeGeneratorType(req.body.generator_type);
+  const generator_subtype = normalizeGeneratorSubType(req.body.generator_subtype);
+  const from_date = ISO_DATE(req.body.from_date);
+  const date_of_commissioning = ISO_DATE(req.body.date_of_commissioning);
+  const effective_date = ISO_DATE(req.body.effective_date) || from_date;
+  const requestedQca = String(req.body.requested_qca_username || '').trim() || null;
+
+  try {
+    // Already a real acronym?
+    const exists = await pool.query('SELECT 1 FROM wbes_entities WHERE UPPER(wbes_acronym) = $1', [acronym]);
+    if (exists.rows.length > 0) {
+      return res.status(409).json({ error: `WBES acronym "${acronym}" is already registered. Search for it instead of requesting a new id.` });
+    }
+
+    // A chosen QCA must be a QCA in the same region, and the plant it will hold
+    // must be RE — QCA coordination is for Renewable Energy plants only.
+    if (requestedQca) {
+      const q = await pool.query(
+        "SELECT role, region FROM users WHERE LOWER(username) = LOWER($1)", [requestedQca]
+      );
+      if (q.rows.length === 0 || q.rows[0].role !== 'QCA') {
+        return res.status(400).json({ error: 'The chosen coordinating agency is not a registered QCA account.' });
+      }
+      if (String(q.rows[0].region || '').toUpperCase() !== region.toUpperCase()) {
+        return res.status(400).json({ error: 'The chosen QCA belongs to a different region than this plant.' });
+      }
+      if (deriveEnergyCategory(utility_type, generator_type) !== 'RE') {
+        return res.status(400).json({ error: 'A plant can only be placed under a QCA when it is a Renewable Energy (RE) plant. Set the Utility Type to Regional Entity and Generator Type to Renewable, or leave the QCA blank.' });
+      }
+    }
+
+    const result = await pool.query(
+      `INSERT INTO new_acronym_requests
+         (region, wbes_acronym, name, utility_type, generator_type, generator_subtype,
+          from_date, date_of_commissioning, requested_qca_username, effective_date, requested_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+       RETURNING id, created_at`,
+      [region, acronym, name, utility_type, generator_type, generator_subtype,
+       from_date, date_of_commissioning, requestedQca, effective_date, req.auth.username]
+    );
+
+    await logEvent('info',
+      `New-acronym request #${result.rows[0].id} for "${acronym}" (${name}, ${region})`
+      + `${requestedQca ? ` under QCA ${requestedQca}` : ''} by "${req.auth.username}" — awaiting admin approval.`,
+      region);
+    res.status(201).json({ success: true, requestId: result.rows[0].id });
+  } catch (err) {
+    if (err.code === '23505') {
+      return res.status(409).json({ error: `A request for WBES acronym "${acronym}" is already awaiting approval.` });
+    }
+    console.error('[NEW ACRONYM CREATE]', err);
+    res.status(500).json({ error: 'Failed to submit the new-acronym request.' });
+  }
+});
+
+// GET /api/users/new-acronym-requests?status=Pending — the admin queue; a
+// non-admin sees only the requests they raised.
+router.get('/new-acronym-requests', async (req, res) => {
+  const { status } = req.query;
+  try {
+    const params = [];
+    const conditions = [];
+    if (status && status !== 'ALL') { params.push(status); conditions.push(`status = $${params.length}`); }
+
+    if (isAdmin(req)) {
+      scopeToRegion(req, 'region', conditions, params);
+    } else {
+      params.push(req.auth.username);
+      conditions.push(`LOWER(requested_by) = LOWER($${params.length})`);
+    }
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+    const result = await pool.query(
+      `SELECT r.*, t.qca_name AS requested_qca_name, t.name AS requested_qca_full_name
+         FROM new_acronym_requests r
+         LEFT JOIN users t ON LOWER(t.username) = LOWER(r.requested_qca_username)
+         ${where}
+        ORDER BY CASE r.status WHEN 'Pending' THEN 0 ELSE 1 END, r.created_at DESC`,
+      params
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error('[NEW ACRONYM GET]', err);
+    res.status(500).json({ error: 'Failed to fetch new-acronym requests.' });
+  }
+});
+
+// PATCH /api/users/new-acronym-requests/:id/process — approve or reject.
+router.patch('/new-acronym-requests/:id/process', requireAdmin, async (req, res) => {
+  const { id } = req.params;
+  const { status, note } = req.body || {};
+
+  if (!/^\d+$/.test(String(id))) return res.status(404).json({ error: 'That request does not exist.' });
+  if (!['Approved', 'Rejected'].includes(status)) {
+    return res.status(400).json({ error: 'Status must be Approved or Rejected.' });
+  }
+  if (status === 'Rejected' && (!note || !note.trim())) {
+    return res.status(400).json({ error: 'Give a reason for the rejection so the requester knows what to correct.' });
+  }
+
+  try {
+    const outcome = await withTransaction(async (client) => {
+      const reqRes = await client.query('SELECT * FROM new_acronym_requests WHERE id = $1 FOR UPDATE', [id]);
+      if (reqRes.rows.length === 0) return { status: 404, body: { error: 'New-acronym request not found.' } };
+      const r = reqRes.rows[0];
+      if (r.status !== 'Pending') return { status: 400, body: { error: `This request was already ${r.status.toLowerCase()}.` } };
+      if (!canActOnRegion(req, r.region)) return { status: 403, body: crossRegionError(req) };
+
+      if (status === 'Rejected') {
+        await client.query(
+          `UPDATE new_acronym_requests SET status='Rejected', review_note=$1, reviewed_by=$2, reviewed_at=NOW() WHERE id=$3`,
+          [note.trim(), req.auth.username, id]
+        );
+        return { status: 200, r, decision: 'Rejected' };
+      }
+
+      // Someone may have registered the acronym while this sat in the queue.
+      const clash = await client.query('SELECT 1 FROM wbes_entities WHERE UPPER(wbes_acronym) = UPPER($1)', [r.wbes_acronym]);
+      if (clash.rows.length > 0) {
+        return { status: 409, body: { error: `WBES acronym "${r.wbes_acronym}" was registered in the meantime. Reject this duplicate request.` } };
+      }
+
+      const energy_category = r.utility_type ? deriveEnergyCategory(r.utility_type, r.generator_type) : 'RE';
+      await client.query(
+        `INSERT INTO wbes_entities
+           (wbes_acronym, name, region, utility_type, generator_type, generator_subtype, from_date, date_of_commissioning, energy_category)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+        [r.wbes_acronym, r.name, r.region, r.utility_type, r.generator_type, r.generator_subtype,
+         r.from_date, r.date_of_commissioning, energy_category]
+      );
+
+      // Place it under the requested QCA, if one was chosen and the account is
+      // still a valid RE-managing QCA. A new plant has no prior owner to close.
+      let assignedTo = null;
+      if (r.requested_qca_username && energy_category === 'RE') {
+        const q = await client.query("SELECT role FROM users WHERE LOWER(username) = LOWER($1)", [r.requested_qca_username]);
+        if (q.rows.length > 0 && q.rows[0].role === 'QCA') {
+          const effective = r.effective_date || r.from_date || new Date().toISOString().slice(0, 10);
+          await client.query(
+            `INSERT INTO user_plant_assignments (username, wbes_acronym, from_date, to_date)
+             VALUES ($1, $2, $3, NULL)
+             ON CONFLICT (username, wbes_acronym, from_date) DO NOTHING`,
+            [r.requested_qca_username, r.wbes_acronym, effective]
+          );
+          assignedTo = r.requested_qca_username;
+        }
+      }
+
+      await client.query(
+        `UPDATE new_acronym_requests SET status='Approved', review_note=$1, reviewed_by=$2, reviewed_at=NOW() WHERE id=$3`,
+        [note ? note.trim() : '', req.auth.username, id]
+      );
+      return { status: 200, r, decision: 'Approved', assignedTo };
+    });
+
+    if (outcome.status !== 200) return res.status(outcome.status).json(outcome.body);
+
+    const r = outcome.r;
+    if (outcome.decision === 'Approved') {
+      await logEvent('success',
+        `Admin "${req.auth.username}" APPROVED new acronym ${r.wbes_acronym} ("${r.name}", ${r.region})`
+        + `${outcome.assignedTo ? ` and assigned it to QCA ${outcome.assignedTo}` : ''}.`, r.region);
+    } else {
+      await logEvent('warn', `Admin "${req.auth.username}" REJECTED new-acronym request for ${r.wbes_acronym} (${r.region}).`, r.region);
+    }
+    res.json({ success: true, message: `New-acronym request processed as ${outcome.decision}.` });
+  } catch (err) {
+    console.error('[NEW ACRONYM PROCESS]', err);
+    res.status(500).json({ error: 'Failed to process the new-acronym request.' });
   }
 });
 
