@@ -5,6 +5,7 @@ import { usernameFromAcronym } from '../utils/usernames';
 import { regionLabel } from '../utils/regions';
 import { Banner } from './Feedback';
 import { categoryLabel } from '../utils/categories';
+import { isTraderCategory } from '../utils/trade';
 import { deriveSignupType, isQcaSignupType } from '../utils/wbesTypes';
 import AcronymPicker from './AcronymPicker';
 import { UserPlus, ArrowLeft, CheckCircle2, Building2, Lock } from 'lucide-react';
@@ -47,7 +48,10 @@ export default function Register({ onBackToLogin }) {
     setWbesAcronym(row.wbes_acronym);
     setName(row.name || '');
     setRegion(row.region || '');
-    setUsername(usernameFromAcronym(row.wbes_acronym, row.region));
+    // A trader is named for the national centre (<acronym>@nldc) rather than an
+    // RLDC — mirrors the server's rule so the preview matches the account made.
+    const usernameNamespace = isTraderCategory(row.energy_category) ? 'NLDC' : row.region;
+    setUsername(usernameFromAcronym(row.wbes_acronym, usernameNamespace));
     // The category is the acronym's own, from the register — the applicant no
     // longer declares it, only sees it.
     if (row.energy_category) setEnergyCategory(row.energy_category);
@@ -220,7 +224,7 @@ export default function Register({ onBackToLogin }) {
               <div className="form-group">
                 <label htmlFor="reg-qca-name">Short QCA name</label>
                 <input id="reg-qca-name" type="text" className="form-control" value={qcaName}
-                  placeholder="e.g. Thar Solar QCA"
+                  placeholder="e.g. Example QCA"
                   onChange={(e) => setQcaName(e.target.value)} required />
               </div>
             )}

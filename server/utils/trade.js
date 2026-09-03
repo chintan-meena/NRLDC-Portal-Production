@@ -10,9 +10,9 @@
  *
  * So an inter-regional filing has a step the others do not:
  *
- *      trader files  →  seller's region confirms the trade is theirs
+ *      trader files  →  buyer's region confirms the trade is theirs
  *                       ├── refuses  → closed, nothing further
- *                       └── consents → buyer's region applies the fix
+ *                       └── consents → seller's region applies the fix
  *
  * An intra-regional trade — both ends inside one region — has nobody to ask,
  * and takes the ordinary path.
@@ -92,7 +92,7 @@ function isInterRegional(trade) {
 /**
  * Where a trader's filing starts.
  *
- * Inter-regional work waits on the seller's region. Everything else is Pending
+ * Inter-regional work waits on the buyer's region. Everything else is Pending
  * from the outset, exactly as a station's filing is.
  */
 function openingState(trade) {
@@ -116,25 +116,26 @@ function regionsInvolved(row) {
   return [...new Set([row.region, row.buyer_region, row.seller_region].filter(Boolean))];
 }
 
-/** May this region act as the seller — the one being asked to consent? */
+/** May this region act as the seller — the one that applies the fix? */
 function isSellerRegion(row, region) {
   return !!row.seller_region && row.seller_region === region;
 }
 
-/** May this region act as the buyer — the one that applies the fix? */
+/** May this region act as the buyer — the one being asked to consent? */
 function isBuyerRegion(row, region) {
   return !!row.buyer_region && row.buyer_region === region;
 }
 
 /**
- * Whether the seller's region can answer for itself in this portal.
+ * Whether the region being asked to consent — the buyer's — can answer for
+ * itself in this portal.
  *
  * "Not on the portal" is not a flag anyone sets: it is the observable fact
  * that the region has nobody who could act on the ticket. A region with no
  * administrator cannot consent, cannot refuse, and cannot be waited on — so
  * the offline path is the only way that ticket ever closes.
  */
-function sellerCanAnswer(adminCount) {
+function consenterCanAnswer(adminCount) {
   return Number(adminCount) > 0;
 }
 
@@ -142,13 +143,13 @@ function sellerCanAnswer(adminCount) {
  * Who may bypass the on-portal consent step by recording consent obtained
  * offline, and when.
  *
- * The seller's region is meant to approve the trade here on the portal. But a
- * seller that is unavailable — no administrator, or simply one who has not
- * answered — would otherwise leave the ticket stuck forever. So the buyer's
+ * The buyer's region is meant to approve the trade here on the portal. But a
+ * buyer that is unavailable — no administrator, or simply one who has not
+ * answered — would otherwise leave the ticket stuck forever. So the seller's
  * region (the one that applies the fix) is allowed to bypass that step by
  * documenting how consent was obtained off the portal:
  *
- *   · the buyer's region, on any trade still awaiting the seller; or
+ *   · the seller's region, on any trade still awaiting the buyer; or
  *   · the national administrator, for the same.
  *
  * What stops this from becoming "consent to your own trade" is not who may do
@@ -156,7 +157,7 @@ function sellerCanAnswer(adminCount) {
  * agreed and when, it is stored as an offline consent (never a portal one),
  * and it is logged at warn level in both regions. The remark is the record.
  *
- * The seller's region itself is not offered this path — it consents through
+ * The buyer's region itself is not offered this path — it consents through
  * /consent, not by recording its own offline agreement.
  */
 function mayRecordOfflineConsent({ isNational, actingRegion, row }) {
@@ -164,8 +165,8 @@ function mayRecordOfflineConsent({ isNational, actingRegion, row }) {
     return { ok: false, error: 'This discrepancy is not waiting on anyone’s consent.' };
   }
   if (isNational) return { ok: true };
-  if (!isBuyerRegion(row, actingRegion)) {
-    return { ok: false, error: 'Only the buyer’s region can bypass the seller’s consent.' };
+  if (!isSellerRegion(row, actingRegion)) {
+    return { ok: false, error: 'Only the seller’s region can bypass the buyer’s consent.' };
   }
   return { ok: true };
 }
@@ -173,22 +174,22 @@ function mayRecordOfflineConsent({ isNational, actingRegion, row }) {
 /**
  * Who may apply the fix and close the ticket.
  *
- * The buyer's region does that, and only once the seller has agreed. Before
+ * The seller's region does that, and only once the buyer has agreed. Before
  * consent there is nothing to apply; without it there is no authority to.
  */
 function mayResolveTrade({ isNational, actingRegion, row }) {
   if (row.consent_state === 'Awaiting') {
     return {
       ok: false,
-      error: `This trade is waiting on ${row.seller_region}’s consent and cannot be resolved yet.`,
+      error: `This trade is waiting on ${row.buyer_region}’s consent and cannot be resolved yet.`,
     };
   }
   if (row.consent_state === 'Refused') {
-    return { ok: false, error: `${row.seller_region} refused this trade, so the ticket is closed.` };
+    return { ok: false, error: `${row.buyer_region} refused this trade, so the ticket is closed.` };
   }
   if (isNational) return { ok: true };
-  if (!isBuyerRegion(row, actingRegion)) {
-    return { ok: false, error: `${row.buyer_region} applies the scheduling fix for this trade.` };
+  if (!isSellerRegion(row, actingRegion)) {
+    return { ok: false, error: `${row.seller_region} applies the scheduling fix for this trade.` };
   }
   return { ok: true };
 }
@@ -203,7 +204,7 @@ module.exports = {
   regionsInvolved,
   isSellerRegion,
   isBuyerRegion,
-  sellerCanAnswer,
+  consenterCanAnswer,
   mayRecordOfflineConsent,
   mayResolveTrade,
 };

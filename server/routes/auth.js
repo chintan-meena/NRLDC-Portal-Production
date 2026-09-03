@@ -22,6 +22,7 @@ const { logEvent } = require('../utils/log');
 const { issueToken } = require('../auth/tokens');
 const { validatePassword } = require('../utils/password');
 const { usernameFromAcronym } = require('../utils/usernames');
+const { isTrader } = require('../utils/trade');
 const { getBoolean, getNumber, getSetting } = require('../utils/settings');
 const { parseSignupTypes, deriveSignupType, deriveEnergyCategory, DEFAULT_SIGNUP_TYPES } = require('../utils/wbesTypes');
 const { setContextRegion } = require('../utils/requestContext');
@@ -554,15 +555,20 @@ router.post('/register', async (req, res) => {
       });
     }
     const region = entity.rows[0].region;
-    const cleanUsername = usernameFromAcronym(cleanAcronym, region);
+    // The category is the acronym's own — derived from the WBES type at upload,
+    // never the applicant's word for it.
+    const energyCategory = entity.rows[0].energy_category || 'RE';
+    // Traders are named for the national centre rather than an RLDC: a trade is
+    // cross-regional by nature, so <acronym>@nldc reads truer than the acronym's
+    // own RLDC namespace. The account's region column still records that RLDC —
+    // authentication and region scoping read the column, never the username — so
+    // only the display name changes here.
+    const usernameNamespace = isTrader(energyCategory) ? 'NLDC' : region;
+    const cleanUsername = usernameFromAcronym(cleanAcronym, usernameNamespace);
     const finalName = (name && String(name).trim()) ? String(name).trim() : entity.rows[0].name;
     if (!cleanUsername) {
       return res.status(400).json({ error: 'Could not build a username from that acronym.' });
     }
-
-    // The category is the acronym's own — derived from the WBES type at upload,
-    // never the applicant's word for it.
-    const energyCategory = entity.rows[0].energy_category || 'RE';
     // A renewable regional entity gates as its own type, RENEWABLE — distinct
     // from a conventional regional entity and from an embedded-in-state renewable.
     const signupType = deriveSignupType(entity.rows[0].utility_type, entity.rows[0].generator_type);

@@ -210,16 +210,17 @@ router.get('/', async (req, res) => {
     const countResult = await pool.query(`SELECT COUNT(*) AS count ${fromClause}${whereClause}`, params);
     const total = parseInt(countResult.rows[0].count);
 
-    // seller_on_portal answers the one question the screen cannot: whether the
-    // selling region has anybody who could consent here. It decides whether the
-    // buyer is shown "waiting for ERLDC" or the offline path, and computing it
-    // in the browser is impossible — a regional admin cannot read another
-    // region's user list, and should not be able to.
+    // consenter_on_portal answers the one question the screen cannot: whether
+    // the region being asked to consent — the buyer's — has anybody who could
+    // consent here. It decides whether the seller is shown "waiting for ERLDC"
+    // or the offline path, and computing it in the browser is impossible — a
+    // regional admin cannot read another region's user list, and should not be
+    // able to.
     let baseQuery = `SELECT d.*, u.name AS request_by_name,
-      CASE WHEN d.seller_region IS NULL THEN NULL ELSE EXISTS (
+      CASE WHEN d.buyer_region IS NULL THEN NULL ELSE EXISTS (
         SELECT 1 FROM users su
-         WHERE su.region = d.seller_region AND su.role = 'ADMIN' AND NOT su.locked
-      ) END AS seller_on_portal
+         WHERE su.region = d.buyer_region AND su.role = 'ADMIN' AND NOT su.locked
+      ) END AS consenter_on_portal
       ${fromClause}${whereClause}`;
     baseQuery += ` ORDER BY 
       CASE d.status 
@@ -342,6 +343,40 @@ router.post('/', async (req, res) => {
       }
     }
 
+    // An RE plant that a QCA coordinates is filed for by that QCA, not by the
+    // plant's own account. When a QCA holds the plant on the correction date the
+    // plant user may track those discrepancies here but not raise new ones; a
+    // plant nobody coordinates on that date files for itself as before. Only
+    // QCA accounts ever hold a user_plant_assignments row, so any active
+    // assignment on the acronym means a QCA is managing it. The plant user's UI
+    // already hides the form in this case — this is the matching server guard.
+    if (userRole !== 'QCA' && targetAcronym) {
+      const plantCatRes = await pool.query(
+        'SELECT energy_category FROM wbes_entities WHERE UPPER(wbes_acronym) = UPPER($1)',
+        [targetAcronym]
+      );
+      const isRePlant = plantCatRes.rows.length > 0
+        ? plantCatRes.rows[0].energy_category === 'RE'
+        : energy_category === 'RE';
+      if (isRePlant) {
+        const coordRes = await pool.query(
+          `SELECT 1 FROM user_plant_assignments
+            WHERE UPPER(wbes_acronym) = UPPER($1)
+              AND $2::date >= from_date
+              AND (to_date IS NULL OR $2::date <= to_date)
+            LIMIT 1`,
+          [targetAcronym, correctionDate]
+        );
+        if (coordRes.rows.length > 0) {
+          await logEvent('error', `Filing BLOCKED: "${username}" attempted to file for QCA-managed plant ${targetAcronym} on ${correctionDate}.`);
+          return res.status(403).json({
+            error: `Plant "${targetAcronym}" is managed by a QCA on ${correctionDate}. `
+                 + `You can track discrepancy status here, but filing is done by your QCA.`,
+          });
+        }
+      }
+    }
+
     if (userRole === 'QCA') {
       if (!targetAcronym) {
         return res.status(400).json({ error: 'Select the plant this discrepancy is being filed for.' });
@@ -453,12 +488,12 @@ router.post('/', async (req, res) => {
 
     await logEvent('success', `Discrepancy raised: Req No ${result.rows[0].req_no} for ${correctionDate} (${energy_category})`);
     if (trade && isInterRegional(trade)) {
-      // Logged into both regions' logs: the seller's, because a ticket has
-      // just arrived for them to answer, and the buyer's, because it is
+      // Logged into both regions' logs: the buyer's, because a ticket has
+      // just arrived for them to answer, and the seller's, because it is
       // theirs to finish afterwards.
       const line = `Inter-regional trade Req No ${result.rows[0].req_no}: `
                  + `${trade.sellerAcronym} (${trade.sellerRegion}) → ${trade.buyerAcronym} (${trade.buyerRegion}). `
-                 + `Awaiting ${trade.sellerRegion}'s consent.`;
+                 + `Awaiting ${trade.buyerRegion}'s consent.`;
       await logEvent('info', line, trade.sellerRegion);
       await logEvent('info', line, trade.buyerRegion);
     }
@@ -491,8 +526,8 @@ router.patch('/:reqNo/process', requireAdmin, async (req, res) => {
       return res.status(403).json(crossRegionError(req));
     }
 
-    // A trade that has not been consented to is not the buyer's to close, and
-    // one that was refused is already finished. The seller's region answers
+    // A trade that has not been consented to is not the seller's to close, and
+    // one that was refused is already finished. The buyer's region answers
     // through /consent, not here — otherwise the region being asked could
     // resolve the question by resolving the ticket.
     if (disc.consent_state) {
@@ -568,9 +603,9 @@ router.patch('/:reqNo/consent', requireAdmin, async (req, res) => {
     }
     // The national administrator may answer for a region, which is the only
     // way a ticket against an unresponsive centre ever moves.
-    if (!isSuperAdmin(req) && !isSellerRegion(disc, req.auth.region)) {
+    if (!isSuperAdmin(req) && !isBuyerRegion(disc, req.auth.region)) {
       return res.status(403).json({
-        error: `${disc.seller_region} is the seller’s region and answers this one.`,
+        error: `${disc.buyer_region} is the buyer’s region and answers this one.`,
       });
     }
 
@@ -589,8 +624,8 @@ router.patch('/:reqNo/consent', requireAdmin, async (req, res) => {
     );
 
     const line = consented
-      ? `Req No ${reqNo}: ${disc.seller_region} consented to the trade. ${disc.buyer_region} to apply the fix.`
-      : `Req No ${reqNo}: ${disc.seller_region} refused the trade. Ticket closed.`;
+      ? `Req No ${reqNo}: ${disc.buyer_region} consented to the trade. ${disc.seller_region} to apply the fix.`
+      : `Req No ${reqNo}: ${disc.buyer_region} refused the trade. Ticket closed.`;
     for (const r of new Set([disc.buyer_region, disc.seller_region].filter(Boolean))) {
       await logEvent(consented ? 'success' : 'warn', line, r);
     }
@@ -602,13 +637,13 @@ router.patch('/:reqNo/consent', requireAdmin, async (req, res) => {
   }
 });
 
-// PATCH /api/discrepancies/:reqNo/offline-consent — bypass the seller's consent.
+// PATCH /api/discrepancies/:reqNo/offline-consent — bypass the buyer's consent.
 //
-// When the seller's region is unavailable or has not approved on the portal,
-// the buyer's region records the consent it obtained off the portal — on the
+// When the buyer's region is unavailable or has not approved on the portal,
+// the seller's region records the consent it obtained off the portal — on the
 // telephone, or by email — and the ticket is resolved in the same step. This
-// is the one action the buyer takes: there is no separate "apply the fix"
-// afterwards, because bypassing an unresponsive seller and closing the ticket
+// is the one action the seller takes: there is no separate "apply the fix"
+// afterwards, because bypassing an unresponsive buyer and closing the ticket
 // are the same decision.
 //
 // The remark is mandatory, and enforced by the database as well as by this

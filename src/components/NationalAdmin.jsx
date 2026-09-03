@@ -346,7 +346,7 @@ export default function NationalAdmin({ currentUser }) {
               <div className="form-group">
                 <label htmlFor="na-acronym">Acronym</label>
                 <input id="na-acronym" className="form-control mono" value={acronym}
-                  placeholder="e.g. SRLDC" maxLength={10}
+                  placeholder="e.g. XRLDC" maxLength={10}
                   style={{ textTransform: 'uppercase' }}
                   onChange={(e) => setAcronym(e.target.value.replace(/[^A-Za-z0-9]/g, '').toUpperCase())} />
                 <span className="settings-field-hint">
@@ -356,7 +356,7 @@ export default function NationalAdmin({ currentUser }) {
               <div className="form-group">
                 <label htmlFor="na-name">Region name</label>
                 <input id="na-name" className="form-control" value={name}
-                  placeholder="e.g. Southern Regional Load Despatch Centre"
+                  placeholder="e.g. Example Regional Load Despatch Centre"
                   onChange={(e) => setName(e.target.value)} />
               </div>
               <div className="form-group">
@@ -372,12 +372,12 @@ export default function NationalAdmin({ currentUser }) {
               <div className="form-group">
                 <label htmlFor="na-admin-name">Administrator name</label>
                 <input id="na-admin-name" className="form-control" value={adminName}
-                  placeholder="e.g. S. Kumar" onChange={(e) => setAdminName(e.target.value)} />
+                  placeholder="e.g. John Doe" onChange={(e) => setAdminName(e.target.value)} />
               </div>
               <div className="form-group">
                 <label htmlFor="na-admin-email">Administrator email</label>
                 <input id="na-admin-email" type="email" className="form-control" value={adminEmail}
-                  placeholder="name@example.in" onChange={(e) => setAdminEmail(e.target.value)} />
+                  placeholder="name@example.com" onChange={(e) => setAdminEmail(e.target.value)} />
                 <span className="settings-field-hint">
                   They start on the default password <strong className="mono">{DEFAULT_PASSWORD}</strong> and
                   are asked for an OTP at first sign-in.
@@ -546,13 +546,13 @@ export default function NationalAdmin({ currentUser }) {
                             <div className="form-group">
                               <label htmlFor={`na-an-${r.acronym}`}>Name</label>
                               <input id={`na-an-${r.acronym}`} className="form-control"
-                                value={newAdmin.name} placeholder="e.g. S. Kumar"
+                                value={newAdmin.name} placeholder="e.g. John Doe"
                                 onChange={(e) => setNewAdmin(a => ({ ...a, name: e.target.value }))} />
                             </div>
                             <div className="form-group">
                               <label htmlFor={`na-ae-${r.acronym}`}>Email</label>
                               <input id={`na-ae-${r.acronym}`} type="email" className="form-control"
-                                value={newAdmin.email} placeholder="name@example.in"
+                                value={newAdmin.email} placeholder="name@example.com"
                                 onChange={(e) => setNewAdmin(a => ({ ...a, email: e.target.value }))} />
                               <span className="settings-field-hint">
                                 They start on the default password{' '}

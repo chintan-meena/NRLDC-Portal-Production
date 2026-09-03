@@ -67,6 +67,59 @@ const ALL_FILING_TYPES = [...DISCREPANCY_TYPES, ...FILING_CATEGORIES_2026];
 const FILTERABLE_TYPES = [...ALL_FILING_TYPES, MISC_TYPE];
 
 /**
+ * The subset of types each kind of filer is offered when raising a discrepancy.
+ *
+ * Every entry here is one of the canonical labels above — this narrows what a
+ * given category sees, it never invents a new tag, so historical records and the
+ * filter lists (which still use ALL_FILING_TYPES) keep resolving every tag.
+ * Keyed by the filer's energy_category; a QCA files for RE plants and so is
+ * mapped to 'RE' by the caller. Traders and States share a starter set that can
+ * be widened later. Kept in sync with src/utils/discrepancyTypes.js.
+ */
+const FILING_TYPES_BY_CATEGORY = {
+  ISGS: [
+    'Violation due to SCUC',
+    'Violation due to SCED',
+    'Violation due to Shortfall',
+    'Violation due to Emergency',
+    'Bilateral Schedule Discrepancy under GNA',
+    'Real-Time Instructions Received from NLDC',
+    'WBES Outage',
+    'Post facto revisions',
+  ],
+  RE: [
+    'Bilateral Schedule Discrepancy under GNA',
+    'Real-Time Instructions Received from NLDC',
+    'Schedule Loss Discrepancy',
+    'WBES Outage',
+    'Type or contract missing',
+    'Requisition Value incorrect (REMC)',
+    'AVC correction',
+    'Post facto revisions',
+    'Schedule visible in REMC but not reflecting in WBES',
+    'NOC breach issue - needs correction',
+    'TRAS not applied',
+  ],
+  Traders: [
+    'Bilateral Schedule Discrepancy under GNA',
+    'Post facto revisions',
+  ],
+  States: [
+    'Bilateral Schedule Discrepancy under GNA',
+    'Post facto revisions',
+  ],
+};
+
+/**
+ * The filing types a given category is offered, always ending in Miscellaneous.
+ * Falls back to the full list for any category not in the map.
+ */
+function filingTypesFor(energyCategory) {
+  const base = FILING_TYPES_BY_CATEGORY[energyCategory] || ALL_FILING_TYPES;
+  return [...base, MISC_TYPE];
+}
+
+/**
  * The SQL pattern that matches one type inside the stored tag string.
  * The angle brackets matter: without them "Violation due to SCED" would also
  * match a remark that merely mentions it.
@@ -78,4 +131,5 @@ function typeMatchPattern(type) {
 module.exports = {
   FILING_CATEGORIES_2026,
   RESTRICTED_WINDOW_CATEGORIES,
+  FILING_TYPES_BY_CATEGORY, filingTypesFor,
   ALL_FILING_TYPES, DISCREPANCY_TYPES, MISC_TYPE, MISC_PREFIX, FILTERABLE_TYPES, typeMatchPattern };

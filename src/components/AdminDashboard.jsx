@@ -276,7 +276,7 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
   const handleOpenActionModal = (req, mode) => {
     setSelectedRequest(req);
     setModalMode(mode);
-    setCorrectiveAction(req.admin_comment || (mode === 'return' ? 'Returned from RLDC for Review' : 'Approved and Resolved'));
+    setCorrectiveAction(req.admin_comment || (mode === 'return' ? 'Returned, Kindly check the file discrepancy again' : 'Approved and Resolved'));
     setRejectionReason(req.rejection_reason || '');
     setAdminAttachments(req.admin_files || []);
   };

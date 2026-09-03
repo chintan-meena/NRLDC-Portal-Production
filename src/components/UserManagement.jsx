@@ -906,12 +906,12 @@ export default function UserManagement({ currentUser }) {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '15px', alignItems: 'end' }}>
               <div className="form-group" style={{ marginBottom: 0 }}>
                 <label htmlFor="um-full-display-name">Full Display Name</label>
-                <input id="um-full-display-name" type="text" className="form-control" placeholder="e.g. ANTA GAS Station" value={name} onChange={(e) => setName(e.target.value)} required />
+                <input id="um-full-display-name" type="text" className="form-control" placeholder="e.g. Example Power Station" value={name} onChange={(e) => setName(e.target.value)} required />
               </div>
 
               <div className="form-group" style={{ marginBottom: 0 }}>
                 <label htmlFor="um-username-station-id-autopopulated">Username / Station ID (Autopopulated)</label>
-                <input id="um-username-station-id-autopopulated" type="text" className="form-control" placeholder="e.g. usr_ANTA" value={username} readOnly style={{ background: 'var(--bg-tertiary)', cursor: 'not-allowed', fontWeight: '600', color: 'var(--text-secondary)' }} required />
+                <input id="um-username-station-id-autopopulated" type="text" className="form-control" placeholder="e.g. abc@nrldc" value={username} readOnly style={{ background: 'var(--bg-tertiary)', cursor: 'not-allowed', fontWeight: '600', color: 'var(--text-secondary)' }} required />
               </div>
 
               <div className="form-group" style={{ marginBottom: 0 }}>
@@ -935,17 +935,17 @@ export default function UserManagement({ currentUser }) {
 
               <div className="form-group" style={{ marginBottom: 0 }}>
                 <label htmlFor="um-primary-email-address-mandatory">Primary Email Address (Mandatory)</label>
-                <input id="um-primary-email-address-mandatory" type="email" className="form-control" placeholder="station@utility.in" value={email} onChange={(e) => setEmail(e.target.value)} required />
+                <input id="um-primary-email-address-mandatory" type="email" className="form-control" placeholder="name@example.com" value={email} onChange={(e) => setEmail(e.target.value)} required />
               </div>
 
               <div className="form-group" style={{ marginBottom: 0 }}>
                 <label htmlFor="um-secondary-email-optional">Secondary Email (Optional)</label>
-                <input id="um-secondary-email-optional" type="email" className="form-control" placeholder="station2@utility.in" value={email2} onChange={(e) => setEmail2(e.target.value)} />
+                <input id="um-secondary-email-optional" type="email" className="form-control" placeholder="name2@example.com" value={email2} onChange={(e) => setEmail2(e.target.value)} />
               </div>
 
               <div className="form-group" style={{ marginBottom: 0 }}>
                 <label htmlFor="um-tertiary-email-optional">Tertiary Email (Optional)</label>
-                <input id="um-tertiary-email-optional" type="email" className="form-control" placeholder="station3@utility.in" value={email3} onChange={(e) => setEmail3(e.target.value)} />
+                <input id="um-tertiary-email-optional" type="email" className="form-control" placeholder="name3@example.com" value={email3} onChange={(e) => setEmail3(e.target.value)} />
               </div>
 
               <div className="form-group" style={{ marginBottom: 0 }}>
@@ -975,12 +975,12 @@ export default function UserManagement({ currentUser }) {
                 <input id="um-wbes-acronym-compulsory" 
                   type="text" 
                   className="form-control" 
-                  placeholder="e.g. ANTA" 
-                  value={wbesAcronym} 
+                  placeholder="e.g. ABC"
+                  value={wbesAcronym}
                   onChange={(e) => {
                     const val = e.target.value;
                     setWbesAcronym(val);
-                    // Same convention as the rest of the registry: ANTA → anta@nrldc.
+                    // Same convention as the rest of the registry: ABC → abc@nrldc.
                     setUsername(defaultUsernameFor(val));
                   }} 
                   required 
@@ -1021,7 +1021,7 @@ export default function UserManagement({ currentUser }) {
               {energyCategory === 'QCA' && (
                 <div className="form-group" style={{ marginBottom: 0 }}>
                   <label htmlFor="um-qca-name-compulsory">QCA Name (Compulsory)</label>
-                  <input id="um-qca-name-compulsory" type="text" className="form-control" placeholder="e.g. QCA Alpha" value={qcaName} onChange={(e) => setQcaName(e.target.value)} required />
+                  <input id="um-qca-name-compulsory" type="text" className="form-control" placeholder="e.g. Example QCA" value={qcaName} onChange={(e) => setQcaName(e.target.value)} required />
                   <small style={{ color: 'var(--text-muted)', fontSize: '0.72rem' }}>QCAs coordinate Renewable Energy plants only; this account is registered under RE.</small>
                 </div>
               )}
@@ -1289,7 +1289,7 @@ export default function UserManagement({ currentUser }) {
               {editEnergyCategory === 'QCA' && (
                 <div className="form-group" style={{ marginBottom: 0 }}>
                   <label htmlFor="um-qca-name-compulsory-2">QCA Name (Compulsory)</label>
-                  <input id="um-qca-name-compulsory-2" type="text" className="form-control" placeholder="e.g. QCA Alpha" value={editQcaName} onChange={(e) => setEditQcaName(e.target.value)} required />
+                  <input id="um-qca-name-compulsory-2" type="text" className="form-control" placeholder="e.g. Example QCA" value={editQcaName} onChange={(e) => setEditQcaName(e.target.value)} required />
                   <small style={{ color: 'var(--text-muted)', fontSize: '0.72rem' }}>QCAs coordinate Renewable Energy plants only; this account is registered under RE.</small>
                 </div>
               )}

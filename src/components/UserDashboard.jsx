@@ -10,11 +10,10 @@ import { Banner, EmptyState, SkeletonRows } from './Feedback';
 import { categoryLabel } from '../utils/categories';
 import { GRID_REGIONS, isTraderCategory, consentBadge } from '../utils/trade';
 import AcronymPicker from './AcronymPicker';
-import RequestNewPlant from './RequestNewPlant';
 import { useFeedback } from '../hooks/useFeedback';
 import { useModalDismiss } from '../hooks/useModalDismiss';
 import { originalFilename, isNetScheduleSummary } from '../utils/filenames';
-import { FILTERABLE_TYPES, ALL_FILING_TYPES, MISC_TYPE } from '../utils/discrepancyTypes';
+import { FILTERABLE_TYPES, filingTypesFor } from '../utils/discrepancyTypes';
 import { ACCEPT_ATTRIBUTE, ALLOWED_DESCRIPTION, MAX_UPLOAD_MB, validateFiles } from '../utils/uploads';
 import { parseTimeBlocks } from '../utils/timeBlocks';
 import { formatDateDMY, formatDateDMYHM, getStatusPriority, statusClass, todayISO, daysAgoISO, nowDatetimeLocal } from '../utils/format';
@@ -135,9 +134,11 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
 
   const [selectedRequest, setSelectedRequest] = useState(null);
 
-  // One shared vocabulary, so a filter can never name a type nothing can be
-  // filed under. See src/utils/discrepancyTypes.js.
-  const availableReasons = [...ALL_FILING_TYPES, MISC_TYPE];
+  // The filing form offers only the types this kind of filer uses; a QCA files
+  // for RE plants and so is treated as RE. Filters elsewhere still use the full
+  // vocabulary, so no historical tag is ever left unnameable. See
+  // src/utils/discrepancyTypes.js.
+  const availableReasons = filingTypesFor(isQcaUser ? 'RE' : currentUser.energy_category);
 
   /** Which tabs display the discrepancy list or its statistics. */
   const TABS_NEEDING_DISCREPANCIES = ['dashboard', 'raise_request'];
@@ -235,6 +236,29 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
     Promise.resolve().then(() => loadData());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, currentPage, pageSize, fromDateFilter, toDateFilter, typeFilter]);
+
+  // The QCA plant search populates as you type rather than only on Enter/submit,
+  // mirroring AcronymPicker's debounce. One request per keystroke would be a
+  // search per keystroke, so the query fires 300ms after typing settles and only
+  // for a term worth searching. The cleanup flag drops a late-resolving response
+  // from a term the user has already moved past.
+  useEffect(() => {
+    if (!isQcaUser) return undefined;
+    let cancelled = false;
+    // Every state change happens inside the timer, never in the effect body, so
+    // a keystroke does not cascade a render before the search has even run.
+    const timer = setTimeout(async () => {
+      const typed = wbesSearch.trim();
+      if (typed.length < 2) { setWbesEntities([]); return; }
+      try {
+        const data = await getWbesEntities(typed);
+        if (!cancelled) setWbesEntities(data || []);
+      } catch (err) {
+        if (!cancelled) setAssignError(err.message || 'Failed to search plants.');
+      }
+    }, 300);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [wbesSearch, isQcaUser]);
 
   useEffect(() => {
     if (currentUser) {
@@ -1610,7 +1634,7 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
               <div className="form-group">
                 <label htmlFor="ud-station-name">Station Name</label>
                 <input id="ud-station-name" type="text" className="form-control" value={profileName} onChange={(e) => setProfileName(e.target.value)} required />
-                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Example: ANTA Gas Plant NTPC</span>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Example: Example Gas Power Station</span>
               </div>
 
               <div className="form-group">
@@ -1826,9 +1850,6 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
               )}
             </div>
           </div>
-
-          {/* A QCA can also request a brand-new plant / WBES id under itself. */}
-          <RequestNewPlant currentUser={currentUser} onSubmitted={loadData} />
         </div>
       )}
 

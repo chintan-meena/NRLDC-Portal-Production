@@ -422,7 +422,7 @@ export default function WbesRegistry({ currentUser }) {
                           aria-label={`Display name, row ${i + 1}`}
                           onChange={(e) => setCell(i, 'name', e.target.value)}
                           onPaste={handlePaste(i, 'name')}
-                          placeholder={i === 0 ? 'e.g. Bhartiya Rail Bijlee Company Ltd' : ''} />
+                          placeholder={i === 0 ? 'e.g. Example Power Company Ltd' : ''} />
                       </td>
                       <td style={{ padding: '4px 8px' }}>
                         <input className="form-control mono" value={row.wbes_acronym}
@@ -430,7 +430,7 @@ export default function WbesRegistry({ currentUser }) {
                           style={{ textTransform: 'uppercase' }}
                           onChange={(e) => setCell(i, 'wbes_acronym', e.target.value)}
                           onPaste={handlePaste(i, 'wbes_acronym')}
-                          placeholder={i === 0 ? 'BRBCL' : ''} />
+                          placeholder={i === 0 ? 'ABC' : ''} />
                       </td>
                       <td style={{ padding: '4px 8px' }}>
                         <select className="form-control" value={row.utility_type}
@@ -628,7 +628,7 @@ export default function WbesRegistry({ currentUser }) {
                 <label htmlFor="wbes-block-reason">Reason (shown to anyone who is refused)</label>
                 <textarea id="wbes-block-reason" className="form-control" rows={3}
                   value={blockReason} onChange={(e) => setBlockReason(e.target.value)}
-                  placeholder="e.g. Registered in error — duplicate of BRBCL" />
+                  placeholder="e.g. Registered in error — duplicate of ABC" />
               </div>
               <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
                 <button type="button" className="btn btn-secondary" onClick={() => setBlocking(null)} disabled={busy}>
