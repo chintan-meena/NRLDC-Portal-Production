@@ -5,6 +5,28 @@ const { logEvent } = require('../utils/log');
 const { requireAdmin, isAdmin } = require('../middleware/auth');
 const { scopeToRegion, crossRegionError } = require('../middleware/region');
 const { isSuperAdmin } = require('../middleware/auth');
+const { getBoolean } = require('../utils/settings');
+
+/**
+ * Refuse every outage request while the page is switched off for this region in
+ * System Parameters. Hiding the tab is not enough on its own — the endpoints
+ * have to close too, or the page is only cosmetically disabled. Defaults to on
+ * when the row is absent, so regions that never touch the setting are unchanged.
+ */
+async function requireOutagesEnabled(req, res, next) {
+  try {
+    const enabled = await getBoolean('feature_outages', req.auth?.region, true);
+    if (!enabled) {
+      return res.status(403).json({ error: 'The Unit Outages feature is currently switched off by the administrator.' });
+    }
+    next();
+  } catch (err) {
+    console.error('[OUTAGE FEATURE CHECK]', err);
+    res.status(500).json({ error: 'Could not check feature availability.' });
+  }
+}
+
+router.use(requireOutagesEnabled);
 
 /**
  * Refuse an admin acting on an outage filed in another region. An outage has

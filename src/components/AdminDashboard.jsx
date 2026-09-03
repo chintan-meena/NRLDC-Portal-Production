@@ -113,6 +113,10 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
   const [reraiseLimit, setReraiseLimit] = useState(2);
   const [require2FA, setRequire2FA] = useState(true);
   const [featureCycleData, setFeatureCycleData] = useState(true);
+  // Whole-page switches for this region: when off, the tab is hidden and the
+  // page's endpoints refuse. Default on.
+  const [featureOutages, setFeatureOutages] = useState(true);
+  const [featureQcaStatus, setFeatureQcaStatus] = useState(true);
   const [outageISGS, setOutageISGS] = useState(true);
   const [outageRE, setOutageRE] = useState(true);
   const [outageStates, setOutageStates] = useState(false);
@@ -167,6 +171,8 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
       setReraiseLimit(cfg.reraiseLimit || 2);
       setRequire2FA(cfg.require2FA !== false && cfg.require2FA !== 'false');
       setFeatureCycleData(cfg.feature_cycle_data !== false && cfg.feature_cycle_data !== 'false');
+      setFeatureOutages(cfg.feature_outages !== false && cfg.feature_outages !== 'false');
+      setFeatureQcaStatus(cfg.feature_qca_status !== false && cfg.feature_qca_status !== 'false');
       setOutageISGS(cfg.outage_ISGS === true || cfg.outage_ISGS === 'true');
       setOutageRE(cfg.outage_RE === true || cfg.outage_RE === 'true');
       setOutageStates(cfg.outage_States === true || cfg.outage_States === 'true');
@@ -433,6 +439,8 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
           reraiseLimit: parseInt(reraiseLimit),
           require2FA: String(require2FA),
           feature_cycle_data: String(featureCycleData),
+          feature_outages: String(featureOutages),
+          feature_qca_status: String(featureQcaStatus),
           outage_ISGS: String(outageISGS),
           outage_RE: String(outageRE),
           outage_States: String(outageStates),
@@ -1022,12 +1030,12 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
                         )}
                       </td>
                       <td>
-                        {/* A consented trade is the buyer's to fix. The seller
+                        {/* A consented trade is the seller's to fix. The buyer
                             sees Details, not the three action buttons. */}
                         {req.status === 'Pending' && (
                           !isTrade(req) || !req.consent_state
                           || currentUser.role === 'SUPERADMIN'
-                          || currentUser.region === req.buyer_region
+                          || currentUser.region === req.seller_region
                         ) ? (
                           <div style={{ display: 'flex', gap: '6px' }}>
                             <button className="btn btn-teal" style={{ padding: '4px 8px', fontSize: '0.75rem' }} onClick={(e) => { e.stopPropagation(); handleOpenActionModal(req, 'resolve'); }}>Resolve</button>
@@ -1094,7 +1102,7 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
       )}
 
       {/* Outages list tab */}
-      {activeTab === 'outages' && (
+      {activeTab === 'outages' && featureOutages && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
           <div className="flex-row-between">
             <div>
@@ -1222,7 +1230,7 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
       )}
 
       {/* Cycle Downloads tab */}
-      {activeTab === 'cycle_downloads' && (
+      {activeTab === 'cycle_downloads' && featureCycleData && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
           <div className="flex-row-between">
             <div>
@@ -1441,6 +1449,40 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
                   {featureCycleData
                     ? 'Stations with the permission can upload Open/Closed Cycle sheets, and admins can download them.'
                     : 'Switched off. The Cycle Data tabs are hidden from everyone and the endpoints are closed. Existing uploads are kept and reappear if this is switched back on.'}
+                </p>
+              </div>
+
+              <div className={`settings-toggle-card${featureOutages ? '' : ' off'}`}>
+                <label htmlFor="ad-feature-outages" className="settings-toggle-label">
+                  <input
+                    id="ad-feature-outages"
+                    type="checkbox"
+                    checked={featureOutages}
+                    onChange={(e) => setFeatureOutages(e.target.checked)}
+                  />
+                  <span>Unit Outages page</span>
+                </label>
+                <p className="settings-toggle-note">
+                  {featureOutages
+                    ? 'The Unit Outages tab is available, and the categories chosen below may file outages.'
+                    : 'Switched off. The Unit Outages tab is hidden from everyone and the endpoints are closed. Existing filings are kept and reappear if this is switched back on.'}
+                </p>
+              </div>
+
+              <div className={`settings-toggle-card${featureQcaStatus ? '' : ' off'}`}>
+                <label htmlFor="ad-feature-qca-status" className="settings-toggle-label">
+                  <input
+                    id="ad-feature-qca-status"
+                    type="checkbox"
+                    checked={featureQcaStatus}
+                    onChange={(e) => setFeatureQcaStatus(e.target.checked)}
+                  />
+                  <span>QCA Status page</span>
+                </label>
+                <p className="settings-toggle-note">
+                  {featureQcaStatus
+                    ? 'The QCA Status tab is available to administrators of this region.'
+                    : 'Switched off. The QCA Status tab is hidden and its endpoint is closed. Assignments are unaffected and reappear if this is switched back on.'}
                 </p>
               </div>
 
@@ -1724,7 +1766,7 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
         </div>
       )}
 
-      {activeTab === 'qca_status' && (
+      {activeTab === 'qca_status' && featureQcaStatus && (
         <QcaStatus />
       )}
 
@@ -1968,8 +2010,8 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
                   </button>
                 </div>
                 <div style={{ display: 'flex', gap: '10px' }}>
-                  {/* On a consented trade the fix belongs to the buyer's region
-                      alone. The seller has already had its say, and offering it
+                  {/* On a consented trade the fix belongs to the seller's region
+                      alone. The buyer has already had its say, and offering it
                       Resolve here would let it answer a question it was only
                       asked to confirm. The server refuses it either way; not
                       drawing the button is so nobody tries. */}
@@ -1977,7 +2019,7 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
                     !isTrade(selectedRequest)
                     || !selectedRequest.consent_state
                     || currentUser.role === 'SUPERADMIN'
-                    || currentUser.region === selectedRequest.buyer_region
+                    || currentUser.region === selectedRequest.seller_region
                   ) && (
                     <>
                       <button className="btn btn-teal" onClick={() => setModalMode('resolve')}>Resolve</button>

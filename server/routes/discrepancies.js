@@ -692,7 +692,7 @@ router.patch('/:reqNo/offline-consent', requireAdmin, async (req, res) => {
     // Recorded at warn level on purpose. It is a legitimate step, but it is
     // one region deciding on another's behalf and closing the ticket on it, so
     // it should be findable in the log without knowing to look for it.
-    const line = `Req No ${reqNo}: ${disc.buyer_region} bypassed ${disc.seller_region}'s consent `
+    const line = `Req No ${reqNo}: ${disc.seller_region} bypassed ${disc.buyer_region}'s consent `
                + `(offline) and resolved the ticket — by "${req.auth.username}", `
                + `${files?.length || 0} attachment(s). Remark: ${note.slice(0, 200)}`;
     for (const r of new Set([disc.buyer_region, disc.seller_region].filter(Boolean))) {

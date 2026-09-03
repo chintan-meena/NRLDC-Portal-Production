@@ -140,6 +140,13 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
   // src/utils/discrepancyTypes.js.
   const availableReasons = filingTypesFor(isQcaUser ? 'RE' : currentUser.energy_category);
 
+  // Whole pages a region can switch off in System Parameters. Each defaults to
+  // on when the config row is absent. When off the Navbar hides the tab and the
+  // page body below refuses to render, so a stuck activeTab shows nothing rather
+  // than a form whose endpoints would only 403.
+  const outagesPageEnabled = config.feature_outages !== false && config.feature_outages !== 'false';
+  const cyclePageEnabled = config.feature_cycle_data !== false && config.feature_cycle_data !== 'false';
+
   /** Which tabs display the discrepancy list or its statistics. */
   const TABS_NEEDING_DISCREPANCIES = ['dashboard', 'raise_request'];
 
@@ -402,7 +409,7 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
         // between a user waiting patiently and a user filing it again.
         setFileResult({ ok: true, message:
           trade && buyerRegion !== sellerRegion
-            ? `Filed. ${sellerRegion} must confirm the trade was theirs before ${buyerRegion} can apply the fix — you will see it as “Awaiting consent” until they do.`
+            ? `Filed. ${buyerRegion} must confirm the trade was theirs before ${sellerRegion} can apply the fix — you will see it as “Awaiting consent” until they do.`
             : `Discrepancy filed successfully and dispatched to ${currentUser.region} operations!`
         });
       }
@@ -1134,7 +1141,7 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
                     <p className="settings-field-hint" style={{ marginTop: '12px', display: 'block' }}>
                       {buyerRegion === sellerRegion
                         ? `Both ends are inside ${buyerRegion}, so this is an intra-regional trade — it goes straight to ${buyerRegion} operations, with no consent step.`
-                        : `Inter-regional: ${sellerRegion} confirms the trade, then ${buyerRegion} applies the fix.`}
+                        : `Inter-regional: ${buyerRegion} confirms the trade, then ${sellerRegion} applies the fix.`}
                     </p>
                   )}
                 </div>
@@ -1396,7 +1403,7 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
       )}
 
       {/* Outages tab */}
-      {activeTab === 'outages' && (
+      {activeTab === 'outages' && outagesPageEnabled && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '30px' }}>
           <div className="glass-panel" style={{ padding: '30px', maxWidth: '800px', margin: '0 auto', width: '100%' }}>
             <h2 style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
@@ -1507,7 +1514,7 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
       )}
 
       {/* Cycle Data Upload tab */}
-      {activeTab === 'cycle_upload' && (
+      {activeTab === 'cycle_upload' && cyclePageEnabled && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '30px' }}>
           <div className="glass-panel" style={{ padding: '30px', maxWidth: '800px', margin: '0 auto', width: '100%' }}>
             <h2 style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>

@@ -32,6 +32,7 @@ const { regionExists } = require('../utils/regionRegistry');
 const { previousDayString } = require('../utils/dates');
 const { DEFAULT_PASSWORD, validatePassword } = require('../utils/password');
 const { usernameForRegion } = require('../utils/usernames');
+const { getBoolean } = require('../utils/settings');
 const { FILING_CATEGORIES } = require('../utils/trade');
 const {
   UTILITY_TYPES, GENERATOR_TYPES, GENERATOR_SUBTYPES,
@@ -1359,6 +1360,12 @@ router.patch('/wbes-entities/:acronym', requireAdmin, async (req, res) => {
 // columns NULL). A QCA and the plants it coordinates share a region.
 router.get('/qca-status', requireAdmin, async (req, res) => {
   try {
+    // The page can be switched off per region in System Parameters; when off the
+    // tab is hidden and this endpoint refuses too. Defaults to on when absent.
+    const enabled = await getBoolean('feature_qca_status', req.auth?.region, true);
+    if (!enabled) {
+      return res.status(403).json({ error: 'The QCA Status page is currently switched off by the administrator.' });
+    }
     const params = [];
     const conditions = ["u.role = 'QCA'"];
     scopeToRegion(req, 'u.region', conditions, params);

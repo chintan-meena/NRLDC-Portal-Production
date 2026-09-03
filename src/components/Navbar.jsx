@@ -6,7 +6,7 @@ import { getConfig } from '../services/db';
 export default function Navbar({ currentUser, onLogout, activeTab, setActiveTab }) {
   const { mode: themeMode, resolved, cycle } = useTheme();
   const [serverTime, setServerTime] = useState(new Date());
-  const [config, setConfig] = useState({ outage_ISGS: true, outage_RE: true, outage_States: false, feature_cycle_data: true });
+  const [config, setConfig] = useState({ outage_ISGS: true, outage_RE: true, outage_States: false, feature_cycle_data: true, feature_outages: true, feature_qca_status: true });
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -51,8 +51,13 @@ export default function Navbar({ currentUser, onLogout, activeTab, setActiveTab 
   // Check if current user is allowed to see the outages filing tab
   const userCat = currentUser?.energy_category;
   // QCA users should not be allowed to file outages as they represent coordinating agencies, not plants
-  // Cycle Data can be switched off entirely from System Parameters.
+  // Whole pages a region can switch off in System Parameters. Each defaults to
+  // on when the config row is absent, so a region that never touched the setting
+  // keeps every page. When off, the tab is hidden here and the page's endpoints
+  // refuse — see the matching guards in the routes.
   const isCycleDataEnabled = config.feature_cycle_data !== false && config.feature_cycle_data !== 'false';
+  const isOutagesFeatureEnabled = config.feature_outages !== false && config.feature_outages !== 'false';
+  const isQcaStatusEnabled = config.feature_qca_status !== false && config.feature_qca_status !== 'false';
 
   const isOutageEnabled = isAdmin || (
     currentUser?.role !== 'QCA' && (
@@ -100,12 +105,14 @@ export default function Navbar({ currentUser, onLogout, activeTab, setActiveTab 
             >
               Discrepancy Requests
             </button>
-            <button
-              className={`category-tab ${activeTab === 'outages' ? 'active' : ''}`}
-              onClick={() => setActiveTab('outages')} title="Unit Outages"
-            >
-              Unit Outages
-            </button>
+            {isOutagesFeatureEnabled && (
+              <button
+                className={`category-tab ${activeTab === 'outages' ? 'active' : ''}`}
+                onClick={() => setActiveTab('outages')} title="Unit Outages"
+              >
+                Unit Outages
+              </button>
+            )}
             {isCycleDataEnabled && (
               <button
                 className={`category-tab ${activeTab === 'cycle_downloads' ? 'active' : ''}`}
@@ -126,12 +133,14 @@ export default function Navbar({ currentUser, onLogout, activeTab, setActiveTab 
             >
               Transfer Requests
             </button>
-            <button
-              className={`category-tab ${activeTab === 'qca_status' ? 'active' : ''}`}
-              onClick={() => setActiveTab('qca_status')} title="QCA Status"
-            >
-              QCA Status
-            </button>
+            {isQcaStatusEnabled && (
+              <button
+                className={`category-tab ${activeTab === 'qca_status' ? 'active' : ''}`}
+                onClick={() => setActiveTab('qca_status')} title="QCA Status"
+              >
+                QCA Status
+              </button>
+            )}
             <button
               className={`category-tab ${activeTab === 'new_acronyms' ? 'active' : ''}`}
               onClick={() => setActiveTab('new_acronyms')} title="New Acronym Requests"
@@ -165,7 +174,7 @@ export default function Navbar({ currentUser, onLogout, activeTab, setActiveTab 
             >
               File Discrepancy
             </button>
-            {isOutageEnabled && (
+            {isOutageEnabled && isOutagesFeatureEnabled && (
               <button
                 className={`category-tab ${activeTab === 'outages' ? 'active' : ''}`}
                 onClick={() => setActiveTab('outages')} title="Unit Outages"

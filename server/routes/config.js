@@ -21,7 +21,9 @@ const WRITABLE_KEYS = new Set([
   'reraiseWindow', 'reraiseLimit',
   'outage_ISGS', 'outage_RE', 'outage_States',
   'require2FA',
-  'feature_cycle_data',
+  // Region-level page switches. When off, the tab is hidden AND the page's
+  // endpoints refuse — each defaults to on when the row is absent.
+  'feature_cycle_data', 'feature_outages', 'feature_qca_status',
   // Filing-window rules. postFactoCutoffDay is the day of the following month
   // after which a correction period closes for good; flaggedThresholdPercent
   // is the share of a filer's discrepancies marked flagged that flags them.
