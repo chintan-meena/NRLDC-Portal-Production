@@ -343,6 +343,17 @@ export const getRegionUsers = async (acronym) =>
 export const addRegionAdmin = async (acronym, payload) =>
   apiFetch(`/regions/${encodeURIComponent(acronym)}/admins`, { method: 'POST', body: payload });
 
+// Raise an account that already belongs to the region to administer it — the
+// recovery path when a region has its users but no administrator.
+export const promoteRegionAdmin = async (acronym, username) =>
+  apiFetch(`/regions/${encodeURIComponent(acronym)}/admins/promote`, { method: 'POST', body: { username } });
+
+// Remove an administrator (demote to a regular user; ?hard deletes an unused
+// bootstrap admin outright, falling back to demote if it is referenced).
+export const removeRegionAdmin = async (acronym, username, { hard = false } = {}) =>
+  apiFetch(`/regions/${encodeURIComponent(acronym)}/admins/${encodeURIComponent(username)}${hard ? '?hard=1' : ''}`,
+    { method: 'DELETE' });
+
 export const getMailUsage = async () => {
   return apiFetch('/config/mail-usage');
 };

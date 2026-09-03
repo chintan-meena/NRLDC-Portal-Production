@@ -392,8 +392,10 @@ button {
   display: flex;
   flex-direction: column;
   gap: 24px;
-  max-width: 1400px;
-  margin: 0 auto;
+  /* Fills the width of its container rather than sitting in a centred 1400px
+     column, so a large monitor is used instead of framed by empty margins.
+     Wide tables scroll inside their own .table-container, so nothing spills
+     out of the page. */
   padding: 24px;
   width: 100%;
   min-width: 0; /* Prevents flex content blowout */
@@ -1401,6 +1403,12 @@ button {
 .main-content {
   padding: 24px 28px;
   width: 100%;
+}
+
+/* On a large monitor the content now spans the full width, so give it a little
+   more room at the edges than the dense default. */
+@media (min-width: 1600px) {
+  .main-content { padding: 28px 44px; }
 }
 
 /* .btn-warning was used in four places but never defined, so each call site

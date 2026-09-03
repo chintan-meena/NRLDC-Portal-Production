@@ -28,6 +28,20 @@ const { usernameForRegion, ACRONYM_RULE } = require('../utils/usernames');
 
 const HASH_ROUNDS = 10;
 
+// A region may have several administrators — a second for cover, a replacement
+// at handover — but not without limit. Four is the ceiling, enforced on every
+// path that adds one so the count can never be talked past.
+const MAX_ADMINS_PER_REGION = 4;
+
+// How many administrators a region already has. Takes a client so it can run
+// inside the same transaction as the insert it guards, closing the window where
+// two simultaneous adds could both pass a check made outside the transaction.
+async function adminCount(client, code) {
+  const r = await client.query(
+    `SELECT count(*)::int AS n FROM users WHERE region = $1 AND role = 'ADMIN'`, [code]);
+  return r.rows[0].n;
+}
+
 // Every route here is national-level.
 router.use(requireSuperAdmin);
 
@@ -239,6 +253,11 @@ router.post('/:acronym/admins', async (req, res) => {
       if (Number(c.email_taken) > 0) {
         return { status: 409, body: { error: `"${String(adminEmail).trim()}" already belongs to an account.` } };
       }
+      if (await adminCount(client, code) >= MAX_ADMINS_PER_REGION) {
+        return { status: 409, body: {
+          error: `${code} already has the maximum of ${MAX_ADMINS_PER_REGION} administrators. `
+               + 'Remove one before adding another.' } };
+      }
 
       const hash = await bcrypt.hash(password, HASH_ROUNDS);
       await client.query(
@@ -267,6 +286,142 @@ router.post('/:acronym/admins', async (req, res) => {
   } catch (err) {
     console.error('[REGION ADMIN POST]', err);
     res.status(500).json({ error: 'Failed to create the administrator.' });
+  }
+});
+
+// POST /api/regions/:acronym/admins/promote — make an existing account an admin.
+//
+// The recovery path for a region whose administrator was lost — to a reseed, a
+// deletion, a rename — but whose ordinary users remain. Rather than force a
+// brand-new account (which collides with the one already on file), an existing
+// member of the region is raised to administer it.
+//
+// It only ever promotes an account that ALREADY belongs to this region. That is
+// the whole guard behind the isolation rule: an administrator of one region can
+// never come to administer another, because there is no input here that names
+// an account outside the region. Placing a person in a different region is done
+// by creating them there, not by moving them.
+router.post('/:acronym/admins/promote', async (req, res) => {
+  const code = String(req.params.acronym || '').trim().toUpperCase();
+  const username = String(req.body?.username || '').trim();
+  if (!username) {
+    return res.status(400).json({ error: 'Name the account to promote.' });
+  }
+
+  try {
+    if (!(await regionExists(code))) {
+      return res.status(404).json({ error: `There is no active region "${code}".` });
+    }
+
+    const outcome = await withTransaction(async (client) => {
+      const userRes = await client.query(
+        'SELECT username, name, role, region FROM users WHERE LOWER(username) = LOWER($1)',
+        [username]
+      );
+      if (userRes.rows.length === 0) {
+        return { status: 404, body: { error: `There is no account "${username}".` } };
+      }
+      const u = userRes.rows[0];
+
+      // The isolation guard, re-checked on the server: the account must already
+      // be in this region, and must be an ordinary user of it. A SUPERADMIN is
+      // national and belongs to no region; an ADMIN already administers one —
+      // neither is promoted here.
+      if (u.region !== code) {
+        return { status: 403, body: {
+          error: `"${u.username}" belongs to ${u.region || 'no region'}, not ${code}. `
+               + 'An administrator can only be drawn from the region’s own accounts.' } };
+      }
+      if (u.role === 'ADMIN') {
+        return { status: 409, body: { error: `"${u.username}" already administers ${code}.` } };
+      }
+      if (u.role !== 'USER' && u.role !== 'QCA') {
+        return { status: 403, body: { error: `"${u.username}" cannot be made an administrator.` } };
+      }
+      if (await adminCount(client, code) >= MAX_ADMINS_PER_REGION) {
+        return { status: 409, body: {
+          error: `${code} already has the maximum of ${MAX_ADMINS_PER_REGION} administrators. `
+               + 'Remove one before adding another.' } };
+      }
+
+      await client.query(`UPDATE users SET role = 'ADMIN' WHERE username = $1`, [u.username]);
+      return { status: 200, username: u.username };
+    });
+
+    if (outcome.status !== 200) return res.status(outcome.status).json(outcome.body);
+
+    await logEvent('success',
+      `National admin "${req.auth.username}" made "${outcome.username}" an administrator of ${code}.`,
+      code);
+
+    res.json({
+      success: true,
+      acronym: code,
+      administrator: outcome.username,
+      message: `"${outcome.username}" now administers ${code}.`,
+    });
+  } catch (err) {
+    console.error('[REGION ADMIN PROMOTE]', err);
+    res.status(500).json({ error: 'Failed to promote the account.' });
+  }
+});
+
+// DELETE /api/regions/:acronym/admins/:username — remove an administrator.
+//
+// For an administrator assigned to the wrong region, or simply no longer
+// wanted. It demotes them to an ordinary user of the region — safe, reversible,
+// and it disturbs nothing that refers to the account. Removing a region's only
+// administrator is allowed: the region shows "unmanaged" again, which the page
+// surfaces and can re-fix. The national account cannot demote itself, and only
+// an administrator OF THIS region can be named.
+//
+// Pass ?hard=1 to delete the account outright instead — used for a bootstrap
+// admin created by mistake. If anything on record still refers to it, the
+// delete is refused by the database and we fall back to demoting, so history is
+// never torn out from under a filing.
+router.delete('/:acronym/admins/:username', async (req, res) => {
+  const code = String(req.params.acronym || '').trim().toUpperCase();
+  const username = String(req.params.username || '').trim();
+  const hard = req.query.hard === '1' || req.query.hard === 'true';
+
+  if (username.toLowerCase() === String(req.auth.username).toLowerCase()) {
+    return res.status(400).json({ error: 'You cannot remove your own account.' });
+  }
+
+  try {
+    const userRes = await pool.query(
+      'SELECT username, role, region FROM users WHERE LOWER(username) = LOWER($1)',
+      [username]
+    );
+    if (userRes.rows.length === 0 || userRes.rows[0].region !== code || userRes.rows[0].role !== 'ADMIN') {
+      return res.status(404).json({ error: `"${username}" is not an administrator of ${code}.` });
+    }
+    const real = userRes.rows[0].username;
+
+    if (hard) {
+      try {
+        await pool.query('DELETE FROM users WHERE username = $1', [real]);
+        await logEvent('warn',
+          `National admin "${req.auth.username}" deleted administrator "${real}" of ${code}.`, code);
+        return res.json({ success: true, acronym: code, removed: real, deleted: true,
+          message: `"${real}" has been deleted.` });
+      } catch (delErr) {
+        // Referenced elsewhere (filings, assignments…): keep the account but
+        // strip its powers rather than fail outright.
+        if (delErr.code !== '23503') throw delErr;
+      }
+    }
+
+    await pool.query(`UPDATE users SET role = 'USER' WHERE username = $1`, [real]);
+    await logEvent('warn',
+      `National admin "${req.auth.username}" removed "${real}" as an administrator of ${code}.`, code);
+    res.json({
+      success: true, acronym: code, removed: real, deleted: false,
+      message: `"${real}" is no longer an administrator of ${code}${hard ? ' (it has activity on record, so it was demoted rather than deleted)' : ''}.`,
+    });
+  } catch (err) {
+    console.error('[REGION ADMIN DELETE]', err);
+    res.status(500).json({ error: 'Failed to remove the administrator.' });
   }
 });
 

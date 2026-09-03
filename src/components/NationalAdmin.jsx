@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { getRegions, createRegion, updateRegion, getRegionUsers, toggleUserLock, addRegionAdmin } from '../services/db';
+import { getRegions, createRegion, updateRegion, getRegionUsers, toggleUserLock, addRegionAdmin, promoteRegionAdmin, removeRegionAdmin } from '../services/db';
 import { DEFAULT_PASSWORD } from '../utils/password';
 import { Banner, EmptyState, SkeletonRows } from './Feedback';
 import { useFeedback } from '../hooks/useFeedback';
@@ -16,6 +16,10 @@ import { formatDateDMY } from '../utils/format';
  * blur the level this page sits at. The server refuses it too, so the omission
  * is the interface agreeing with the rule rather than hiding it.
  */
+// Mirrors MAX_ADMINS_PER_REGION in server/routes/regions.js — the server is the
+// authority, this only shapes the UI.
+const MAX_ADMINS = 4;
+
 export default function NationalAdmin({ currentUser }) {
   const { notice, notify, clearNotice, askConfirm, confirmProps } = useFeedback();
   const [regions, setRegions] = useState([]);
@@ -41,6 +45,12 @@ export default function NationalAdmin({ currentUser }) {
   const [newAdmin, setNewAdmin] = useState({ username: 'admin', name: '', email: '' });
   const [adminError, setAdminError] = useState('');
   const [addingAdmin, setAddingAdmin] = useState(false);
+
+  // The region's own USER/QCA accounts, for promoting one of them to admin, and
+  // which is selected. Loaded when the admin panel opens.
+  const [promotable, setPromotable] = useState([]);
+  const [promoteChoice, setPromoteChoice] = useState('');
+  const [promoting, setPromoting] = useState(false);
 
   async function load() {
     setLoadError('');
@@ -142,12 +152,55 @@ export default function NationalAdmin({ currentUser }) {
    * A region with none is stuck: its users can only be created from inside it,
    * and nobody can sign in. This account is the only one that can reach in.
    */
-  const openAdminForm = (acronym) => {
+  const openAdminForm = async (acronym) => {
     setAdminError('');
     if (adminFor === acronym) { setAdminFor(null); return; }
     setNewAdmin({ username: 'admin', name: '', email: '' });
+    setPromoteChoice('');
+    setPromotable([]);
     setAdminFor(acronym);
     setOpenRegion(null);
+    // The region's own accounts are the only ones that may be promoted, so this
+    // is where the choice for an existing-account assignment comes from.
+    try {
+      const users = await getRegionUsers(acronym);
+      setPromotable(users.filter(u => u.role === 'USER' || u.role === 'QCA'));
+    } catch { /* the create form below still works without the list */ }
+  };
+
+  const handlePromote = async (e, acronym) => {
+    e.preventDefault();
+    setAdminError('');
+    if (!promoteChoice) { setAdminError('Choose an account to make an administrator.'); return; }
+    setPromoting(true);
+    try {
+      const res = await promoteRegionAdmin(acronym, promoteChoice);
+      setAdminFor(null);
+      await load();
+      notify('success', res.message);
+    } catch (err) {
+      setAdminError(err.message || 'Could not promote the account.');
+    } finally {
+      setPromoting(false);
+    }
+  };
+
+  const handleRemoveAdmin = (username, region, isOnly) => {
+    askConfirm({
+      title: `Remove ${username} as administrator?`,
+      message: isOnly
+        ? `${username} is the only administrator of ${region}. Removing them leaves ${region} `
+          + 'unmanaged until you give it another — nobody will be able to sign in to it.'
+        : `${username} becomes a regular user of ${region} and can no longer administer it.`,
+      details: [['Account', username], ['Region', region]],
+      confirmLabel: 'Remove',
+      tone: isOnly ? 'danger' : 'warn',
+      action: async () => {
+        const res = await removeRegionAdmin(region, username);
+        await load();
+        notify('success', res.message);
+      },
+    });
   };
 
   const handleAddAdmin = async (e, acronym) => {
@@ -365,7 +418,24 @@ export default function NationalAdmin({ currentUser }) {
                   <td style={{ fontWeight: 500 }}>{r.name}</td>
                   <td><span className="region-badge">{r.acronym}</span></td>
                   <td className="mono" style={{ fontSize: '0.78rem' }}>
-                    {r.administrators || <span style={{ color: 'var(--danger-text)' }}>none — unmanaged</span>}
+                    {r.administrators ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                        {r.administrators.split(', ').map((u) => (
+                          <span key={u} style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
+                            {u}
+                            <button type="button"
+                              onClick={() => handleRemoveAdmin(u, r.acronym, r.administrators.split(', ').length === 1)}
+                              title={`Remove ${u} as administrator of ${r.acronym}`}
+                              style={{ border: 'none', background: 'transparent', cursor: 'pointer',
+                                       color: 'var(--danger-text)', padding: 0, lineHeight: 0, display: 'inline-flex' }}>
+                              <X size={12} />
+                            </button>
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <span style={{ color: 'var(--danger-text)' }}>none — unmanaged</span>
+                    )}
                     {r.locked_admins && (
                       <div style={{ marginTop: '3px' }}>
                         <span className="status-badge rejected" style={{ fontSize: '0.68rem' }}>
@@ -412,11 +482,53 @@ export default function NationalAdmin({ currentUser }) {
                           <h4>Give {r.acronym} an administrator</h4>
                           <p>
                             {r.administrators
-                              ? `${r.acronym} already has ${r.administrators}. A second administrator shares the same powers within the region.`
+                              ? `${r.acronym} already has ${r.administrators}. Another administrator shares the same powers within the region.`
                               : `${r.acronym} has nobody who can sign in. Its administrator runs the region from here on — this page does not create its users.`}
+                            {' '}<strong>{r.admin_count} / {MAX_ADMINS} administrator{r.admin_count === 1 ? '' : 's'}.</strong>
                           </p>
                         </div>
                         <Banner type="error" message={adminError} />
+
+                        {r.admin_count >= MAX_ADMINS ? (
+                          <p style={{ color: 'var(--text-secondary)', fontSize: '0.83rem' }}>
+                            {r.acronym} already has the maximum of {MAX_ADMINS} administrators. Remove one before adding another.
+                          </p>
+                        ) : (<>
+
+                        {/* Assign an existing account — the recovery path. Only this
+                            region's own accounts appear, so isolation is never crossed. */}
+                        {promotable.length > 0 ? (
+                          <form onSubmit={(e) => handlePromote(e, r.acronym)} style={{ marginBottom: '18px' }}>
+                            <div className="form-group" style={{ maxWidth: '460px', marginBottom: 0 }}>
+                              <label htmlFor={`na-promote-${r.acronym}`}>Assign an existing account</label>
+                              <div style={{ display: 'flex', gap: '8px' }}>
+                                <select id={`na-promote-${r.acronym}`} className="form-control"
+                                  value={promoteChoice} onChange={(e) => setPromoteChoice(e.target.value)}>
+                                  <option value="">Choose an account in {r.acronym}…</option>
+                                  {promotable.map(u => (
+                                    <option key={u.username} value={u.username}>{u.username} — {u.name} ({u.role})</option>
+                                  ))}
+                                </select>
+                                <button type="submit" className="btn btn-primary" disabled={promoting || !promoteChoice}>
+                                  <UserPlus size={15} /> {promoting ? 'Assigning…' : 'Assign'}
+                                </button>
+                              </div>
+                              <span className="settings-field-hint">
+                                Raises one of {r.acronym}’s own users to administer it. Only this region’s accounts appear here.
+                              </span>
+                            </div>
+                          </form>
+                        ) : (
+                          <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem', marginBottom: '14px' }}>
+                            No existing accounts in {r.acronym} to promote — create one below.
+                          </p>
+                        )}
+
+                        <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', textTransform: 'uppercase',
+                                      letterSpacing: '0.04em', margin: '4px 0 12px' }}>
+                          or create a new administrator
+                        </div>
+
                         <form onSubmit={(e) => handleAddAdmin(e, r.acronym)}>
                           <div className="review-grid">
                             <div className="form-group">
@@ -458,6 +570,7 @@ export default function NationalAdmin({ currentUser }) {
                             </button>
                           </div>
                         </form>
+                        </>)}
                       </div>
                     </td>
                   </tr>
