@@ -15,7 +15,7 @@ const router = express.Router();
 const pool = require('../db');
 const { logEvent } = require('../utils/log');
 const { getSettings, getBoolean } = require('../utils/settings');
-const { checkFilingWindow } = require('../utils/filingWindow');
+const { checkFilingWindow, categoriesFor, extractTypes } = require('../utils/filingWindow');
 const { originalFilename, isNetScheduleSummary } = require('../utils/filenames');
 const { requireAdmin, isAdmin, isSuperAdmin } = require('../middleware/auth');
 const { scopeToRegion, scopeToRegionOrTradeParty, canActOnRegion, crossRegionError } = require('../middleware/region');
@@ -727,7 +727,7 @@ router.patch('/:reqNo/reraise', async (req, res) => {
 
   try {
     const configResult = { rows: Object.entries(
-      await getSettings(['reraiseWindow', 'reraiseLimit'], req.auth.region)
+      await getSettings(['reraiseWindow', 'reraiseLimit', 'maxDays'], req.auth.region)
     ).map(([key, value]) => ({ key, value })) };
     const config = {};
     configResult.rows.forEach(row => {
@@ -736,6 +736,7 @@ router.patch('/:reqNo/reraise', async (req, res) => {
 
     const reraiseWindow = parseInt(config.reraiseWindow || '45');
     const reraiseLimit = parseInt(config.reraiseLimit || '2');
+    const maxDays = parseInt(config.maxDays || '5', 10);
 
     const discRes = await pool.query('SELECT * FROM discrepancies WHERE req_no = $1', [reqNo]);
     if (discRes.rows.length === 0) return res.status(404).json({ error: 'Discrepancy not found.' });
@@ -758,6 +759,26 @@ router.patch('/:reqNo/reraise', async (req, res) => {
     if (disc.reraise_count >= reraiseLimit) {
       await logEvent('error', `Re-raise BLOCKED: Req No ${reqNo} count ${disc.reraise_count} has reached limit ${reraiseLimit}`);
       return res.status(400).json({ error: `Cannot re-raise — you have reached the maximum allowed limit of ${reraiseLimit} re-raises for this discrepancy.` });
+    }
+
+    // A re-raise runs on its own wider window (reraiseWindow), but it must not
+    // become a way to slip in a discrepancy type the filing-window category rule
+    // would refuse for this filing's age. Beyond maxDays only the restricted
+    // categories are admissible — the same gate POST / applies at filing time.
+    // The day-limit and calendar-cutoff gates are deliberately NOT re-applied
+    // here; the re-raise window governs how old a filing may be re-raised.
+    const cats = categoriesFor(diff, maxDays);
+    if (!cats.all) {
+      const disallowed = extractTypes(discrepancyType).filter(c => !cats.allowed.includes(c));
+      if (disallowed.length > 0) {
+        const list = (a) => a.map(c => `"${c}"`).join(' or ');
+        await logEvent('warn',
+          `Re-raise BLOCKED: Req No ${reqNo} (${diff} days old) — type(s) ${disallowed.join(', ')} not allowed beyond ${maxDays} days.`);
+        return res.status(400).json({
+          error: `This filing is ${diff} days old. Beyond ${maxDays} days only ${list(cats.allowed)} may be re-raised — `
+               + `${list(disallowed)} ${disallowed.length === 1 ? 'is' : 'are'} no longer available for this date.`,
+        });
+      }
     }
 
     // Merge new files into existing files JSON array

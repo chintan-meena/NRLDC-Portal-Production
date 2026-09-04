@@ -8,7 +8,7 @@
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { checkFilingWindow, cutoffDateFor } = require('../../utils/filingWindow');
+const { checkFilingWindow, cutoffDateFor, categoriesFor, extractTypes } = require('../../utils/filingWindow');
 const { RESTRICTED_WINDOW_CATEGORIES } = require('../../utils/discrepancyTypes');
 
 const NOW = new Date(2026, 5, 10); // 10 Jun 2026, local
@@ -79,6 +79,31 @@ test('when the extended window is off, maxDays is the hard limit', () => {
   });
   assert.equal(r.ok, false);
   assert.match(r.error, /older than 5 days/i);
+});
+
+// The re-raise route (routes/discrepancies.js) reuses categoriesFor + extractTypes
+// to stop a re-raise slipping in a type the age would forbid. These pin that.
+test('categoriesFor is unrestricted within maxDays and restricted beyond it', () => {
+  assert.deepEqual(categoriesFor(3, 5), { all: true, allowed: null });
+  const beyond = categoriesFor(10, 5);
+  assert.equal(beyond.all, false);
+  assert.deepEqual(beyond.allowed, RESTRICTED_WINDOW_CATEGORIES);
+});
+
+test('extractTypes reads the stored <tag> markers a re-raise would submit', () => {
+  assert.deepEqual(extractTypes('<WBES Outage><Post facto revisions>'), ['WBES Outage', 'Post facto revisions']);
+  assert.deepEqual(extractTypes(['Post facto revisions']), ['Post facto revisions']);
+  assert.deepEqual(extractTypes(''), []);
+});
+
+test('the re-raise category gate: a disallowed type beyond maxDays is caught', () => {
+  const cats = categoriesFor(10, 5);            // restricted window
+  const chosen = extractTypes('<WBES Outage>'); // not a restricted category
+  const disallowed = chosen.filter(c => !cats.allowed.includes(c));
+  assert.deepEqual(disallowed, ['WBES Outage']);
+
+  const ok = extractTypes(`<${RESTRICTED_WINDOW_CATEGORIES[0]}>`).filter(c => !cats.allowed.includes(c));
+  assert.deepEqual(ok, []);                      // a restricted category passes
 });
 
 test('cutoffDateFor clamps a cutoff day past a short month to its last day', () => {
