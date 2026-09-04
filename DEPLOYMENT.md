@@ -1,8 +1,9 @@
 # Deploying to production
 
-This is the short runbook for putting the portal in front of real users. The
-full feature documentation is in [README.md](README.md); this file only covers
-what is different about a live server.
+This is the short runbook for putting the portal in front of real users. It
+covers only what is different about a live server; the day-to-day operational
+commands it refers to live in `nrldc.sh`, and orientation for the codebase is in
+[CLAUDE.md](CLAUDE.md).
 
 Work through it in order. The ordering matters in three places, all noted below.
 
@@ -187,8 +188,9 @@ and the same `SESSION_SECRET` for every instance.
 
 The mail allowance is the tightest resource the portal has. `./nrldc.sh mail`
 shows usage against the cap; held-back messages mean the cap was reached, and
-the counter resets at midnight. See
-[Email Budget](README.md#-email-budget) for the arithmetic behind the defaults.
+the counter resets at midnight. The arithmetic behind the default cap is in the
+comments on the mail settings (`mailDailyCap`, `otpTrustDays`) in
+[server/schema.sql](server/schema.sql).
 
 ---
 

@@ -248,8 +248,9 @@ if (hasBuild) {
   });
 }
 
-// Global error handler
-app.use((err, req, res, next) => {
+// Global error handler. Express recognises an error handler by its four-argument
+// arity, so `_next` must be declared even though it is not called.
+app.use((err, req, res, _next) => {
   console.error('[SERVER ERROR]', err);
   res.status(500).json({ error: 'Internal server error.' });
 });

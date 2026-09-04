@@ -12,6 +12,9 @@
     "migrate": "node server/migrate.js",
     "seed": "node server/seed.js",
     "lint": "eslint .",
+    "test": "npm --prefix server test",
+    "test:integration": "npm --prefix server run test:integration",
+    "test:all": "npm --prefix server run test:all",
     "preview": "vite preview"
   },
   "dependencies": {

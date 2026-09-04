@@ -1,0 +1,65 @@
+name: CI
+
+# The wall between a bad change and main: lint, build and the full test suite
+# run on every pull request and on pushes to the long-lived branches.
+on:
+  pull_request:
+  push:
+    branches: [main, tier1-safety-net]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+
+    # A throwaway PostgreSQL for the integration tests. The test helper creates a
+    # database named `nrldc_test` inside it; nothing here touches real data.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE_TEST: nrldc_test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Install backend dependencies
+        run: npm ci
+        working-directory: server
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Unit tests (no database)
+        run: npm test
+        working-directory: server
+
+      - name: Integration tests (against the Postgres service)
+        run: npm run test:integration
+        working-directory: server

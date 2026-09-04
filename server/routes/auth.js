@@ -24,7 +24,7 @@ const { validatePassword } = require('../utils/password');
 const { usernameFromAcronym } = require('../utils/usernames');
 const { isTrader } = require('../utils/trade');
 const { getBoolean, getNumber, getSetting } = require('../utils/settings');
-const { parseSignupTypes, deriveSignupType, deriveEnergyCategory, DEFAULT_SIGNUP_TYPES } = require('../utils/wbesTypes');
+const { parseSignupTypes, deriveSignupType, DEFAULT_SIGNUP_TYPES } = require('../utils/wbesTypes');
 const { setContextRegion } = require('../utils/requestContext');
 const { sendMail, numericConfig } = require('../utils/mailer');
 const {

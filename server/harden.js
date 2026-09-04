@@ -24,7 +24,6 @@ const bcrypt = require('bcryptjs');
 const pool = require('./db');
 const { DEFAULT_PASSWORD } = require('./utils/password');
 const { getSetting } = require('./utils/settings');
-const { REGIONS } = require('./middleware/region');
 
 const FIX = process.argv.includes('--fix');
 

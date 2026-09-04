@@ -39,7 +39,7 @@ const {
   UTILITY_TYPES, GENERATOR_TYPES, GENERATOR_SUBTYPES,
   normalizeUtilityType, normalizeGeneratorType, normalizeGeneratorSubType, deriveEnergyCategory,
 } = require('../utils/wbesTypes');
-const { sendMail, mailUsage } = require('../utils/mailer');
+const { sendMail } = require('../utils/mailer');
 const { forgetDevices, listDevices } = require('../auth/devices');
 const path = require('path');
 const fs = require('fs');
