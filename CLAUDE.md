@@ -78,6 +78,16 @@ These are load-bearing; a change that breaks one is a regression, not a cleanup.
   cover the server copies.
 - **SESSION_SECRET must be identical across every process** behind a load
   balancer, or tokens issued by one process are rejected by another.
+- **Two kinds of account lock, told apart by `locked_at`.** A failed-attempt
+  lockout sets `locked_at` and expires on its own after `lockoutMinutes`
+  (default 60); a deliberate admin lock leaves `locked_at` NULL and is permanent.
+  `auth/lockout.js` is the one place that rule lives — never auto-clear a lock
+  whose `locked_at` is NULL. Login errors are deliberately generic (no "account
+  exists" / attempt-count leak); keep them that way.
+- **Settings are cached in-process** (`utils/settings.js`, ~30s TTL) and
+  invalidated by `setSetting`. Any code that writes a `config` row by another
+  path must call `invalidateSetting`/`clearSettingsCache` or reads stay stale
+  until the TTL lapses.
 
 ## Out of scope by decision
 

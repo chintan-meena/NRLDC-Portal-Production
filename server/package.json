@@ -11,8 +11,8 @@
     "init": "node seed.js",
     "test": "node --test test/unit/",
     "test:unit": "node --test test/unit/",
-    "test:integration": "node --test test/integration/",
-    "test:all": "node --test test/unit/ test/integration/"
+    "test:integration": "node --test --test-concurrency=1 test/integration/",
+    "test:all": "node --test test/unit/ && node --test --test-concurrency=1 test/integration/"
   },
   "dependencies": {
     "archiver": "^8.0.0",

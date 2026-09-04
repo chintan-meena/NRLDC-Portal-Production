@@ -153,7 +153,7 @@ async function config(key, region = null) {
   if (locked.length === 0) {
     ok('No account is locked out');
   } else if (FIX) {
-    await pool.query('UPDATE users SET locked = FALSE, failed_attempts = 0');
+    await pool.query('UPDATE users SET locked = FALSE, failed_attempts = 0, locked_at = NULL');
     ok(`Unlocked ${locked.length} account(s)`);
   } else {
     warn(`${locked.length} account(s) are locked: ${locked.map(u => u.username).join(', ')}`);

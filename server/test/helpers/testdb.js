@@ -35,6 +35,15 @@ if (!/_test$/.test(TEST_DB)) {
   );
 }
 
+// Point the application's own singleton pool (server/db.js, used by code under
+// test such as settings.js and logEvent) at the test database. Without this,
+// any code that reaches for `../db` instead of an injected client would run
+// against whatever PGDATABASE names — i.e. the real database. This module is
+// required before the code under test in every test file, and db.js reads
+// PGDATABASE at require time, so setting it here is what makes `../db` safe.
+// Guarded to a *_test name above, so this can only ever repoint to a test DB.
+process.env.PGDATABASE = TEST_DB;
+
 const CONN = {
   host: process.env.PGHOST || 'localhost',
   port: parseInt(process.env.PGPORT || '5432', 10),

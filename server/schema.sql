@@ -70,6 +70,10 @@ CREATE TABLE IF NOT EXISTS users (
   energy_category VARCHAR(20) NOT NULL DEFAULT 'ISGS' CHECK (energy_category IN ('ISGS', 'RE', 'States', 'Traders')),
   locked BOOLEAN NOT NULL DEFAULT FALSE,
   failed_attempts INTEGER NOT NULL DEFAULT 0,
+  -- When a failed-attempt lockout was applied, so it can expire on its own after
+  -- a cooldown (see auth/lockout.js). NULL for an account that is not locked, and
+  -- for a deliberate admin lock — which must NOT auto-expire.
+  locked_at TIMESTAMPTZ,
   preferred_landing VARCHAR(20) DEFAULT 'both',
   bypass_2fa BOOLEAN NOT NULL DEFAULT FALSE,
   can_upload_cycle_data BOOLEAN NOT NULL DEFAULT FALSE,
@@ -370,6 +374,12 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_new_acronym_pending
 CREATE INDEX IF NOT EXISTS idx_disc_flagged
   ON discrepancies (region, flagged, resolved_time DESC) WHERE flagged;
 
+-- ─── Temporary lockouts ─────────────────────────────────────────────────────
+-- A failed-attempt lockout now records when it happened, so it can lift on its
+-- own after a cooldown instead of needing an admin. A deliberate admin lock
+-- leaves this NULL and stays permanent. See auth/lockout.js.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS locked_at TIMESTAMPTZ;
+
 -- ─── The national role is not a region ──────────────────────────────────────
 -- SUPERADMIN sits above the regions, so it belongs to none of them. Its region
 -- is NULL, and the constraint below makes that the only valid shape: a
@@ -660,6 +670,11 @@ BEGIN
   CREATE EXTENSION IF NOT EXISTS pg_trgm;
   CREATE INDEX IF NOT EXISTS idx_disc_content_trgm ON discrepancies USING gin (request_content gin_trgm_ops);
   CREATE INDEX IF NOT EXISTS idx_disc_type_trgm    ON discrepancies USING gin (discrepancy_type gin_trgm_ops);
+  -- The list search now runs only over these columns (plus req_no exact), so
+  -- give each the trigram index a leading-wildcard ILIKE needs to stay fast.
+  CREATE INDEX IF NOT EXISTS idx_disc_requestby_trgm ON discrepancies USING gin (request_by gin_trgm_ops);
+  CREATE INDEX IF NOT EXISTS idx_disc_acronym_trgm   ON discrepancies USING gin (wbes_acronym gin_trgm_ops);
+  CREATE INDEX IF NOT EXISTS idx_users_name_trgm     ON users USING gin (name gin_trgm_ops);
 EXCEPTION WHEN OTHERS THEN
   RAISE NOTICE 'pg_trgm unavailable (%) — text search will work without a trigram index.', SQLERRM;
 END $$;
@@ -674,6 +689,11 @@ SELECT d.key, r.region, d.value
   FROM (VALUES
     ('maxDays', '5'),
     ('lockoutAttempts', '3'),
+    -- How long a failed-attempt lockout lasts before it lifts on its own, in
+    -- minutes. Stops an attacker permanently locking accounts (whose usernames
+    -- follow the public WBES acronyms) with a few wrong passwords. A deliberate
+    -- admin lock ignores this and stays until an admin unlocks it.
+    ('lockoutMinutes', '60'),
     ('allowExtended', 'true'),
     ('extendedMaxDays', '15'),
     ('reraiseWindow', '45'),

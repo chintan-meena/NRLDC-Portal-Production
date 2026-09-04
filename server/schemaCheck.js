@@ -39,6 +39,7 @@ const REQUIRED_COLUMNS = [
   ['wbes_entities', 'generator_subtype'], // added with the full WBES_Utility format
   ['wbes_entities', 'date_of_commissioning'],
   ['login_otps', 'purpose'],              // added when reset codes joined login codes
+  ['users', 'locked_at'],                 // added for auto-expiring failed-attempt lockouts
 ];
 
 /**

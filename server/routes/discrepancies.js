@@ -21,6 +21,7 @@ const { requireAdmin, isAdmin, isSuperAdmin } = require('../middleware/auth');
 const { scopeToRegion, scopeToRegionOrTradeParty, canActOnRegion, crossRegionError } = require('../middleware/region');
 const { toDateString, daysSince } = require('../utils/dates');
 const { parseTimeBlocks } = require('../utils/timeBlocks');
+const { clampPagination } = require('../utils/pagination');
 const { typeMatchPattern } = require('../utils/discrepancyTypes');
 const {
   isTrader, validateTrade, isInterRegional, openingState,
@@ -145,17 +146,17 @@ router.get('/', async (req, res) => {
       params.push(`%${term}%`);
       const like = `$${params.length}`;
 
+      // Narrowed to the columns operators actually search, each backed by a
+      // trigram index (see schema.sql). The dropped columns — admin_comment,
+      // rejection_reason, time_blocks, status, energy_category — forced a
+      // full-table scan on every keystroke for matches nobody looked for, and
+      // status/category already have their own dedicated filters below.
       const clauses = [
         `d.request_by ILIKE ${like}`,          // station / user account
         `u.name ILIKE ${like}`,                // station display name
         `d.request_content ILIKE ${like}`,     // the remarks themselves
         `d.discrepancy_type ILIKE ${like}`,    // the reason tags
-        `d.admin_comment ILIKE ${like}`,       // what the admin wrote back
-        `d.rejection_reason ILIKE ${like}`,
         `d.wbes_acronym ILIKE ${like}`,        // plant acronym
-        `d.time_blocks ILIKE ${like}`,
-        `d.status ILIKE ${like}`,              // "pending", "resolved", ...
-        `d.energy_category ILIKE ${like}`,     // "ISGS", "RE", "States"
       ];
 
       // A bare number is almost always a request number, so match it exactly
@@ -207,9 +208,11 @@ router.get('/', async (req, res) => {
 
     const whereClause = conditions.length > 0 ? ` WHERE ${conditions.join(' AND ')}` : '';
 
-    const countResult = await pool.query(`SELECT COUNT(*) AS count ${fromClause}${whereClause}`, params);
-    const total = parseInt(countResult.rows[0].count);
-
+    // The total is computed alongside the page with a window function, so the
+    // list costs one query rather than two. The count and the page used to run
+    // the same JOIN + WHERE (including the search scan) separately; COUNT(*)
+    // OVER() counts every matching row before LIMIT, so the total is exact.
+    //
     // consenter_on_portal answers the one question the screen cannot: whether
     // the region being asked to consent — the buyer's — has anybody who could
     // consent here. It decides whether the seller is shown "waiting for ERLDC"
@@ -217,34 +220,39 @@ router.get('/', async (req, res) => {
     // regional admin cannot read another region's user list, and should not be
     // able to.
     let baseQuery = `SELECT d.*, u.name AS request_by_name,
+      COUNT(*) OVER()::int AS total_count,
       CASE WHEN d.buyer_region IS NULL THEN NULL ELSE EXISTS (
         SELECT 1 FROM users su
          WHERE su.region = d.buyer_region AND su.role = 'ADMIN' AND NOT su.locked
       ) END AS consenter_on_portal
       ${fromClause}${whereClause}`;
-    baseQuery += ` ORDER BY 
-      CASE d.status 
+    baseQuery += ` ORDER BY
+      CASE d.status
         WHEN 'Awaiting Consent' THEN 0
-        WHEN 'Pending' THEN 1 
-        WHEN 'Returned' THEN 2 
-        WHEN 'Resolved' THEN 3 
-        WHEN 'Rejected' THEN 4 
-        ELSE 5 
-      END ASC, 
+        WHEN 'Pending' THEN 1
+        WHEN 'Returned' THEN 2
+        WHEN 'Resolved' THEN 3
+        WHEN 'Rejected' THEN 4
+        ELSE 5
+      END ASC,
       d.req_no DESC`;
-    
-    const parsedLimit = parseInt(limit);
-    const parsedPage = parseInt(page);
-    const offset = (parsedPage - 1) * parsedLimit;
-    
+
+    // Bounds enforced in one place: bad/huge/negative page or limit can no
+    // longer reach LIMIT/OFFSET as NaN or a negative (see utils/pagination.js).
+    const { page: parsedPage, limit: parsedLimit, offset } = clampPagination({ page, limit });
+
     params.push(parsedLimit);
     baseQuery += ` LIMIT $${params.length}`;
     params.push(offset);
     baseQuery += ` OFFSET $${params.length}`;
 
     const result = await pool.query(baseQuery, params);
+    // total_count is repeated on every row; read it once, then strip it so the
+    // payload shape is unchanged.
+    const total = result.rows.length > 0 ? result.rows[0].total_count : 0;
+    const data = result.rows.map(({ total_count, ...row }) => row);
     res.json({
-      data: result.rows,
+      data,
       total,
       page: parsedPage,
       limit: parsedLimit

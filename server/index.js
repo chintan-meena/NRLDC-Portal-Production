@@ -15,6 +15,7 @@ const pool = require('./db');
 const { requireAuth, requireAdmin, requireSuperAdmin } = require('./middleware/auth');
 const { checkSchema, reportSchemaProblem } = require('./schemaCheck');
 const { originalFilename } = require('./utils/filenames');
+const { sweepOrphanUploads } = require('./utils/uploadSweep');
 
 const authRoutes          = require('./routes/auth');
 const usersRoutes         = require('./routes/users');
@@ -276,6 +277,9 @@ async function ensureDefaultConfig() {
   const regionalDefaults = {
     maxDays: '5',
     lockoutAttempts: '3',
+    // How long a failed-attempt lockout lasts before it lifts on its own. See
+    // auth/lockout.js — a deliberate admin lock ignores this and stays put.
+    lockoutMinutes: '60',
     // Which WBES types may self-register in this region. Everything but
     // EMBEDDED_IN_STATE by default — renewable regional entities (RENEWABLE)
     // register alongside conventional ones, and QCA coordinating agencies
@@ -350,6 +354,16 @@ async function start() {
   // The region list is consulted on nearly every request. The foreign keys are
   // what enforce it; this is the cache that validation and menus read.
   await refreshRegions();
+
+  // Sweep abandoned uploads (files written but never attached to a saved
+  // record) once a day, plus once shortly after startup. The grace period keeps
+  // a file that is mid-filing safe; see utils/uploadSweep.js. Best-effort, and
+  // unref'd so it never holds the process open during shutdown.
+  const UPLOAD_SWEEP_DIR = path.join(__dirname, 'upload');
+  const UPLOAD_GRACE_DAYS = parseInt(process.env.UPLOAD_GRACE_DAYS || '5', 10);
+  const runSweep = () => sweepOrphanUploads(pool, UPLOAD_SWEEP_DIR, UPLOAD_GRACE_DAYS);
+  setTimeout(runSweep, 60 * 1000).unref();
+  setInterval(runSweep, 24 * 60 * 60 * 1000).unref();
 
   server = app.listen(PORT, () => {
     console.log('');

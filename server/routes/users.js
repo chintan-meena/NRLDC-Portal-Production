@@ -415,8 +415,10 @@ router.patch('/:username/lock', requireAdmin, requireSameRegion(), async (req, r
     if (current.rows.length === 0) return res.status(404).json({ error: 'User not found.' });
 
     const newLocked = !current.rows[0].locked;
+    // locked_at stays NULL for a manual lock: an admin lock is deliberate and
+    // must not auto-expire the way a failed-attempt lockout does (auth/lockout.js).
     await pool.query(
-      'UPDATE users SET locked = $1, failed_attempts = 0 WHERE LOWER(username) = LOWER($2)',
+      'UPDATE users SET locked = $1, failed_attempts = 0, locked_at = NULL WHERE LOWER(username) = LOWER($2)',
       [newLocked, username]
     );
     await logEvent(newLocked ? 'warn' : 'success', `User "${username}" status manually changed to ${newLocked ? 'LOCKED' : 'UNLOCKED'}`);

@@ -24,6 +24,7 @@ const { validatePassword } = require('../utils/password');
 const { usernameFromAcronym } = require('../utils/usernames');
 const { isTrader } = require('../utils/trade');
 const { getBoolean, getNumber, getSetting } = require('../utils/settings');
+const { effectiveLock, minutesUntil, DEFAULT_LOCKOUT_MINUTES } = require('../auth/lockout');
 const { parseSignupTypes, deriveSignupType, DEFAULT_SIGNUP_TYPES } = require('../utils/wbesTypes');
 const { setContextRegion } = require('../utils/requestContext');
 const { sendMail, numericConfig } = require('../utils/mailer');
@@ -39,6 +40,19 @@ const {
 
 const OTP_TTL_MS = 5 * 60 * 1000;   // 5 minutes for a login code
 const OTP_MAX_ATTEMPTS = 5;         // per issued code, then it is burned
+
+// A single wording for every "these credentials do not work" outcome, so a
+// wrong password on a real account is indistinguishable from a login for an
+// account that does not exist. The old messages differed — "Invalid password.
+// Attempt 1 of 3" only ever appeared for a real username — which quietly
+// confirmed which accounts exist (and the usernames follow the public WBES
+// acronyms). See the dummy-hash compare below for the matching timing fix.
+const GENERIC_LOGIN_ERROR = 'Invalid username or password.';
+
+// A real bcrypt hash to compare against when the username does not exist, so an
+// unknown account costs the same time as a known one and cannot be told apart
+// by how quickly the request returns. Computed once at startup.
+const DUMMY_PASSWORD_HASH = bcrypt.hashSync('nrldc-timing-equalizer', 10);
 
 /** A fresh 6-digit code from a cryptographic source, never Math.random(). */
 function generateOtp() {
@@ -183,18 +197,43 @@ router.post('/login', async (req, res) => {
     // cannot be read until we know whose region applies.
     const userRes = await pool.query('SELECT * FROM users WHERE LOWER(username) = LOWER($1)', [username]);
     if (userRes.rows.length === 0) {
+      // Spend the same bcrypt time a real account would, so an unknown username
+      // cannot be identified by a faster response, and answer with the identical
+      // generic message.
+      await bcrypt.compare(String(password), DUMMY_PASSWORD_HASH);
       await logEvent('error', `Login failed: Username "${username}" does not exist`);
-      return authFailure(res, { success: false, error: 'Invalid username or password.' });
+      return authFailure(res, { success: false, error: GENERIC_LOGIN_ERROR });
     }
 
     const user = userRes.rows[0];
     // Login is a public route, so the context has no region until now.
     setContextRegion(user.region);
     const lockoutAttempts = await getNumber('lockoutAttempts', user.region, 3);
+    const lockoutMinutes = await getNumber('lockoutMinutes', user.region, DEFAULT_LOCKOUT_MINUTES);
 
-    if (user.locked) {
+    // A failed-attempt lockout expires on its own after the cooldown; a
+    // deliberate admin lock (locked_at IS NULL) does not. See auth/lockout.js.
+    const lock = effectiveLock(user, lockoutMinutes);
+    if (lock.locked) {
       await logEvent('error', `Login blocked: User "${username}" is currently locked out`);
-      return authFailure(res, { success: false, locked: true, error: 'Your account is locked. Please contact the Admin to unlock.' });
+      const mins = minutesUntil(lock.until);
+      return authFailure(res, {
+        success: false, locked: true,
+        error: mins
+          ? `Your account is locked after too many attempts. Try again in about ${mins} minute${mins === 1 ? '' : 's'}, or contact the Admin.`
+          : 'Your account is locked. Please contact the Admin to unlock.',
+      });
+    }
+    if (lock.expired) {
+      // The cooldown has passed — clear the temporary lock and let this attempt
+      // proceed as if it were fresh.
+      await pool.query(
+        'UPDATE users SET locked = FALSE, failed_attempts = 0, locked_at = NULL WHERE username = $1',
+        [user.username]
+      );
+      user.locked = false;
+      user.failed_attempts = 0;
+      await logEvent('info', `Lockout for "${username}" expired after ${lockoutMinutes} minute(s) — unlocked automatically.`);
     }
 
     // Verify password
@@ -203,18 +242,26 @@ router.post('/login', async (req, res) => {
       const newFailed = (user.failed_attempts || 0) + 1;
       const shouldLock = newFailed >= lockoutAttempts;
 
+      // Stamp locked_at only when this attempt is what locks the account, so the
+      // cooldown is measured from the lock — and so the lock is marked as a
+      // failed-attempt lock (which expires) rather than an admin lock (which
+      // does not).
       await pool.query(
-        'UPDATE users SET failed_attempts = $1, locked = $2 WHERE username = $3',
+        'UPDATE users SET failed_attempts = $1, locked = $2, locked_at = CASE WHEN $2::boolean THEN NOW() ELSE locked_at END WHERE username = $3',
         [newFailed, shouldLock, user.username]
       );
 
       if (shouldLock) {
-        await logEvent('error', `User "${username}" exceeded max login attempts (${lockoutAttempts}). ACCOUNT LOCKED.`);
-        return authFailure(res, { success: false, locked: true, error: `Maximum password attempts reached. Your account has been locked. Please contact Admin.` });
-      } else {
-        await logEvent('warn', `Failed login attempt ${newFailed}/${lockoutAttempts} for user "${username}"`);
-        return authFailure(res, { success: false, error: `Invalid password. Attempt ${newFailed} of ${lockoutAttempts}.` });
+        await logEvent('error', `User "${username}" exceeded max login attempts (${lockoutAttempts}). ACCOUNT LOCKED for ${lockoutMinutes} minute(s).`);
+        return authFailure(res, {
+          success: false, locked: true,
+          error: `Too many attempts — your account is locked for about ${lockoutMinutes} minutes. Then you can try again, or contact the Admin.`,
+        });
       }
+      // Generic wording, no attempt count: revealing "Attempt N of M" here (only
+      // ever for a real username) is exactly what let accounts be enumerated.
+      await logEvent('warn', `Failed login attempt ${newFailed}/${lockoutAttempts} for user "${username}"`);
+      return authFailure(res, { success: false, error: GENERIC_LOGIN_ERROR });
     }
 
     // Password correct — reset failed attempts
@@ -456,7 +503,7 @@ router.post('/reset-password', async (req, res) => {
 
     const hash = await bcrypt.hash(password, 10);
     await pool.query(
-      'UPDATE users SET password_hash = $1, failed_attempts = 0, locked = FALSE WHERE username = $2',
+      'UPDATE users SET password_hash = $1, failed_attempts = 0, locked = FALSE, locked_at = NULL WHERE username = $2',
       [hash, user.username]
     );
     const dropped = await forgetDevices(user.username);
