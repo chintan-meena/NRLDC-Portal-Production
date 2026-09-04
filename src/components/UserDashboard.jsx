@@ -421,14 +421,7 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
           ? { buyerRegion, sellerRegion, buyerAcronym, sellerAcronym }
           : null;
         await createDiscrepancy(currentUser.username, correctionDate, blockCheck.normalised, reason, discrepancyType, uploadedFilenames, targetAcronym, trade);
-        // An inter-regional trade does not go to operations yet: it goes to the
-        // selling region to be confirmed, and saying so here is the difference
-        // between a user waiting patiently and a user filing it again.
-        setFileResult({ ok: true, message:
-          trade && buyerRegion !== sellerRegion
-            ? `Filed. ${buyerRegion} must confirm the trade was theirs before ${sellerRegion} can apply the fix — you will see it as “Awaiting consent” until they do.`
-            : `Discrepancy filed successfully and dispatched to ${currentUser.region} operations!`
-        });
+        setFileResult({ ok: true, message: 'Discrepancy Filed and submitted to RLDC.' });
       }
 
       setCorrectionDate(''); 

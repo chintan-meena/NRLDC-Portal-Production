@@ -268,10 +268,10 @@ export default function Register({ onBackToLogin }) {
             <div className="form-group">
               <label htmlFor="reg-username">Username</label>
               <input id="reg-username" type="text" className="form-control" value={username}
-                placeholder="Generated from your WBES acronym once you pick it"
+                placeholder="Auto-generated"
                 autoComplete="username" readOnly disabled />
               <span className="settings-field-hint">
-                Built automatically as <strong>acronym@rldc</strong> — the convention used across the portal.
+                This is generated for you automatically — you don’t need to fill it in.
               </span>
             </div>
 
