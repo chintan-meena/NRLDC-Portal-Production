@@ -193,16 +193,32 @@ async function getPlantCategory(acronym) {
   return res.rows.length > 0 ? res.rows[0].energy_category : null;
 }
 
-// Is there already a Pending transfer/claim for this plant to this target? Used
-// to keep a second identical submission from stacking duplicate approvals.
-async function hasPendingTransfer(acronym, toUsername) {
-  const res = await pool.query(
-    `SELECT 1 FROM transfer_requests
-      WHERE UPPER(wbes_acronym) = UPPER($1) AND LOWER(to_username) = LOWER($2) AND status = 'Pending'
-      LIMIT 1`,
-    [acronym, toUsername]
+// The pending transfer/claim for this plant, if any — to ANY target.
+//
+// A plant has one owner, so it may have at most one transfer in flight. Guarding
+// per-plant (not per-plant-and-target, as this once did) stops two QCAs raising
+// competing claims on the same plant: approving both would corrupt ownership
+// (the second approval closes the first owner at effective−1, leaving a
+// backwards, zero-length assignment, and its stale from_username skips the
+// discrepancy-conflict check). One in flight at a time; the admin decides it
+// before another can be raised.
+async function pendingTransferFor(acronym, db = pool) {
+  const res = await db.query(
+    `SELECT to_username FROM transfer_requests
+      WHERE UPPER(wbes_acronym) = UPPER($1) AND status = 'Pending'
+      ORDER BY created_at LIMIT 1`,
+    [acronym]
   );
-  return res.rows.length > 0;
+  return res.rows[0] || null;
+}
+
+/** The 409 message for a plant that already has a transfer in flight. */
+function pendingTransferConflict(pending, targetUsername, acronym) {
+  const sameTarget = String(pending.to_username).toLowerCase() === String(targetUsername).toLowerCase();
+  return sameTarget
+    ? `A transfer of "${acronym}" to ${targetUsername} is already awaiting RLDC Admin approval.`
+    : `"${acronym}" already has a transfer request awaiting RLDC Admin approval (to ${pending.to_username}). `
+      + `It must be approved or rejected before another can be raised.`;
 }
 
 /**
@@ -1487,8 +1503,9 @@ router.post('/:username/assignments', requireSelfOrAdmin('username'), requireSam
     if (activeRes.rows.length > 0) {
       const activeOwner = activeRes.rows[0];
       if (activeOwner.username.toLowerCase() !== username.toLowerCase()) {
-        if (await hasPendingTransfer(acronym, username)) {
-          return res.status(409).json({ error: `A transfer of "${acronym}" to ${username} is already awaiting RLDC Admin approval.` });
+        const pending = await pendingTransferFor(acronym);
+        if (pending) {
+          return res.status(409).json({ error: pendingTransferConflict(pending, username, acronym) });
         }
         await pool.query(
           `INSERT INTO transfer_requests (wbes_acronym, from_username, to_username, effective_date, status, requested_by)
@@ -1510,8 +1527,9 @@ router.post('/:username/assignments', requireSelfOrAdmin('username'), requireSam
     // like claiming an owned plant. Until approved there is no active assignment,
     // so the discrepancy filing gate keeps the QCA from filing against it.
     if (!isAdmin(req)) {
-      if (await hasPendingTransfer(acronym, username)) {
-        return res.status(409).json({ error: `A request to manage "${acronym}" is already awaiting RLDC Admin approval.` });
+      const pending = await pendingTransferFor(acronym);
+      if (pending) {
+        return res.status(409).json({ error: pendingTransferConflict(pending, username, acronym) });
       }
       await pool.query(
         `INSERT INTO transfer_requests (wbes_acronym, from_username, to_username, effective_date, status, requested_by)
@@ -1646,10 +1664,12 @@ router.post('/transfer-requests', async (req, res) => {
       return res.status(409).json({ error: transferConflictMessage(conflicts) });
     }
 
-    // One pending request per (plant, target) — a second identical submission
-    // would otherwise stack up duplicate approvals for the same move.
-    if (await hasPendingTransfer(acronym, to_username)) {
-      return res.status(409).json({ error: `A transfer of "${acronym}" to ${to_username} is already awaiting approval.` });
+    // One transfer in flight per plant (to any target): a second submission —
+    // whether an identical resubmission or a competing claim by another QCA —
+    // is refused until the pending one is decided. See pendingTransferFor.
+    const pending = await pendingTransferFor(acronym);
+    if (pending) {
+      return res.status(409).json({ error: pendingTransferConflict(pending, to_username, acronym) });
     }
 
     const result = await pool.query(
@@ -2288,4 +2308,7 @@ router.delete('/:username/devices', requireSelfOrAdmin('username'), requireSameR
 });
 
 module.exports = router;
+// Exposed for tests: the per-plant pending-transfer guard and its message.
+module.exports.pendingTransferFor = pendingTransferFor;
+module.exports.pendingTransferConflict = pendingTransferConflict;
 
