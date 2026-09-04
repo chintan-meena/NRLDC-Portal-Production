@@ -622,6 +622,35 @@ CREATE INDEX IF NOT EXISTS idx_upa_username ON user_plant_assignments (LOWER(use
 CREATE INDEX IF NOT EXISTS idx_tr_status   ON transfer_requests (status, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_tr_parties  ON transfer_requests (LOWER(requested_by), LOWER(to_username));
 
+-- At most one transfer/claim in flight per plant. A plant has one owner, so two
+-- QCAs must not both hold a pending claim on it — approving both corrupts
+-- ownership. The app guard (pendingTransferFor in routes/users.js) enforces this;
+-- this index is the backstop against two concurrent submissions racing past that
+-- check before either inserts. Mirrors idx_new_acronym_pending above.
+--
+-- The DO block first heals any pre-existing competing pendings — legacy rows from
+-- before the app guard shipped — by rejecting all but the most recent per plant,
+-- so the unique index below can always be created and `migrate` never fails on
+-- them. On a database that already satisfies the rule this touches no rows.
+DO $$
+DECLARE healed int;
+BEGIN
+  UPDATE transfer_requests t SET status = 'Rejected'
+   WHERE status = 'Pending'
+     AND EXISTS (SELECT 1 FROM transfer_requests o
+                  WHERE o.status = 'Pending'
+                    AND UPPER(o.wbes_acronym) = UPPER(t.wbes_acronym)
+                    AND (o.created_at > t.created_at
+                         OR (o.created_at = t.created_at AND o.id > t.id)));
+  GET DIAGNOSTICS healed = ROW_COUNT;
+  IF healed > 0 THEN
+    RAISE NOTICE 'Rejected % older competing pending transfer(s) so one-per-plant can be enforced.', healed;
+  END IF;
+END $$;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_transfer_pending_per_plant
+  ON transfer_requests (UPPER(wbes_acronym)) WHERE status = 'Pending';
+
 -- Outages and cycle uploads are listed per user and per date window.
 CREATE INDEX IF NOT EXISTS idx_outages_user  ON outages (username, outage_from DESC);
 CREATE INDEX IF NOT EXISTS idx_outages_from  ON outages (outage_from DESC);

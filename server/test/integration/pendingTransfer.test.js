@@ -55,3 +55,35 @@ test('a decided (non-Pending) request no longer blocks a new one', async () => {
   await pool.query(`UPDATE transfer_requests SET status = 'Rejected' WHERE wbes_acronym = $1`, [PLANT]);
   assert.equal(await pendingTransferFor(PLANT, pool), null);
 });
+
+test('the DB rejects a second Pending row for the same plant (idx_transfer_pending_per_plant)', async () => {
+  // With no live pending (previous test rejected them), a first Pending inserts.
+  await pool.query(
+    `INSERT INTO transfer_requests (wbes_acronym, from_username, to_username, effective_date, status, requested_by)
+     VALUES ($1, NULL, 'alpha@nrldc', '2026-09-05', 'Pending', 'alpha@nrldc')`,
+    [PLANT]
+  );
+
+  // A second Pending for the same plant — even to a different QCA — must be
+  // refused by the partial unique index, not merely by the app guard.
+  await assert.rejects(
+    pool.query(
+      `INSERT INTO transfer_requests (wbes_acronym, from_username, to_username, effective_date, status, requested_by)
+       VALUES ($1, NULL, 'beta@nrldc', '2026-09-05', 'Pending', 'beta@nrldc')`,
+      [PLANT]
+    ),
+    (err) => err.code === '23505'
+  );
+});
+
+test('the index is partial: a decided row alongside a Pending one is allowed', async () => {
+  // A Rejected/Approved row for the same plant does not count against the one
+  // live Pending inserted above.
+  await pool.query(
+    `INSERT INTO transfer_requests (wbes_acronym, from_username, to_username, effective_date, status, requested_by)
+     VALUES ($1, NULL, 'beta@nrldc', '2026-09-05', 'Rejected', 'beta@nrldc')`,
+    [PLANT]
+  );
+  const pending = await pendingTransferFor(PLANT, pool);
+  assert.equal(pending.to_username, 'alpha@nrldc'); // still the one live pending
+});
