@@ -50,7 +50,8 @@ const emptyRow = () => ({
   utility_type: '', generator_type: '', generator_subtype: '',
   from_date: '', date_of_commissioning: '',
 });
-const emptyGrid = () => Array.from({ length: MAX_ROWS }, emptyRow);
+// Open with a single row; the admin adds more as needed, up to MAX_ROWS.
+const emptyGrid = () => [emptyRow()];
 
 /**
  * Split pasted clipboard text into [name, acronym] pairs.
@@ -130,6 +131,11 @@ export default function WbesRegistry({ currentUser }) {
     )));
   };
 
+  const addRow = () => setGrid(rows => (rows.length >= MAX_ROWS ? rows : [...rows, emptyRow()]));
+  // Keep at least one row so there is always something to type into.
+  const removeRow = (rowIndex) =>
+    setGrid(rows => (rows.length <= 1 ? rows : rows.filter((_, i) => i !== rowIndex)));
+
   /**
    * Fill the grid from a paste, starting at the cell that received it.
    *
@@ -150,6 +156,9 @@ export default function WbesRegistry({ currentUser }) {
 
     setGrid((rows) => {
       const next = rows.map(r => ({ ...r }));
+      // The grid may hold fewer rows than the paste needs — grow it to fit,
+      // up to the cap.
+      while (next.length < rowIndex + used.length) next.push(emptyRow());
       used.forEach((cells, n) => {
         const target = next[rowIndex + n];
         if (cells.length >= 2) {
@@ -416,7 +425,17 @@ export default function WbesRegistry({ currentUser }) {
                 <tbody>
                   {grid.map((row, i) => (
                     <tr key={i}>
-                      <td style={{ color: 'var(--text-muted)', fontSize: '0.78rem' }}>{i + 1}</td>
+                      <td style={{ color: 'var(--text-muted)', fontSize: '0.78rem', whiteSpace: 'nowrap' }}>
+                        {i + 1}
+                        {grid.length > 1 && (
+                          <button type="button" onClick={() => removeRow(i)}
+                            title="Remove this row" aria-label={`Remove row ${i + 1}`}
+                            style={{ border: 'none', background: 'none', cursor: 'pointer',
+                                     color: 'var(--text-muted)', padding: '0 0 0 4px', verticalAlign: 'middle' }}>
+                            <X size={13} />
+                          </button>
+                        )}
+                      </td>
                       <td style={{ padding: '4px 8px' }}>
                         <input className="form-control" value={row.name}
                           aria-label={`Display name, row ${i + 1}`}
@@ -475,6 +494,11 @@ export default function WbesRegistry({ currentUser }) {
             <div style={{ display: 'flex', gap: '10px', alignItems: 'center', marginTop: '12px' }}>
               <button type="submit" className="btn btn-primary" disabled={busy || filledRows.length === 0}>
                 <Plus size={15} /> {busy ? 'Registering…' : `Register ${filledRows.length || ''}`.trim()}
+              </button>
+              <button type="button" className="btn btn-secondary"
+                onClick={addRow} disabled={busy || grid.length >= MAX_ROWS}
+                title={grid.length >= MAX_ROWS ? `Up to ${MAX_ROWS} rows at a time` : 'Add another row'}>
+                <Plus size={15} /> Add row
               </button>
               <button type="button" className="btn btn-secondary"
                 onClick={() => { setGrid(emptyGrid()); clearNotice(); }} disabled={busy}>

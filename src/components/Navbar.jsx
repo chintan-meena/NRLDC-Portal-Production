@@ -133,6 +133,14 @@ export default function Navbar({ currentUser, onLogout, activeTab, setActiveTab 
             >
               Transfer Requests
             </button>
+            {currentUser.role === 'SUPERADMIN' && (
+              <button
+                className={`category-tab ${activeTab === 'simulation' ? 'active' : ''}`}
+                onClick={() => setActiveTab('simulation')} title="Simulation"
+              >
+                Simulation
+              </button>
+            )}
             {isQcaStatusEnabled && (
               <button
                 className={`category-tab ${activeTab === 'qca_status' ? 'active' : ''}`}
@@ -141,12 +149,6 @@ export default function Navbar({ currentUser, onLogout, activeTab, setActiveTab 
                 QCA Status
               </button>
             )}
-            <button
-              className={`category-tab ${activeTab === 'new_acronyms' ? 'active' : ''}`}
-              onClick={() => setActiveTab('new_acronyms')} title="New Acronym Requests"
-            >
-              New Acronym Requests
-            </button>
             <button
               className={`category-tab ${activeTab === 'logs' ? 'active' : ''}`}
               onClick={() => setActiveTab('logs')} title="Server Logs"

@@ -12,7 +12,7 @@ const { apiLimiter, authLimiter } = require('./middleware/rateLimit');
 const { requestContext } = require('./utils/requestContext');
 const { refresh: refreshRegions } = require('./utils/regionRegistry');
 const pool = require('./db');
-const { requireAuth, requireAdmin } = require('./middleware/auth');
+const { requireAuth, requireAdmin, requireSuperAdmin } = require('./middleware/auth');
 const { checkSchema, reportSchemaProblem } = require('./schemaCheck');
 const { originalFilename } = require('./utils/filenames');
 
@@ -24,6 +24,7 @@ const cycleDataRoutes     = require('./routes/cycleData');
 const configRoutes        = require('./routes/config');
 const logsRoutes          = require('./routes/logs');
 const regionsRoutes       = require('./routes/regions');
+const simulationRoutes    = require('./routes/simulation');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -205,6 +206,7 @@ app.use('/api/cycle-data',    requireAuth, cycleDataRoutes);
 app.use('/api/config',        requireAuth, configRoutes);
 app.use('/api/logs',          requireAuth, requireAdmin, logsRoutes);
 app.use('/api/regions',       requireAuth, regionsRoutes);   // national level only
+app.use('/api/simulation',    requireAuth, requireSuperAdmin, simulationRoutes);   // national level only
 
 // ─── Serving the built frontend ─────────────────────────────────────────────
 // In production this process serves the app as well as the API, from one

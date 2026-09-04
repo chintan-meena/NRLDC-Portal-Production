@@ -14,7 +14,7 @@ import UserManagement from './UserManagement';
 import NationalAdmin from './NationalAdmin';
 import FlaggedTracker from './FlaggedTracker';
 import QcaStatus from './QcaStatus';
-import NewAcronymRequests from './NewAcronymRequests';
+import SimulationScreen from './SimulationScreen';
 import { isNational, regionLabel } from '../utils/regions';
 import ConfirmDialog from './ConfirmDialog';
 import { Banner, EmptyState, SkeletonRows } from './Feedback';
@@ -1309,7 +1309,7 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
           {/* Operational Settings Form */}
           <div className="glass-panel" style={{ padding: '30px', height: 'fit-content' }}>
             <h2 style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
-              <Save /><span>{national ? 'Shared Email Settings' : 'Discrepancy Filing Rules'}</span>
+              <Save /><span>{national ? 'Shared Email Settings' : 'Region Settings'}</span>
             </h2>
             <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '25px', borderBottom: '1px solid var(--border-color)', paddingBottom: '15px' }}>
               {national
@@ -1345,6 +1345,10 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
                   one despatch centre. A national account has none, so it is
                   shown none of it — the server would refuse the write anyway. */}
               {!national && (<>
+              {/* ── Discrepancy filing rules ─────────────────────────────── */}
+              <h3 className="settings-heading" style={{ marginTop: 0 }}>Discrepancy Filing Rules</h3>
+              <p className="settings-hint">How far back stations may file, how often they may re-raise, and when the correction window shuts.</p>
+
               <div className="form-group">
                 <label htmlFor="ad-maximum-discrepancy-filing-limit-days-iegc-6-5-33">Maximum Discrepancy Filing Limit (Days — IEGC 6.5.33)</label>
                 <input id="ad-maximum-discrepancy-filing-limit-days-iegc-6-5-33" type="number" className="form-control" value={maxDays} onChange={(e) => setMaxDays(e.target.value)} />
@@ -1394,6 +1398,25 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
                 <input id="ad-flagged-threshold-percent" type="number" min="1" max="100" className="form-control"
                   value={flaggedThreshold} onChange={(e) => setFlaggedThreshold(e.target.value)} />
                 <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>The share that puts an account on the flagged tracker. Default: 40%.</span>
+              </div>
+
+              {/* The Net Schedule attachment rule is a filing requirement, so it
+                  sits with the other filing rules rather than the feature toggles. */}
+              <div className={`settings-toggle-card${requireNetFile ? '' : ' off'}`}>
+                <label htmlFor="ad-require-net-file" className="settings-toggle-label">
+                  <input
+                    id="ad-require-net-file"
+                    type="checkbox"
+                    checked={requireNetFile}
+                    onChange={(e) => setRequireNetFile(e.target.checked)}
+                  />
+                  <span>Require the WBES Net Schedule Report Summary when filing</span>
+                </label>
+                <p className="settings-toggle-note">
+                  {requireNetFile
+                    ? `${categoryLabel('ISGS')} and ${categoryLabel('RE')} filers must attach the "NetSchdReportSummary@…" Excel downloaded from WBES. Other supporting files (PDFs etc.) stay optional and unrestricted.`
+                    : 'Switched off. Attachments are entirely optional and no filename is required.'}
+                </p>
               </div>
 
               {/* ── Security & access ────────────────────────────────────
@@ -1483,23 +1506,6 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
                   {featureQcaStatus
                     ? 'The QCA Status tab is available to administrators of this region.'
                     : 'Switched off. The QCA Status tab is hidden and its endpoint is closed. Assignments are unaffected and reappear if this is switched back on.'}
-                </p>
-              </div>
-
-              <div className={`settings-toggle-card${requireNetFile ? '' : ' off'}`}>
-                <label htmlFor="ad-require-net-file" className="settings-toggle-label">
-                  <input
-                    id="ad-require-net-file"
-                    type="checkbox"
-                    checked={requireNetFile}
-                    onChange={(e) => setRequireNetFile(e.target.checked)}
-                  />
-                  <span>Require the WBES Net Schedule Report Summary when filing</span>
-                </label>
-                <p className="settings-toggle-note">
-                  {requireNetFile
-                    ? `${categoryLabel('ISGS')} and ${categoryLabel('RE')} filers must attach the "NetSchdReportSummary@…" Excel downloaded from WBES. Other supporting files (PDFs etc.) stay optional and unrestricted.`
-                    : 'Switched off. Attachments are entirely optional and no filename is required.'}
                 </p>
               </div>
 
@@ -1606,10 +1612,8 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
                 </span>
               </div>
 
-              {/* SMTP Configuration Section */}
-              <h3 style={{ marginTop: '30px', marginBottom: '10px', fontSize: '1rem', borderTop: '1px solid var(--border-color)', paddingTop: '20px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span>SMTP Server Settings (2FA)</span>
-              </h3>
+              {/* ── SMTP server ──────────────────────────────────────────── */}
+              <h3 className="settings-heading">SMTP Server Settings (2FA)</h3>
               {!national && (
                 <p className="settings-hint">
                   The one mail account every region&rsquo;s login codes are sent from. Shown for
@@ -1653,7 +1657,6 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
                 <input id="ad-sender-address-smtp-from" type="text" disabled={!national} className="form-control" value={smtpFrom} onChange={(e) => setSmtpFrom(e.target.value)} />
               </div>
 
-              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '25px' }}>
               {/* ── This admin's own preference, not a system-wide rule ──── */}
               <h3 className="settings-heading">Your Preferences</h3>
               <p className="settings-hint">Applies to your account only, not to other administrators.</p>
@@ -1668,6 +1671,7 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
                 </select>
               </div>
 
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '25px' }}>
                 <button type="submit" className="btn btn-primary">Save All Settings</button>
               </div>
             </form>
@@ -1770,8 +1774,11 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
         <QcaStatus />
       )}
 
-      {activeTab === 'new_acronyms' && (
-        <NewAcronymRequests />
+      {/* Simulation is a national-only planning tool. The server restricts
+          /api/simulation to SUPERADMIN, so the guard here just avoids showing a
+          page that would only 403 for a regional admin. */}
+      {activeTab === 'simulation' && currentUser.role === 'SUPERADMIN' && (
+        <SimulationScreen />
       )}
 
       {activeTab === 'users' && (

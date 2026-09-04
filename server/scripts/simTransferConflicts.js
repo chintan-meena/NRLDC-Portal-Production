@@ -14,8 +14,7 @@
  */
 
 const pool = require('../db');
-const { previousDayString } = require('../utils/dates');
-const { findTransferConflicts, transferConflictMessage } = require('../utils/transferConflicts');
+const { ownerOn, qcaSees, simulateApprove } = require('../utils/simulation');
 
 const REGION = 'NRLDC';
 const results = [];
@@ -53,59 +52,11 @@ async function seedAssignment(c, username, acronym, fromDate, toDate) {
 }
 async function seedDiscrepancy(c, requestBy, acronym, correctionDate) {
   const r = await c.query(
-    `INSERT INTO discrepancies (region, request_by, correction_for_date, time_blocks, request_content, energy_category)
-     VALUES ($1, $2, $3, '1', 'sim', 'RE') RETURNING req_no`,
+    `INSERT INTO discrepancies (region, request_by, wbes_acronym, correction_for_date, time_blocks, request_content, energy_category)
+     VALUES ($1, $2, $3, $4, '1', 'sim', 'RE') RETURNING req_no`,
     [REGION, requestBy, acronym, correctionDate]
   );
   return r.rows[0].req_no;
-}
-
-// Mirror of the approval transaction body in routes/users.js: conflict-gate,
-// then close-outgoing + open-incoming.
-async function simulateApprove(c, { acronym, fromUsername, toUsername, effectiveDate }) {
-  const conflicts = await findTransferConflicts(c, { fromUsername, acronym, effectiveDate });
-  if (conflicts.length > 0) {
-    return { ok: false, status: 409, message: transferConflictMessage(conflicts) };
-  }
-  const prevDayStr = previousDayString(effectiveDate);
-  await c.query(
-    `UPDATE user_plant_assignments SET to_date = $1
-      WHERE wbes_acronym = $2 AND (to_date IS NULL OR to_date >= $3)`,
-    [prevDayStr, acronym, effectiveDate]
-  );
-  await c.query(
-    `INSERT INTO user_plant_assignments (username, wbes_acronym, from_date, to_date)
-     VALUES ($1, $2, $3, NULL)
-     ON CONFLICT (username, wbes_acronym, from_date) DO UPDATE SET to_date = NULL`,
-    [toUsername, acronym, effectiveDate]
-  );
-  return { ok: true };
-}
-
-// Who owns `acronym` on `date`, per the assignment window (NULL if nobody).
-async function ownerOn(c, acronym, date) {
-  const r = await c.query(
-    `SELECT username FROM user_plant_assignments
-      WHERE wbes_acronym = $1 AND $2::date >= from_date AND (to_date IS NULL OR $2::date <= to_date)
-      ORDER BY from_date DESC LIMIT 1`,
-    [acronym, date]
-  );
-  return r.rows[0]?.username || null;
-}
-// Does `qca` see a discrepancy for `date` via the filer path OR the window path?
-async function qcaSees(c, qca, acronym, date) {
-  const r = await c.query(
-    `SELECT 1 FROM discrepancies d
-      WHERE d.wbes_acronym = $2 AND d.correction_for_date = $3::date
-        AND (LOWER(d.request_by) = LOWER($1)
-             OR EXISTS (SELECT 1 FROM user_plant_assignments a
-                          WHERE LOWER(a.username) = LOWER($1) AND a.wbes_acronym = d.wbes_acronym
-                            AND d.correction_for_date >= a.from_date
-                            AND (a.to_date IS NULL OR d.correction_for_date <= a.to_date)))
-      LIMIT 1`,
-    [qca, acronym, date]
-  );
-  return r.rows.length > 0;
 }
 
 async function withSavepoint(c, fn) {

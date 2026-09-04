@@ -193,6 +193,18 @@ async function getPlantCategory(acronym) {
   return res.rows.length > 0 ? res.rows[0].energy_category : null;
 }
 
+// Is there already a Pending transfer/claim for this plant to this target? Used
+// to keep a second identical submission from stacking duplicate approvals.
+async function hasPendingTransfer(acronym, toUsername) {
+  const res = await pool.query(
+    `SELECT 1 FROM transfer_requests
+      WHERE UPPER(wbes_acronym) = UPPER($1) AND LOWER(to_username) = LOWER($2) AND status = 'Pending'
+      LIMIT 1`,
+    [acronym, toUsername]
+  );
+  return res.rows.length > 0;
+}
+
 /**
  * Validate a role/category pair. QCA accounts must sit in the RE category —
  * ISGS and States plants are handled by their own users, never by a QCA.
@@ -1425,11 +1437,21 @@ router.post('/:username/assignments', requireSelfOrAdmin('username'), requireSam
 
   try {
     const plantRes = await pool.query(
-      'SELECT name, energy_category, blocked, blocked_reason FROM wbes_entities WHERE wbes_acronym = $1',
+      'SELECT name, region, energy_category, blocked, blocked_reason FROM wbes_entities WHERE wbes_acronym = $1',
       [acronym]
     );
     if (plantRes.rows.length === 0) {
       return res.status(400).json({ error: `WBES Acronym "${acronym}" is not registered in the system.` });
+    }
+
+    // A plant belongs to one region, and only that region's admin (or the
+    // national administrator) may assign or transfer it. Without this guard a
+    // regional admin could reference a plant from another region — the target
+    // QCA is already confined to the caller's region by requireSameRegion, but
+    // the plant was not — and silently move or claim it across the boundary,
+    // invisibly to the region that actually owns the plant.
+    if (!isSuperAdmin(req) && plantRes.rows[0].region !== req.auth.region) {
+      return res.status(403).json({ error: `"${acronym}" belongs to ${plantRes.rows[0].region} and can only be managed by that region.` });
     }
     // A blocked acronym cannot be newly claimed.
     if (plantRes.rows[0].blocked) {
@@ -1463,6 +1485,9 @@ router.post('/:username/assignments', requireSelfOrAdmin('username'), requireSam
     if (activeRes.rows.length > 0) {
       const activeOwner = activeRes.rows[0];
       if (activeOwner.username.toLowerCase() !== username.toLowerCase()) {
+        if (await hasPendingTransfer(acronym, username)) {
+          return res.status(409).json({ error: `A transfer of "${acronym}" to ${username} is already awaiting RLDC Admin approval.` });
+        }
         await pool.query(
           `INSERT INTO transfer_requests (wbes_acronym, from_username, to_username, effective_date, status, requested_by)
            VALUES ($1, $2, $3, $4, 'Pending', $5)`,
@@ -1483,6 +1508,9 @@ router.post('/:username/assignments', requireSelfOrAdmin('username'), requireSam
     // like claiming an owned plant. Until approved there is no active assignment,
     // so the discrepancy filing gate keeps the QCA from filing against it.
     if (!isAdmin(req)) {
+      if (await hasPendingTransfer(acronym, username)) {
+        return res.status(409).json({ error: `A request to manage "${acronym}" is already awaiting RLDC Admin approval.` });
+      }
       await pool.query(
         `INSERT INTO transfer_requests (wbes_acronym, from_username, to_username, effective_date, status, requested_by)
          VALUES ($1, NULL, $2, $3, 'Pending', $4)`,
@@ -1577,6 +1605,13 @@ router.post('/transfer-requests', async (req, res) => {
       return res.status(400).json({ error: `Plant "${acronym}" is an ${plantCategory} entity. QCA transfers apply to Renewable Energy (RE) plants only.` });
     }
 
+    // A plant is transferred only by its own region (or the national admin) —
+    // the same boundary the assignment route enforces.
+    const plantRegionRes = await pool.query('SELECT region FROM wbes_entities WHERE UPPER(wbes_acronym) = UPPER($1)', [acronym]);
+    if (!isSuperAdmin(req) && plantRegionRes.rows[0]?.region !== req.auth.region) {
+      return res.status(403).json({ error: `"${acronym}" belongs to ${plantRegionRes.rows[0]?.region} and can only be managed by that region.` });
+    }
+
     const targetRes = await pool.query(
       "SELECT role FROM users WHERE LOWER(username) = LOWER($1)",
       [to_username]
@@ -1607,6 +1642,12 @@ router.post('/transfer-requests', async (req, res) => {
     const conflicts = await findTransferConflicts(pool, { fromUsername: from_username, acronym, effectiveDate: effective_date });
     if (conflicts.length > 0) {
       return res.status(409).json({ error: transferConflictMessage(conflicts) });
+    }
+
+    // One pending request per (plant, target) — a second identical submission
+    // would otherwise stack up duplicate approvals for the same move.
+    if (await hasPendingTransfer(acronym, to_username)) {
+      return res.status(409).json({ error: `A transfer of "${acronym}" to ${to_username} is already awaiting approval.` });
     }
 
     const result = await pool.query(
@@ -1819,207 +1860,6 @@ router.get('/qcas', async (req, res) => {
   } catch (err) {
     console.error('[QCAS GET]', err);
     res.status(500).json({ error: 'Failed to fetch QCA users.' });
-  }
-});
-
-// ─── New-acronym requests ───────────────────────────────────────────────────
-//
-// A plant not yet on the register asks an RLDC admin to add it and, optionally,
-// to place it under a chosen QCA. The acronym and the QCA assignment take effect
-// only on approval — the same "nothing is live until an admin says so" rule the
-// QCA claim and the self-service registration follow. See new_acronym_requests
-// in schema.sql.
-
-const ISO_DATE = (v) => { const s = String(v || '').trim(); return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null; };
-
-// POST /api/users/new-acronym-requests — any signed-in user raises one.
-router.post('/new-acronym-requests', async (req, res) => {
-  const acronym = String(req.body.wbes_acronym || '').trim().toUpperCase();
-  const name = String(req.body.name || '').trim();
-
-  if (!WBES_ACRONYM_RULE.test(acronym)) {
-    return res.status(400).json({ error: 'The WBES acronym must be 1–50 characters: letters and digits, with dots, hyphens or underscores.' });
-  }
-  if (!name) return res.status(400).json({ error: 'Give the plant a display name.' });
-
-  // The request belongs to the requester's region. A super-admin has none of its
-  // own, so it must name one.
-  let region = req.auth.region;
-  if (!region) {
-    region = String(req.body.region || '').trim().toUpperCase();
-    if (!region) return res.status(400).json({ error: 'Choose the region this plant belongs to.' });
-    if (!(await regionExists(region))) return res.status(400).json({ error: `“${region}” is not a region this portal knows.` });
-  }
-
-  const utility_type = normalizeUtilityType(req.body.utility_type);
-  const generator_type = normalizeGeneratorType(req.body.generator_type);
-  const generator_subtype = normalizeGeneratorSubType(req.body.generator_subtype);
-  const from_date = ISO_DATE(req.body.from_date);
-  const date_of_commissioning = ISO_DATE(req.body.date_of_commissioning);
-  const effective_date = ISO_DATE(req.body.effective_date) || from_date;
-  const requestedQca = String(req.body.requested_qca_username || '').trim() || null;
-
-  try {
-    // Already a real acronym?
-    const exists = await pool.query('SELECT 1 FROM wbes_entities WHERE UPPER(wbes_acronym) = $1', [acronym]);
-    if (exists.rows.length > 0) {
-      return res.status(409).json({ error: `WBES acronym "${acronym}" is already registered. Search for it instead of requesting a new id.` });
-    }
-
-    // A chosen QCA must be a QCA in the same region, and the plant it will hold
-    // must be RE — QCA coordination is for Renewable Energy plants only.
-    if (requestedQca) {
-      const q = await pool.query(
-        "SELECT role, region FROM users WHERE LOWER(username) = LOWER($1)", [requestedQca]
-      );
-      if (q.rows.length === 0 || q.rows[0].role !== 'QCA') {
-        return res.status(400).json({ error: 'The chosen coordinating agency is not a registered QCA account.' });
-      }
-      if (String(q.rows[0].region || '').toUpperCase() !== region.toUpperCase()) {
-        return res.status(400).json({ error: 'The chosen QCA belongs to a different region than this plant.' });
-      }
-      if (deriveEnergyCategory(utility_type, generator_type) !== 'RE') {
-        return res.status(400).json({ error: 'A plant can only be placed under a QCA when it is a Renewable Energy (RE) plant. Set the Utility Type to Regional Entity and Generator Type to Renewable, or leave the QCA blank.' });
-      }
-    }
-
-    const result = await pool.query(
-      `INSERT INTO new_acronym_requests
-         (region, wbes_acronym, name, utility_type, generator_type, generator_subtype,
-          from_date, date_of_commissioning, requested_qca_username, effective_date, requested_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
-       RETURNING id, created_at`,
-      [region, acronym, name, utility_type, generator_type, generator_subtype,
-       from_date, date_of_commissioning, requestedQca, effective_date, req.auth.username]
-    );
-
-    await logEvent('info',
-      `New-acronym request #${result.rows[0].id} for "${acronym}" (${name}, ${region})`
-      + `${requestedQca ? ` under QCA ${requestedQca}` : ''} by "${req.auth.username}" — awaiting admin approval.`,
-      region);
-    res.status(201).json({ success: true, requestId: result.rows[0].id });
-  } catch (err) {
-    if (err.code === '23505') {
-      return res.status(409).json({ error: `A request for WBES acronym "${acronym}" is already awaiting approval.` });
-    }
-    console.error('[NEW ACRONYM CREATE]', err);
-    res.status(500).json({ error: 'Failed to submit the new-acronym request.' });
-  }
-});
-
-// GET /api/users/new-acronym-requests?status=Pending — the admin queue; a
-// non-admin sees only the requests they raised.
-router.get('/new-acronym-requests', async (req, res) => {
-  const { status } = req.query;
-  try {
-    const params = [];
-    const conditions = [];
-    if (status && status !== 'ALL') { params.push(status); conditions.push(`status = $${params.length}`); }
-
-    if (isAdmin(req)) {
-      scopeToRegion(req, 'region', conditions, params);
-    } else {
-      params.push(req.auth.username);
-      conditions.push(`LOWER(requested_by) = LOWER($${params.length})`);
-    }
-    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
-    const result = await pool.query(
-      `SELECT r.*, t.qca_name AS requested_qca_name, t.name AS requested_qca_full_name
-         FROM new_acronym_requests r
-         LEFT JOIN users t ON LOWER(t.username) = LOWER(r.requested_qca_username)
-         ${where}
-        ORDER BY CASE r.status WHEN 'Pending' THEN 0 ELSE 1 END, r.created_at DESC`,
-      params
-    );
-    res.json(result.rows);
-  } catch (err) {
-    console.error('[NEW ACRONYM GET]', err);
-    res.status(500).json({ error: 'Failed to fetch new-acronym requests.' });
-  }
-});
-
-// PATCH /api/users/new-acronym-requests/:id/process — approve or reject.
-router.patch('/new-acronym-requests/:id/process', requireAdmin, async (req, res) => {
-  const { id } = req.params;
-  const { status, note } = req.body || {};
-
-  if (!/^\d+$/.test(String(id))) return res.status(404).json({ error: 'That request does not exist.' });
-  if (!['Approved', 'Rejected'].includes(status)) {
-    return res.status(400).json({ error: 'Status must be Approved or Rejected.' });
-  }
-  if (status === 'Rejected' && (!note || !note.trim())) {
-    return res.status(400).json({ error: 'Give a reason for the rejection so the requester knows what to correct.' });
-  }
-
-  try {
-    const outcome = await withTransaction(async (client) => {
-      const reqRes = await client.query('SELECT * FROM new_acronym_requests WHERE id = $1 FOR UPDATE', [id]);
-      if (reqRes.rows.length === 0) return { status: 404, body: { error: 'New-acronym request not found.' } };
-      const r = reqRes.rows[0];
-      if (r.status !== 'Pending') return { status: 400, body: { error: `This request was already ${r.status.toLowerCase()}.` } };
-      if (!canActOnRegion(req, r.region)) return { status: 403, body: crossRegionError(req) };
-
-      if (status === 'Rejected') {
-        await client.query(
-          `UPDATE new_acronym_requests SET status='Rejected', review_note=$1, reviewed_by=$2, reviewed_at=NOW() WHERE id=$3`,
-          [note.trim(), req.auth.username, id]
-        );
-        return { status: 200, r, decision: 'Rejected' };
-      }
-
-      // Someone may have registered the acronym while this sat in the queue.
-      const clash = await client.query('SELECT 1 FROM wbes_entities WHERE UPPER(wbes_acronym) = UPPER($1)', [r.wbes_acronym]);
-      if (clash.rows.length > 0) {
-        return { status: 409, body: { error: `WBES acronym "${r.wbes_acronym}" was registered in the meantime. Reject this duplicate request.` } };
-      }
-
-      const energy_category = r.utility_type ? deriveEnergyCategory(r.utility_type, r.generator_type) : 'RE';
-      await client.query(
-        `INSERT INTO wbes_entities
-           (wbes_acronym, name, region, utility_type, generator_type, generator_subtype, from_date, date_of_commissioning, energy_category)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-        [r.wbes_acronym, r.name, r.region, r.utility_type, r.generator_type, r.generator_subtype,
-         r.from_date, r.date_of_commissioning, energy_category]
-      );
-
-      // Place it under the requested QCA, if one was chosen and the account is
-      // still a valid RE-managing QCA. A new plant has no prior owner to close.
-      let assignedTo = null;
-      if (r.requested_qca_username && energy_category === 'RE') {
-        const q = await client.query("SELECT role FROM users WHERE LOWER(username) = LOWER($1)", [r.requested_qca_username]);
-        if (q.rows.length > 0 && q.rows[0].role === 'QCA') {
-          const effective = r.effective_date || r.from_date || new Date().toISOString().slice(0, 10);
-          await client.query(
-            `INSERT INTO user_plant_assignments (username, wbes_acronym, from_date, to_date)
-             VALUES ($1, $2, $3, NULL)
-             ON CONFLICT (username, wbes_acronym, from_date) DO NOTHING`,
-            [r.requested_qca_username, r.wbes_acronym, effective]
-          );
-          assignedTo = r.requested_qca_username;
-        }
-      }
-
-      await client.query(
-        `UPDATE new_acronym_requests SET status='Approved', review_note=$1, reviewed_by=$2, reviewed_at=NOW() WHERE id=$3`,
-        [note ? note.trim() : '', req.auth.username, id]
-      );
-      return { status: 200, r, decision: 'Approved', assignedTo };
-    });
-
-    if (outcome.status !== 200) return res.status(outcome.status).json(outcome.body);
-
-    const r = outcome.r;
-    if (outcome.decision === 'Approved') {
-      await logEvent('success',
-        `Admin "${req.auth.username}" APPROVED new acronym ${r.wbes_acronym} ("${r.name}", ${r.region})`
-        + `${outcome.assignedTo ? ` and assigned it to QCA ${outcome.assignedTo}` : ''}.`, r.region);
-    } else {
-      await logEvent('warn', `Admin "${req.auth.username}" REJECTED new-acronym request for ${r.wbes_acronym} (${r.region}).`, r.region);
-    }
-    res.json({ success: true, message: `New-acronym request processed as ${outcome.decision}.` });
-  } catch (err) {
-    console.error('[NEW ACRONYM PROCESS]', err);
-    res.status(500).json({ error: 'Failed to process the new-acronym request.' });
   }
 });
 
