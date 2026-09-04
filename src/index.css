@@ -1494,6 +1494,24 @@ button {
   color: var(--text-muted);
 }
 
+/* The System Parameters cards flow in CSS columns (masonry-style): each card
+   packs directly under the previous one in its column, so uneven card heights
+   never leave row-alignment gaps. column-gap spaces the columns; the per-card
+   margin spaces cards stacked within a column. */
+.settings-grid { column-width: 340px; column-gap: 20px; }
+.settings-grid > .settings-card {
+  break-inside: avoid;
+  -webkit-column-break-inside: avoid; /* older WebKit */
+  width: 100%;
+  margin: 0 0 20px;
+}
+
+/* One logical settings group as a card. Reuses .glass-panel for the surface;
+   each card owns its first heading, so reset the divider the shared
+   .settings-heading rule would otherwise draw above it. */
+.settings-card { padding: 22px 24px; }
+.settings-card > .settings-heading:first-child { margin-top: 0; padding-top: 0; border-top: none; }
+
 /* ── Today's mail usage ────────────────────────────────────────────────────
    The allowance is the portal's tightest resource and running out of it is
    otherwise invisible, so it gets a real gauge rather than a number in prose. */

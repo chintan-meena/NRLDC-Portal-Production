@@ -1304,14 +1304,16 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
       )}
 
       {activeTab === 'settings' && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: '30px', maxWidth: '1200px', margin: '0 auto', width: '100%' }}>
-          
-          {/* Operational Settings Form */}
-          <div className="glass-panel" style={{ padding: '30px', height: 'fit-content' }}>
+        <div style={{ maxWidth: '1280px', margin: '0 auto', width: '100%' }}>
+
+          {/* Full-width header band — the title, description, save banner and
+              scope note span the top so the section cards below can pack the
+              whole width instead of leaving a lonely column. */}
+          <div style={{ marginBottom: '22px' }}>
             <h2 style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
               <Save /><span>{national ? 'Shared Email Settings' : 'Region Settings'}</span>
             </h2>
-            <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '25px', borderBottom: '1px solid var(--border-color)', paddingBottom: '15px' }}>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '18px' }}>
               {national
                 ? 'Adjust the mail allowance, the SMTP account that delivers login codes, and your default landing preference.'
                 : 'Adjust the system lock thresholds, regulation limits, and default landing preferences.'}
@@ -1339,13 +1341,20 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
                 )}
               </span>
             </div>
+          </div>
 
-            <form onSubmit={handleSaveConfig}>
-              {/* Everything down to the end of the outage fieldset belongs to
-                  one despatch centre. A national account has none, so it is
-                  shown none of it — the server would refuse the write anyway. */}
+          {/* Section-card grid — each logical group is its own card. The cards
+              flow in CSS columns (masonry-style) so a short card is followed
+              straight away by the next one in its column, with no row-alignment
+              gaps under uneven heights. */}
+          <form onSubmit={handleSaveConfig}>
+            <div className="settings-grid">
+              {/* Everything down to the end of the self-registration fieldset
+                  belongs to one despatch centre. A national account has none, so
+                  it is shown none of it — the server would refuse the write. */}
               {!national && (<>
               {/* ── Discrepancy filing rules ─────────────────────────────── */}
+              <section className="glass-panel settings-card">
               <h3 className="settings-heading" style={{ marginTop: 0 }}>Discrepancy Filing Rules</h3>
               <p className="settings-hint">How far back stations may file, how often they may re-raise, and when the correction window shuts.</p>
 
@@ -1418,11 +1427,13 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
                     : 'Switched off. Attachments are entirely optional and no filename is required.'}
                 </p>
               </div>
+              </section>
 
               {/* ── Security & access ────────────────────────────────────
                   Login controls. These were previously buried under an
                   "Outage Form Access Controls" heading, which is not what
                   they govern. */}
+              <section className="glass-panel settings-card">
               <h3 className="settings-heading">Security &amp; Access</h3>
               <p className="settings-hint">Who can sign in, and what they must present to do so.</p>
 
@@ -1453,8 +1464,10 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
                 <input id="ad-login-fail-limit" type="number" className="form-control" value={lockoutAttempts} onChange={(e) => setLockoutAttempts(e.target.value)} />
                 <span className="settings-field-hint">Wrong passwords allowed before the account locks. Default: 3.</span>
               </div>
+              </section>
 
               {/* ── Feature availability ─────────────────────────────────── */}
+              <section className="glass-panel settings-card">
               <h3 className="settings-heading">Feature Availability</h3>
               <p className="settings-hint">Which parts of the portal are switched on, and for whom.</p>
 
@@ -1508,7 +1521,9 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
                     : 'Switched off. The QCA Status tab is hidden and its endpoint is closed. Assignments are unaffected and reappear if this is switched back on.'}
                 </p>
               </div>
+              </section>
 
+              <section className="glass-panel settings-card">
               <fieldset className="settings-fieldset">
                 <legend>Unit outage filing</legend>
                 <p className="settings-hint">Which energy categories may submit unit outages.</p>
@@ -1525,7 +1540,9 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
                   <span>States</span>
                 </label>
               </fieldset>
+              </section>
 
+              <section className="glass-panel settings-card">
               <fieldset className="settings-fieldset">
                 <legend>Who may self-register</legend>
                 <p className="settings-hint">
@@ -1543,6 +1560,7 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
                   </label>
                 ))}
               </fieldset>
+              </section>
               </>)}
 
               {/* ── Email budget ─────────────────────────────────────────
@@ -1550,6 +1568,7 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
                   running out of it is invisible from the outside: codes simply
                   stop arriving. These are the controls that decide how much
                   gets used, with today's usage beside them. */}
+              <section className="glass-panel settings-card">
               <h3 className="settings-heading">Email Budget</h3>
               <p className="settings-hint">
                 How much email the portal is allowed to send, and how hard it works to avoid needing to.
@@ -1611,8 +1630,10 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
                   room for anything sent outside the portal.
                 </span>
               </div>
+              </section>
 
               {/* ── SMTP server ──────────────────────────────────────────── */}
+              <section className="glass-panel settings-card">
               <h3 className="settings-heading">SMTP Server Settings (2FA)</h3>
               {!national && (
                 <p className="settings-hint">
@@ -1656,8 +1677,35 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
                 <label htmlFor="ad-sender-address-smtp-from">Sender Address (SMTP From)</label>
                 <input id="ad-sender-address-smtp-from" type="text" disabled={!national} className="form-control" value={smtpFrom} onChange={(e) => setSmtpFrom(e.target.value)} />
               </div>
+              </section>
+
+              {/* ── Verify SMTP ───────────────────────────────────────────
+                  Sits with the SMTP settings it exercises. Not a nested form
+                  (invalid inside the config form) — the button calls the test
+                  handler directly, and the field validates itself. */}
+              <section className="glass-panel settings-card">
+              <h3 className="settings-heading">Verify SMTP Setup</h3>
+              <p className="settings-hint">Send a one-off test message to confirm the settings above actually deliver.</p>
+
+              <Banner type="success" message={smtpTestSuccess} />
+              <Banner type="error" message={smtpTestError} />
+
+              <div className="form-group">
+                <label htmlFor="ad-test-recipient-email-address">Test Recipient Email Address</label>
+                <input id="ad-test-recipient-email-address" type="email" className="form-control" placeholder="recipient@domain.com"
+                  value={testRecipient} onChange={(e) => setTestRecipient(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleTestSmtp(e); } }} />
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '15px' }}>
+                <button type="button" className="btn btn-teal" onClick={handleTestSmtp} disabled={isTestingSmtp}>
+                  {isTestingSmtp ? 'Verifying Link...' : 'Test SMTP Connection'}
+                </button>
+              </div>
+              </section>
 
               {/* ── This admin's own preference, not a system-wide rule ──── */}
+              <section className="glass-panel settings-card">
               <h3 className="settings-heading">Your Preferences</h3>
               <p className="settings-hint">Applies to your account only, not to other administrators.</p>
 
@@ -1670,36 +1718,14 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
                   ))}
                 </select>
               </div>
+              </section>
+            </div>{/* .settings-grid */}
 
-              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '25px' }}>
-                <button type="submit" className="btn btn-primary">Save All Settings</button>
-              </div>
-            </form>
-          </div>
-
-          {/* Test SMTP Connection Section */}
-          <div className="glass-panel" style={{ padding: '30px', height: 'fit-content' }}>
-            <h2 style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
-              <Download style={{ transform: 'rotate(-90deg)' }} /><span>Verify SMTP Setup</span>
-            </h2>
-
-            <Banner type="success" message={smtpTestSuccess} />
-
-            <Banner type="error" message={smtpTestError} />
-
-            <form onSubmit={handleTestSmtp}>
-              <div className="form-group">
-                <label htmlFor="ad-test-recipient-email-address">Test Recipient Email Address</label>
-                <input id="ad-test-recipient-email-address" type="email" className="form-control" placeholder="recipient@domain.com" value={testRecipient} onChange={(e) => setTestRecipient(e.target.value)} required />
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '25px' }}>
-                <button type="submit" className="btn btn-teal" disabled={isTestingSmtp}>
-                  {isTestingSmtp ? 'Verifying Link...' : 'Test SMTP Connection'}
-                </button>
-              </div>
-            </form>
-          </div>
+            {/* Action row sits below the columns, spanning the full width. */}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '4px' }}>
+              <button type="submit" className="btn btn-primary">Save All Settings</button>
+            </div>
+          </form>
         </div>
       )}
 
