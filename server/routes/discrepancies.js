@@ -114,6 +114,11 @@ router.get('/', async (req, res) => {
     // Role-based visibility
     if (username) {
       const userRes = await pool.query('SELECT role, wbes_acronym, qca_name FROM users WHERE username = $1', [username]);
+      if (userRes.rows.length === 0) {
+        // An explicit ?username= for an account that does not exist returns
+        // nothing, rather than silently falling through to the whole region.
+        conditions.push('1 = 0');
+      }
       if (userRes.rows.length > 0) {
         const user = userRes.rows[0];
         if (user.role === 'USER' || user.role === 'QCA') {

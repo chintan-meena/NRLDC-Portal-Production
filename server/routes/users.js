@@ -1660,6 +1660,12 @@ router.post('/transfer-requests', async (req, res) => {
     await logEvent('info', `Plant user submitted transfer request for ${acronym} to user ${to_username} effective ${effective_date}`);
     res.status(201).json({ success: true, request: result.rows[0] });
   } catch (err) {
+    // A foreign-key violation means a named account or plant does not exist —
+    // the caller's mistake, so a 400 rather than a 500 (which reads as "the
+    // server broke" to whoever is watching the error rate).
+    if (err.code === '23503') {
+      return res.status(400).json({ error: 'One of the accounts or plants named in this request does not exist.' });
+    }
     console.error('[TRANSFER CREATE]', err);
     res.status(500).json({ error: 'Failed to submit transfer request.' });
   }

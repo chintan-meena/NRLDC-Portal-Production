@@ -118,4 +118,15 @@ function verifyToken(token) {
   return { username: payload.u, role: payload.r, region: payload.g, jti: payload.jti, exp: payload.exp };
 }
 
-module.exports = { issueToken, verifyToken, TOKEN_TTL_MS };
+/**
+ * The resolved signing secret. In production this is the required SESSION_SECRET
+ * (the process refuses to start without it, above); in development it is the
+ * per-process random value. Exposed so other secret-keyed operations — notably
+ * the OTP HMAC — share this one validated secret instead of falling back to a
+ * weak hard-coded default of their own.
+ */
+function sessionSecret() {
+  return SECRET;
+}
+
+module.exports = { issueToken, verifyToken, sessionSecret, TOKEN_TTL_MS };

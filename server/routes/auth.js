@@ -19,8 +19,9 @@ const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const pool = require('../db');
 const { logEvent } = require('../utils/log');
-const { issueToken } = require('../auth/tokens');
+const { issueToken, sessionSecret } = require('../auth/tokens');
 const { validatePassword } = require('../utils/password');
+const { escapeHtml } = require('../utils/html');
 const { usernameFromAcronym } = require('../utils/usernames');
 const { isTrader } = require('../utils/trade');
 const { getBoolean, getNumber, getSetting } = require('../utils/settings');
@@ -64,7 +65,11 @@ function generateOtp() {
  * password-reset code even though both live in the same table.
  */
 function hashOtp(username, otp, purpose) {
-  return crypto.createHmac('sha256', process.env.SESSION_SECRET || 'nrldc-otp')
+  // Keyed with the same validated session secret the tokens use, rather than a
+  // separate hard-coded fallback. In production this is the required
+  // SESSION_SECRET; the old 'nrldc-otp' default only ever applied in dev, and
+  // was a weak key for real HMACs.
+  return crypto.createHmac('sha256', sessionSecret())
     .update(`${username.toLowerCase()}:${purpose}:${otp}`)
     .digest('hex');
 }
@@ -299,7 +304,7 @@ router.post('/login', async (req, res) => {
       to: user.email,
       subject: 'NRLDC Portal Login - OTP Verification',
       text: `Hello ${user.name},\n\nYour One-Time Password (OTP) for logging into the NRLDC Schedule Discrepancy Platform is: ${otp}\n\nThis OTP is valid for 5 minutes.\n\nBest regards,\nNRLDC Team`,
-      html: `<p>Hello <strong>${user.name}</strong>,</p>
+      html: `<p>Hello <strong>${escapeHtml(user.name)}</strong>,</p>
              <p>Your One-Time Password (OTP) for logging into the NRLDC Schedule Discrepancy Platform is: <strong style="font-size: 1.2rem; color: #2563eb; letter-spacing: 1px;">${otp}</strong></p>
              <p>This OTP is valid for 5 minutes.</p>
              <p>Best regards,<br/>NRLDC Team</p>`,
@@ -436,7 +441,7 @@ router.post('/forgot-password', async (req, res) => {
       to: user.email,
       subject: 'NRLDC Portal - Password Reset Code',
       text: `Hello ${user.name},\n\nYour password reset code for the NRLDC Schedule Discrepancy Portal is: ${otp}\n\nEnter it on the sign-in screen within ${minutes} minutes to choose a new password.\n\nIf you did not request this, you can ignore this email — the code alone cannot change anything, and your current password still works.\n\nBest regards,\nNRLDC Team`,
-      html: `<p>Hello <strong>${user.name}</strong>,</p>
+      html: `<p>Hello <strong>${escapeHtml(user.name)}</strong>,</p>
              <p>Your password reset code for the NRLDC Schedule Discrepancy Portal is: <strong style="font-size: 1.2rem; color: #2563eb; letter-spacing: 1px;">${otp}</strong></p>
              <p>Enter it on the sign-in screen within <strong>${minutes} minutes</strong> to choose a new password.</p>
              <p>If you did not request this, you can ignore this email — the code alone cannot change anything, and your current password still works.</p>

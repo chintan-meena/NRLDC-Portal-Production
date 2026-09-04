@@ -1,6 +1,7 @@
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 
 /**
  * config/uploads.js — What may be uploaded to the portal.
@@ -121,7 +122,11 @@ function createUploader(destinationDir) {
   const storage = multer.diskStorage({
     destination: (req, file, cb) => cb(null, destinationDir),
     filename: (req, file, cb) => {
-      const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+      // crypto.randomInt, not Math.random: a predictable suffix would let one
+      // uploader guess another's stored filename. Kept all-digits so the stored
+      // name still matches the <timestamp>-<digits>- prefix that
+      // utils/filenames.js strips (and the Net Schedule name check relies on).
+      const uniqueSuffix = Date.now() + '-' + crypto.randomInt(1e9);
       // Keep the characters the WBES Net Schedule naming convention is built on
       // — '@', '(' and ')' — so a file uploaded as
       //   NetSchdReportSummary@ACR@rev(137)@date.xlsx
