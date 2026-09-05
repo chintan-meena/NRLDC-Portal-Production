@@ -44,6 +44,36 @@ const FILING_CATEGORIES = ['ISGS', 'RE', 'States', 'Traders'];
 /** The two approval kinds a trade filing may quote. */
 const GNA_TYPES = ['GNA', 'T-GNA'];
 
+/**
+ * The discrepancy states the RLDC may still act on through /process.
+ *
+ *   · Pending  — the normal path: freshly filed, or a trade the consenting
+ *                region has just agreed to.
+ *   · Returned — sent back to the filer; the RLDC may still close it if the
+ *                filer never re-raises, rather than leaving it stuck forever.
+ *
+ * Resolved / Rejected are terminal, and Awaiting Consent moves through the
+ * consent step (not /process), so neither is processable.
+ */
+const PROCESSABLE_STATUSES = ['Pending', 'Returned'];
+
+/**
+ * The states a filing may be re-raised from — a decision has been handed down
+ * (or it was sent back) and the filer wants another round. A Pending or
+ * Awaiting-Consent filing is still in play and has nothing to re-raise.
+ */
+const RERAISEABLE_STATUSES = ['Returned', 'Rejected', 'Resolved'];
+
+/** May the RLDC process (resolve / return / reject) a filing in this state? */
+function isProcessable(status) {
+  return PROCESSABLE_STATUSES.includes(status);
+}
+
+/** May the filer re-raise a filing in this state? */
+function isReraiseable(status) {
+  return RERAISEABLE_STATUSES.includes(status);
+}
+
 /** Is this account a trader? */
 function isTrader(category) {
   return category === 'Traders';
@@ -243,6 +273,10 @@ module.exports = {
   GRID_REGIONS,
   FILING_CATEGORIES,
   GNA_TYPES,
+  PROCESSABLE_STATUSES,
+  RERAISEABLE_STATUSES,
+  isProcessable,
+  isReraiseable,
   isTrader,
   isTradeCapable,
   resolveRouting,

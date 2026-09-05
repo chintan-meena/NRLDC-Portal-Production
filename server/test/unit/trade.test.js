@@ -8,6 +8,7 @@ const assert = require('node:assert/strict');
 const {
   isTradeCapable, resolveRouting, validateTrade, isInterRegional, openingState,
   mayConsent, mayResolveTrade, mayRecordOfflineConsent,
+  isProcessable, isReraiseable,
 } = require('../../utils/trade');
 
 test('isTradeCapable admits Traders and States only', () => {
@@ -92,4 +93,22 @@ test('mayResolveTrade — correcting region, only after consent', () => {
   assert.equal(mayResolveTrade({ isNational: false, actingRegion: 'ERLDC', row: consented }).ok, false);
   assert.equal(mayResolveTrade({ isNational: false, actingRegion: 'NRLDC', row: awaitingRow }).ok, false); // not yet consented
   assert.equal(mayResolveTrade({ isNational: false, actingRegion: 'NRLDC', row: { ...consented, consent_state: 'Refused' } }).ok, false);
+});
+
+test('isProcessable — only Pending and Returned may be processed', () => {
+  assert.equal(isProcessable('Pending'), true);
+  assert.equal(isProcessable('Returned'), true);   // RLDC may still close an abandoned return
+  assert.equal(isProcessable('Resolved'), false);
+  assert.equal(isProcessable('Rejected'), false);
+  assert.equal(isProcessable('Awaiting Consent'), false); // moves through the consent step, not /process
+  assert.equal(isProcessable(undefined), false);
+});
+
+test('isReraiseable — only a decided filing may be re-raised', () => {
+  assert.equal(isReraiseable('Returned'), true);
+  assert.equal(isReraiseable('Rejected'), true);
+  assert.equal(isReraiseable('Resolved'), true);
+  assert.equal(isReraiseable('Pending'), false);          // still in play
+  assert.equal(isReraiseable('Awaiting Consent'), false); // consent not yet answered
+  assert.equal(isReraiseable(undefined), false);
 });

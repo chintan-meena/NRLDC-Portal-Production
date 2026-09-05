@@ -2152,7 +2152,10 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
                       answer a question it was only asked to confirm. The server
                       refuses it either way; not drawing the button is so nobody
                       tries. */}
-                  {selectedRequest.status === 'Pending' && (
+                  {/* Returned is actionable too: if the filer never re-raises,
+                      the RLDC can still close the ticket (Reject with a reason)
+                      instead of leaving it stuck once the re-raise window lapses. */}
+                  {(selectedRequest.status === 'Pending' || selectedRequest.status === 'Returned') && (
                     !isTrade(selectedRequest)
                     || !selectedRequest.consent_state
                     || currentUser.role === 'SUPERADMIN'

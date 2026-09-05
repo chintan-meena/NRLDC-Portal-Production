@@ -27,6 +27,7 @@ const {
   isTradeCapable, validateTrade, isInterRegional, openingState, resolveRouting,
   isSellerRegion, isBuyerRegion,
   mayConsent, mayRecordOfflineConsent, mayResolveTrade,
+  isProcessable, isReraiseable, PROCESSABLE_STATUSES, RERAISEABLE_STATUSES,
 } = require('../utils/trade');
 const { regionCodes } = require('../utils/regionRegistry');
 const path = require('path');
@@ -561,6 +562,14 @@ router.patch('/:reqNo/process', requireAdmin, async (req, res) => {
 
     const disc = discRes.rows[0];
 
+    // Terminal states are final and Awaiting Consent moves through the consent
+    // step, not here. Only a Pending filing — or a Returned one the RLDC is
+    // closing out — may be processed. The UI already gates on this; this is the
+    // matching server guard so a raw API call cannot flip a closed ticket.
+    if (!isProcessable(disc.status)) {
+      return res.status(409).json({ error: `This discrepancy is ${disc.status} and can no longer be processed.` });
+    }
+
     // An admin processes their own region's filings only — plus, for a trade,
     // the ones their region is a party to.
     const partyToTrade = isBuyerRegion(disc, req.auth.region) || isSellerRegion(disc, req.auth.region);
@@ -592,17 +601,24 @@ router.patch('/:reqNo/process', requireAdmin, async (req, res) => {
     const entryText = status === 'Rejected' ? (rejectionReason || '') : (comment || '');
     const entry = remarkEntry(req.auth.username, req.auth.role, kind, entryText);
 
+    // The status guard is repeated in the WHERE so the transition is atomic: if
+    // another request moved the row out of a processable state between the read
+    // above and this write, no row matches and we report the conflict rather
+    // than overwriting a decision.
     const result = await pool.query(
       `UPDATE discrepancies
           SET status = $1, admin_comment = $2, admin_files = $3::jsonb,
               rejection_reason = $4, resolved_time = NOW(),
               flagged = $6, flag_note = $7,
               remark_history = remark_history || $8::jsonb
-        WHERE req_no = $5 RETURNING *`,
+        WHERE req_no = $5 AND status = ANY($9::text[]) RETURNING *`,
       [status, comment || '', JSON.stringify(adminFiles || []), rejectionReason || '', reqNo,
        markFlagged, markFlagged ? String(flagNote || '').slice(0, 500) : '',
-       JSON.stringify([entry])]
+       JSON.stringify([entry]), PROCESSABLE_STATUSES]
     );
+    if (result.rowCount === 0) {
+      return res.status(409).json({ error: 'This discrepancy changed status and can no longer be processed. Reload and try again.' });
+    }
 
     if (markFlagged) {
       await logEvent('warn',
@@ -663,6 +679,8 @@ router.patch('/:reqNo/consent', requireAdmin, async (req, res) => {
       consented ? 'consented' : 'denied',
       consented ? 'Consented for correction.' : String(remark || '')
     );
+    // consent_state is re-checked in the WHERE so two admins answering at once
+    // cannot both record a decision — the second finds no Awaiting row.
     const result = await pool.query(
       `UPDATE discrepancies
           SET consent_state = $1, consent_mode = 'portal', consent_by = $2, consent_at = NOW(),
@@ -671,12 +689,15 @@ router.patch('/:reqNo/consent', requireAdmin, async (req, res) => {
               rejection_reason = CASE WHEN $5::boolean THEN '' ELSE $3 END,
               resolved_time = CASE WHEN $5::boolean THEN resolved_time ELSE NOW() END,
               remark_history = remark_history || $7::jsonb
-        WHERE req_no = $6
+        WHERE req_no = $6 AND consent_state = 'Awaiting'
       RETURNING *`,
       [consented ? 'Consented' : 'Refused', req.auth.username, String(remark || '').slice(0, 1000),
        consented ? 'Pending' : 'Rejected', consented, reqNo,
        JSON.stringify([entry])]
     );
+    if (result.rowCount === 0) {
+      return res.status(409).json({ error: 'This trade is no longer awaiting consent. Reload and try again.' });
+    }
 
     const line = consented
       ? `Req No ${reqNo}: ${disc.consenting_region} consented to the trade. ${disc.correcting_region} to apply the fix.`
@@ -740,10 +761,13 @@ router.patch('/:reqNo/offline-consent', requireAdmin, async (req, res) => {
           SET consent_state = 'Consented', consent_mode = 'offline', consent_by = $1,
               consent_at = NOW(), consent_remark = $2, consent_files = $3::jsonb,
               status = 'Resolved', resolved_time = NOW()
-        WHERE req_no = $4
+        WHERE req_no = $4 AND consent_state = 'Awaiting'
       RETURNING *`,
       [req.auth.username, note.slice(0, 1000), JSON.stringify(files || []), reqNo]
     );
+    if (result.rowCount === 0) {
+      return res.status(409).json({ error: 'This trade is no longer awaiting consent. Reload and try again.' });
+    }
 
     // Recorded at warn level on purpose. It is a legitimate step, but it is
     // one region deciding on another's behalf and closing the ticket on it, so
@@ -804,6 +828,14 @@ router.patch('/:reqNo/reraise', async (req, res) => {
       return res.status(400).json({ error: `Cannot re-raise — you have reached the maximum allowed limit of ${reraiseLimit} re-raises for this discrepancy.` });
     }
 
+    // Only a decided filing may be re-raised. A Pending or Awaiting-Consent one
+    // is still in play — re-raising it would reset a filing nobody has answered
+    // and, for a trade, spin it back through consent needlessly. The UI only
+    // offers re-raise on these states; this is the matching server guard.
+    if (!isReraiseable(disc.status)) {
+      return res.status(409).json({ error: 'Only a returned, rejected or resolved discrepancy can be re-raised.' });
+    }
+
     // A re-raise runs on its own wider window (reraiseWindow), but it must not
     // become a way to slip in a discrepancy type the filing-window category rule
     // would refuse for this filing's age. Beyond maxDays only the restricted
@@ -858,10 +890,13 @@ router.patch('/:reqNo/reraise', async (req, res) => {
          consent_remark = CASE WHEN $7::boolean THEN ''           ELSE consent_remark END,
          consent_files  = CASE WHEN $7::boolean THEN '[]'::jsonb  ELSE consent_files  END,
          remark_history = remark_history || $8::jsonb
-       WHERE req_no = $5 RETURNING *`,
+       WHERE req_no = $5 AND status = ANY($9::text[]) RETURNING *`,
       [diff >= 0 ? diff : 0, requestContent, discrepancyType, JSON.stringify(mergedFiles), reqNo,
-       newStatus, interRegional, JSON.stringify([entry])]
+       newStatus, interRegional, JSON.stringify([entry]), RERAISEABLE_STATUSES]
     );
+    if (result.rowCount === 0) {
+      return res.status(409).json({ error: 'This discrepancy changed status and can no longer be re-raised. Reload and try again.' });
+    }
 
     await logEvent('success', `Discrepancy Req No ${reqNo} successfully RE-RAISED by user "${username}" (Count: ${result.rows[0].reraise_count}/${reraiseLimit})`);
     res.json(result.rows[0]);
