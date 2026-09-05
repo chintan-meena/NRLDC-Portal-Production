@@ -166,13 +166,36 @@ portal can undo it.
 
 ## 8. Start it
 
+For a quick single-box start:
+
 ```bash
 ./nrldc.sh start
 ./nrldc.sh status
 ```
 
-Under a process manager, run `node server/index.js` with `NODE_ENV=production`
-and the same `SESSION_SECRET` for every instance.
+**In production, run it under a supervisor** so a crash, an OOM kill or a reboot
+brings the portal straight back instead of leaving it down. The server exits
+cleanly on an uncaught exception on purpose (see the handler in
+`server/index.js`) — that is only safe if something restarts it. A ready-made
+systemd unit is provided:
+
+```bash
+# build the frontend first — systemd runs the server, not the build
+npm run build
+
+sudo cp deploy/nrldc-portal.service /etc/systemd/system/
+sudoedit /etc/systemd/system/nrldc-portal.service   # set User, WorkingDirectory
+sudo systemctl daemon-reload
+sudo systemctl enable --now nrldc-portal
+systemctl status nrldc-portal                        # expect "active (running)"
+journalctl -u nrldc-portal -f                        # follow the log
+```
+
+Run the portal under **either** the systemd unit **or** `./nrldc.sh` — not both,
+or two processes fight over the port. Behind a load balancer, run
+`node server/index.js` with `NODE_ENV=production` and the **same
+`SESSION_SECRET`** on every instance (see `deploy/nrldc-portal.service` for a
+per-node template).
 
 ---
 
@@ -222,3 +245,20 @@ back that directory up alongside the dump, or restoring will leave every
 attachment link broken.
 
 Test a restore before you need one.
+
+---
+
+## Known advisories
+
+`npm audit` in `server/` reports **5 moderate advisories**, all one chain:
+`exceljs@4.4.0` → `uuid@8.3.2` (GHSA-w5hq-g745-h8pq, a missing buffer-bounds
+check in uuid `v3`/`v5`/`v6` **when a `buf` argument is passed**).
+
+**Assessment — not reachable, left as-is.** exceljs calls only `uuid.v4()` (no
+buffer), so the vulnerable code path is never entered by the portal. Every
+available "fix" is worse than the advisory: `npm audit fix` is a no-op (exceljs
+pins uuid `^8`); `npm audit fix --force` downgrades exceljs to 3.4.0, a breaking
+change to the WBES bulk-upload and template code; an `overrides` bump to uuid
+`^11` is a three-major, ESM-only jump that risks breaking exceljs's `require`.
+Revisit when exceljs ships a release on a patched uuid. The frontend audit is
+clean (0 vulnerabilities).

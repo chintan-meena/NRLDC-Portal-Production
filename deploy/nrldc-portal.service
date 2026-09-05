@@ -1,0 +1,77 @@
+# NRLDC Schedule Discrepancy Portal — systemd service unit (sample)
+#
+# This is what closes the "auto-restart" gap: on a crash — an uncaught
+# exception (see the handler in server/index.js), an OOM kill, or a machine
+# reboot — systemd brings a clean process straight back, so the portal does not
+# stay down waiting for someone to notice.
+#
+# ── Install ──────────────────────────────────────────────────────────────────
+#   1. Edit the three placeholders below: User/Group, WorkingDirectory, and the
+#      node path if `which node` is not /usr/bin/env-resolvable for that user.
+#   2. sudo cp deploy/nrldc-portal.service /etc/systemd/system/
+#   3. sudo systemctl daemon-reload
+#   4. sudo systemctl enable --now nrldc-portal
+#   5. systemctl status nrldc-portal   # confirm "active (running)"
+#      curl -sf http://localhost:3001/api/health
+#
+# Build the frontend first (systemd runs the server, not the build):
+#   npm run build            # regenerates dist/, which the server serves
+#
+# On upgrade:  git pull && npm install && (cd server && npm install)
+#              npm run build && (cd server && node migrate.js)
+#              sudo systemctl restart nrldc-portal
+#
+# NOTE: run the portal under EITHER this unit OR ./nrldc.sh — not both, or two
+# processes fight over port 3001. This unit is the production choice; nrldc.sh
+# start/stop is convenient for a single box without systemd.
+
+[Unit]
+Description=NRLDC Schedule Discrepancy Portal
+Documentation=file:///opt/nrldc-portal/DEPLOYMENT.md
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+
+# The service account and the checked-out repo. CHANGE THESE to match the box.
+User=nrldc
+Group=nrldc
+WorkingDirectory=/opt/nrldc-portal
+
+# NODE_ENV=production turns on CSP/HSTS and makes a missing SESSION_SECRET
+# fatal. Everything else (DB creds, SESSION_SECRET, SMTP) is read by the app
+# from server/.env via dotenv, so systemd does not need an EnvironmentFile.
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/env node server/index.js
+
+# Auto-restart on any non-clean exit, with a short pause. The StartLimit pair
+# stops a genuinely broken build (crashes on boot) from hammering restarts
+# forever — after 5 failures in 60s systemd gives up and marks it failed, which
+# is what you want an alert to fire on rather than an endless crash loop.
+Restart=always
+RestartSec=3
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+# The app shuts down gracefully on SIGTERM (drains connections, closes the DB
+# pool, 10s force-exit fallback), so let systemd use the default TERM and give
+# it time to finish.
+KillSignal=SIGTERM
+TimeoutStopSec=15
+
+# Journald captures stdout/stderr; view with: journalctl -u nrldc-portal -f
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=nrldc-portal
+
+# ── Light hardening (safe defaults; loosen only if something legitimately breaks) ──
+NoNewPrivileges=true
+ProtectSystem=full
+PrivateTmp=true
+# The portal writes uploaded attachments under server/upload — keep that path
+# writable if you tighten ProtectSystem to "strict":
+# ReadWritePaths=/opt/nrldc-portal/server/upload
+
+[Install]
+WantedBy=multi-user.target

@@ -425,4 +425,16 @@ process.on('unhandledRejection', (reason) => {
   console.error('[SERVER] Unhandled promise rejection:', reason);
 });
 
+// An uncaught synchronous throw leaves the process in an undefined state: its
+// event loop may still be running, but any invariant could now be broken, so
+// the only safe response is to log and exit rather than serve corrupt state. A
+// process supervisor (systemd Restart=always, or pm2) then brings a clean
+// process straight back — see the sample unit in deploy/nrldc-portal.service
+// and DEPLOYMENT.md §8. Without a supervisor the portal stays down here, which
+// is exactly why one is required in production.
+process.on('uncaughtException', (err) => {
+  console.error('[SERVER] Uncaught exception — exiting for a clean restart:', err);
+  process.exit(1);
+});
+
 module.exports = app;
