@@ -140,6 +140,12 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
   const [mailDailyCap, setMailDailyCap] = useState(280);
   const [mailUsage, setMailUsage] = useState(null);
 
+  // Password-recovery abuse throttle (national policy). Blocks a source IP from
+  // the recovery flow after too many failed attempts. See utils/resetAbuse.js.
+  const [resetAbuseEnabled, setResetAbuseEnabled] = useState(true);
+  const [resetAbuseThreshold, setResetAbuseThreshold] = useState(5);
+  const [resetAbuseBlockHours, setResetAbuseBlockHours] = useState(24);
+
   // SMTP States
   const [smtpHost, setSmtpHost] = useState('smtp.gmail.com');
   const [smtpPort, setSmtpPort] = useState('587');
@@ -184,6 +190,9 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
       setOtpTrustDays(cfg.otpTrustDays ?? 7);
       setResetOtpMinutes(cfg.resetOtpMinutes ?? 20);
       setMailDailyCap(cfg.mailDailyCap ?? 280);
+      setResetAbuseEnabled(cfg.resetAbuseEnabled !== 'false' && cfg.resetAbuseEnabled !== false);
+      setResetAbuseThreshold(cfg.resetAbuseThreshold ?? 5);
+      setResetAbuseBlockHours(cfg.resetAbuseBlockHours ?? 24);
       setSmtpHost(cfg.smtpHost || 'smtp.gmail.com');
       setSmtpPort(cfg.smtpPort || '587');
       setSmtpSecure(cfg.smtpSecure === true || cfg.smtpSecure === 'true');
@@ -425,6 +434,9 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
           otpTrustDays: parseInt(otpTrustDays),
           resetOtpMinutes: parseInt(resetOtpMinutes),
           mailDailyCap: parseInt(mailDailyCap),
+          resetAbuseEnabled: String(resetAbuseEnabled),
+          resetAbuseThreshold: parseInt(resetAbuseThreshold),
+          resetAbuseBlockHours: parseInt(resetAbuseBlockHours),
           smtpHost,
           smtpPort,
           smtpSecure: String(smtpSecure),
@@ -1035,12 +1047,13 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
                         )}
                       </td>
                       <td>
-                        {/* A consented trade is the seller's to fix. The buyer
-                            sees Details, not the three action buttons. */}
+                        {/* A consented trade is the correcting region's to fix.
+                            The consenting region sees Details, not the three
+                            action buttons. */}
                         {req.status === 'Pending' && (
                           !isTrade(req) || !req.consent_state
                           || currentUser.role === 'SUPERADMIN'
-                          || currentUser.region === req.seller_region
+                          || currentUser.region === req.correcting_region
                         ) ? (
                           <div style={{ display: 'flex', gap: '6px' }}>
                             <button className="btn btn-teal" style={{ padding: '4px 8px', fontSize: '0.75rem' }} onClick={(e) => { e.stopPropagation(); handleOpenActionModal(req, 'resolve'); }}>Resolve</button>
@@ -1637,6 +1650,40 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
               </div>
               </section>
 
+              {/* ── Password-recovery protection (national only) ──────────── */}
+              {national && (
+              <section className="glass-panel settings-card">
+              <h3 className="settings-heading">Password-recovery protection</h3>
+              <p className="settings-hint">
+                Blocks a device from the password-recovery pages after too many failed
+                attempts — a guard on a public, sign-in-free flow. Applies portal-wide.
+              </p>
+              <div className="form-group">
+                <label htmlFor="ad-reset-abuse-enabled" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <input id="ad-reset-abuse-enabled" type="checkbox" checked={resetAbuseEnabled}
+                    onChange={(e) => setResetAbuseEnabled(e.target.checked)} />
+                  <span>Throttle repeated failed recovery attempts</span>
+                </label>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                <div className="form-group">
+                  <label htmlFor="ad-reset-abuse-threshold">Failed attempts before block</label>
+                  <input id="ad-reset-abuse-threshold" type="number" min="1" className="form-control"
+                    disabled={!resetAbuseEnabled}
+                    value={resetAbuseThreshold} onChange={(e) => setResetAbuseThreshold(e.target.value)} />
+                  <span className="settings-field-hint">How many failed attempts from one device before it is blocked. Default: 5.</span>
+                </div>
+                <div className="form-group">
+                  <label htmlFor="ad-reset-abuse-hours">Block duration (hours)</label>
+                  <input id="ad-reset-abuse-hours" type="number" min="1" className="form-control"
+                    disabled={!resetAbuseEnabled}
+                    value={resetAbuseBlockHours} onChange={(e) => setResetAbuseBlockHours(e.target.value)} />
+                  <span className="settings-field-hint">How long the block lasts. Default: 24 hours.</span>
+                </div>
+              </div>
+              </section>
+              )}
+
               {/* ── SMTP server ──────────────────────────────────────────── */}
               <section className="glass-panel settings-card">
               <h3 className="settings-heading">SMTP Server Settings (2FA)</h3>
@@ -2053,16 +2100,17 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
                     as an empty slot so the action buttons stay right-aligned. */}
                 <div />
                 <div style={{ display: 'flex', gap: '10px' }}>
-                  {/* On a consented trade the fix belongs to the seller's region
-                      alone. The buyer has already had its say, and offering it
-                      Resolve here would let it answer a question it was only
-                      asked to confirm. The server refuses it either way; not
-                      drawing the button is so nobody tries. */}
+                  {/* On a consented trade the fix belongs to the correcting
+                      region alone (decided by the seller's category). The other
+                      region only consents, so offering it Resolve would let it
+                      answer a question it was only asked to confirm. The server
+                      refuses it either way; not drawing the button is so nobody
+                      tries. */}
                   {selectedRequest.status === 'Pending' && (
                     !isTrade(selectedRequest)
                     || !selectedRequest.consent_state
                     || currentUser.role === 'SUPERADMIN'
-                    || currentUser.region === selectedRequest.seller_region
+                    || currentUser.region === selectedRequest.correcting_region
                   ) && (
                     <>
                       <button className="btn btn-teal" onClick={() => setModalMode('resolve')}>Resolve</button>

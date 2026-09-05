@@ -30,6 +30,7 @@ const REQUIRED_TABLES = [
   'trusted_devices',      // added when OTP moved to once-per-device-per-week
   'mail_quota',           // added with the daily mail allowance guard
   'new_acronym_requests', // added with new-plant / new-id requests
+  'password_reset_abuse', // added with the password-recovery abuse throttle
 ];
 
 // Columns added after the table itself existed.
@@ -40,6 +41,8 @@ const REQUIRED_COLUMNS = [
   ['wbes_entities', 'date_of_commissioning'],
   ['login_otps', 'purpose'],              // added when reset codes joined login codes
   ['users', 'locked_at'],                 // added for auto-expiring failed-attempt lockouts
+  ['discrepancies', 'correcting_region'], // added with two-sided trade consent
+  ['discrepancies', 'gna_tgna_number'],   // added with GNA/T-GNA on trade filings
 ];
 
 /**

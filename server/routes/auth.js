@@ -27,6 +27,24 @@ const { isTrader } = require('../utils/trade');
 const { getBoolean, getNumber, getSetting } = require('../utils/settings');
 const { effectiveLock, minutesUntil, DEFAULT_LOCKOUT_MINUTES } = require('../auth/lockout');
 const { parseSignupTypes, deriveSignupType, DEFAULT_SIGNUP_TYPES } = require('../utils/wbesTypes');
+const resetAbuse = require('../utils/resetAbuse');
+
+/**
+ * Guard a password-recovery endpoint against repeated abuse from one IP. When
+ * the source is blocked, answer 429 and stop. Returns true when the request was
+ * handled (blocked) and the caller should return immediately.
+ */
+async function recoveryBlocked(req, res) {
+  const { blocked, retryAfterMinutes } = await resetAbuse.isBlocked(req.ip);
+  if (!blocked) return false;
+  await logEvent('warn', `Password-recovery blocked for IP ${req.ip} — too many failed attempts.`);
+  res.locals.authFailed = true;
+  res.status(429).json({
+    success: false,
+    error: `Too many password-recovery attempts from this device. Please try again in about ${Math.ceil((retryAfterMinutes || 60) / 60)} hour(s), or ask an administrator to reset your password.`,
+  });
+  return true;
+}
 const { setContextRegion } = require('../utils/requestContext');
 const { sendMail, numericConfig } = require('../utils/mailer');
 const {
@@ -407,6 +425,7 @@ router.post('/forgot-password', async (req, res) => {
   if (!username) {
     return res.status(400).json({ success: false, error: 'Username is required.' });
   }
+  if (await recoveryBlocked(req, res)) return;
 
   const minutes = await numericConfig('resetOtpMinutes', 20);
   const GENERIC_REPLY = {
@@ -421,6 +440,10 @@ router.post('/forgot-password', async (req, res) => {
       'SELECT username, name, email FROM users WHERE LOWER(username) = LOWER($1)', [username]
     );
     if (userRes.rows.length === 0) {
+      // Junk usernames are the signature of an automated sweep — count it toward
+      // the per-IP throttle, while still answering the same generic reply so the
+      // endpoint never confirms whether an account exists.
+      await resetAbuse.recordFailure(req.ip);
       await logEvent('warn', `Password recovery requested for unknown username "${username}"`);
       return res.json(GENERIC_REPLY);
     }
@@ -489,6 +512,7 @@ router.post('/reset-password', async (req, res) => {
   if (policyError) {
     return res.status(400).json({ success: false, error: policyError });
   }
+  if (await recoveryBlocked(req, res)) return;
 
   try {
     const userRes = await pool.query(
@@ -496,12 +520,14 @@ router.post('/reset-password', async (req, res) => {
     );
     if (userRes.rows.length === 0) {
       // Same wording a wrong code gets, so this cannot confirm an account.
+      await resetAbuse.recordFailure(req.ip);
       return authFailure(res, { success: false, error: 'That code has expired or was already used. Please request a new one.' });
     }
     const user = userRes.rows[0];
 
     const check = await consumeOtp(user.username, 'reset', otp);
     if (!check.ok) {
+      await resetAbuse.recordFailure(req.ip);
       await logEvent('warn', `Password reset code rejected for "${user.username}": ${check.error}`);
       return authFailure(res, { success: false, error: check.error });
     }
@@ -512,6 +538,7 @@ router.post('/reset-password', async (req, res) => {
       [hash, user.username]
     );
     const dropped = await forgetDevices(user.username);
+    await resetAbuse.clearOnSuccess(req.ip);   // an honest reset lifts the counter
 
     await logEvent('success',
       `User "${user.username}" reset their own password with an emailed code.`
@@ -729,6 +756,7 @@ router.post('/request-password-reset', async (req, res) => {
   if (!username || !String(username).trim()) {
     return res.status(400).json({ success: false, error: 'Username is required.' });
   }
+  if (await recoveryBlocked(req, res)) return;
 
   const GENERIC_REPLY = {
     success: true,
@@ -741,6 +769,7 @@ router.post('/request-password-reset', async (req, res) => {
       'SELECT username, name FROM users WHERE LOWER(username) = LOWER($1)', [clean]
     );
     if (userRes.rows.length === 0) {
+      await resetAbuse.recordFailure(req.ip);
       await logEvent('warn', `Password reset requested for unknown username "${clean}"`);
       return res.json(GENERIC_REPLY);
     }

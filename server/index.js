@@ -273,6 +273,10 @@ async function ensureDefaultConfig() {
     smtpUser: process.env.SMTP_USER || '',
     smtpPass: process.env.SMTP_PASS || '',
     smtpFrom: process.env.SMTP_FROM || 'NRLDC Schedule Portal <noreply@example.invalid>',
+    // Password-recovery abuse throttle (national policy). See utils/resetAbuse.js.
+    resetAbuseEnabled: 'true',
+    resetAbuseThreshold: '5',
+    resetAbuseBlockHours: '24',
   };
   const regionalDefaults = {
     maxDays: '5',

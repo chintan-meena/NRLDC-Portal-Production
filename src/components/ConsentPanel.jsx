@@ -14,9 +14,10 @@ import { formatDateDMYHM } from '../utils/format';
  * what the trade was, where the consent has got to, and whether the person
  * looking at it is the one holding it up.
  *
- * The three states are the buyer deciding, the buyer having refused, and the
- * buyer having consented. Only the first has actions, and which actions
- * depend on who is looking.
+ * The three states are the consenting region deciding, having denied, and
+ * having consented. Only the first has actions, and which actions depend on who
+ * is looking. Which region consents and which corrects is decided on the server
+ * from the seller's category and carried on the row.
  */
 export default function ConsentPanel({ request, currentUser, onDone, notify }) {
   const [mode, setMode] = useState(null);      // 'refuse' | 'offline'
@@ -53,13 +54,13 @@ export default function ConsentPanel({ request, currentUser, onDone, notify }) {
   }
 
   const awaiting = request.consent_state === 'Awaiting';
-  const iAmSeller = viewerRegion === request.seller_region;
-  const iAmBuyer = viewerRegion === request.buyer_region;
-  // The buyer is meant to approve on the portal. The seller may bypass that
-  // whenever the trade is still awaiting consent — whether the buyer has no
-  // account here or simply has not answered. The national admin may too.
+  const iAmConsenter = viewerRegion === request.consenting_region;
+  const iAmCorrector = viewerRegion === request.correcting_region;
+  // The consenting region approves on the portal. The correcting region may
+  // bypass that whenever the trade is still awaiting consent — whether the
+  // consenter has no account here or simply has not answered. National may too.
   const consenterCanAnswer = request.consenter_on_portal !== false;
-  const mayRecordOffline = awaiting && (isNational || iAmSeller);
+  const mayRecordOffline = awaiting && (isNational || iAmCorrector);
 
   const Icon = summary.tone === 'pending' ? Clock : summary.tone === 'rejected' ? XCircle : Handshake;
 
@@ -91,7 +92,7 @@ export default function ConsentPanel({ request, currentUser, onDone, notify }) {
     }
     await run(
       () => recordOfflineConsent(request.req_no, remark.trim(), names),
-      `${request.buyer_region}’s consent bypassed and the discrepancy resolved.`
+      `${request.consenting_region}’s consent bypassed and the discrepancy resolved.`
     );
   };
 
@@ -109,13 +110,20 @@ export default function ConsentPanel({ request, currentUser, onDone, notify }) {
 
         <p style={{ marginTop: '8px' }}>
           <span className="trade-route">
+            <span style={{ color: 'var(--text-muted)' }}>Seller</span>
             <span className="mono">{request.seller_wbes_acronym}</span>
             <span className="region-badge">{request.seller_region}</span>
             <ArrowRight size={13} />
+            <span style={{ color: 'var(--text-muted)' }}>Buyer</span>
             <span className="mono">{request.buyer_wbes_acronym}</span>
             <span className="region-badge">{request.buyer_region}</span>
           </span>
         </p>
+        {request.gna_tgna_number && (
+          <p style={{ marginTop: '4px', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+            Approval: <strong>{request.gna_tgna_type}</strong> · {request.gna_tgna_number}
+          </p>
+        )}
 
         {/* What was actually agreed, once it has been. Kept visible after the
             ticket moves on, because by then the status says only "Pending". */}
@@ -139,12 +147,12 @@ export default function ConsentPanel({ request, currentUser, onDone, notify }) {
           </p>
         )}
 
-        {/* ── The buyer's decision ──────────────────────────────────────── */}
-        {awaiting && (iAmBuyer || isNational) && mode !== 'offline' && (
+        {/* ── The consenting region's decision ──────────────────────────── */}
+        {awaiting && (iAmConsenter || isNational) && mode !== 'offline' && (
           mode === 'refuse' ? (
             <div style={{ marginTop: '11px' }}>
               <label htmlFor="consent-refuse-why" style={{ fontSize: '0.8rem' }}>
-                Why is this not your trade?
+                Why is consent being denied?
               </label>
               <textarea id="consent-refuse-why" className="form-control" rows={2} value={remark}
                 placeholder="The filer reads this, and the ticket closes on it."
@@ -153,9 +161,9 @@ export default function ConsentPanel({ request, currentUser, onDone, notify }) {
                 <button type="button" className="btn btn-danger" disabled={busy || !remark.trim()}
                   onClick={() => run(
                     () => decideConsent(request.req_no, 'refuse', remark.trim()),
-                    'Refused. The ticket is closed and the filer has been told why.'
+                    'Consent denied. The ticket is closed and the filer has been told why.'
                   )}>
-                  {busy ? 'Recording…' : 'Refuse the trade'}
+                  {busy ? 'Recording…' : 'Confirm — deny consent'}
                 </button>
                 <button type="button" className="btn btn-secondary" onClick={() => { setMode(null); setRemark(''); }}>
                   Cancel
@@ -167,18 +175,18 @@ export default function ConsentPanel({ request, currentUser, onDone, notify }) {
               <button type="button" className="btn btn-primary" disabled={busy}
                 onClick={() => run(
                   () => decideConsent(request.req_no, 'consent', remark.trim()),
-                  `Consent recorded. ${request.seller_region} can now apply the fix.`
+                  `Consent recorded. ${request.correcting_region} can now apply the fix.`
                 )}>
-                <Handshake size={14} /> Approved
+                <Handshake size={14} /> Consented for correction
               </button>
               <button type="button" className="btn btn-danger" onClick={() => setMode('refuse')}>
-                <XCircle size={14} /> Refuse
+                <XCircle size={14} /> Deny consent
               </button>
             </div>
           )
         )}
 
-        {/* ── The seller, when the buyer is not here to ask ─────────────── */}
+        {/* ── The correcting region, when the consenter is not here to ask ── */}
         {mayRecordOffline && mode !== 'refuse' && (
           mode === 'offline' ? (
             <div style={{ marginTop: '11px' }}>
@@ -189,7 +197,7 @@ export default function ConsentPanel({ request, currentUser, onDone, notify }) {
                 placeholder="e.g. Consented by John Doe, XRLDC, by telephone on 02-09-2026 at 11:40."
                 onChange={(e) => setRemark(e.target.value)} />
               <span className="settings-field-hint">
-                Name who agreed and when. This bypasses {request.buyer_region}’s on-portal
+                Name who agreed and when. This bypasses {request.consenting_region}’s on-portal
                 approval and resolves the discrepancy in one step, so it is the only record
                 that consent was ever given.
               </span>
@@ -225,14 +233,14 @@ export default function ConsentPanel({ request, currentUser, onDone, notify }) {
           )
         )}
 
-        {/* The seller, when the buyer can still answer on the portal: approval
-            there is the normal path, and the bypass above is the escape hatch
-            for when the buyer is unavailable. */}
-        {awaiting && iAmSeller && !isNational && consenterCanAnswer && mode !== 'offline' && (
+        {/* The correcting region, when the consenter can still answer on the
+            portal: approval there is the normal path, and the bypass above is
+            the escape hatch for when the consenter is unavailable. */}
+        {awaiting && iAmCorrector && !isNational && consenterCanAnswer && mode !== 'offline' && (
           <p style={{ marginTop: '9px', color: 'var(--text-muted)' }}>
-            {request.buyer_region} can approve this on the portal. If they are unavailable
-            or have not answered, use “Bypass with offline consent” above and document how
-            their consent was obtained.
+            {request.consenting_region} can consent to this on the portal. If they are
+            unavailable or have not answered, use “Bypass with offline consent” above and
+            document how their consent was obtained.
           </p>
         )}
       </div>

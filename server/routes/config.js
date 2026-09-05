@@ -37,7 +37,9 @@ const WRITABLE_KEYS = new Set([
   // how often a user is asked for a code, and so how much mail the portal
   // needs. See auth/devices.js.
   'otpTrustDays', 'resetOtpMinutes', 'mailDailyCap',
-  'smtpHost', 'smtpPort', 'smtpSecure', 'smtpUser', 'smtpPass', 'smtpFrom'
+  'smtpHost', 'smtpPort', 'smtpSecure', 'smtpUser', 'smtpPass', 'smtpFrom',
+  // Password-recovery abuse throttle (national). See utils/resetAbuse.js.
+  'resetAbuseEnabled', 'resetAbuseThreshold', 'resetAbuseBlockHours',
 ]);
 
 // Keys that must never be handed to a non-admin caller.

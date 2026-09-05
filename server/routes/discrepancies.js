@@ -24,9 +24,9 @@ const { parseTimeBlocks } = require('../utils/timeBlocks');
 const { clampPagination } = require('../utils/pagination');
 const { typeMatchPattern } = require('../utils/discrepancyTypes');
 const {
-  isTrader, validateTrade, isInterRegional, openingState,
+  isTradeCapable, validateTrade, isInterRegional, openingState, resolveRouting,
   isSellerRegion, isBuyerRegion,
-  mayRecordOfflineConsent, mayResolveTrade,
+  mayConsent, mayRecordOfflineConsent, mayResolveTrade,
 } = require('../utils/trade');
 const { regionCodes } = require('../utils/regionRegistry');
 const path = require('path');
@@ -286,8 +286,8 @@ router.post('/upload', handleUploadErrors(upload.array('files')), async (req, re
 router.post('/', async (req, res) => {
   const {
     correctionDate, timeBlocks, requestContent, discrepancyType, files, wbes_acronym,
-    // A trader's routing data. Ignored for every other category.
-    buyerRegion, sellerRegion, buyerAcronym, sellerAcronym,
+    // A trade filing's routing data. Ignored for categories that cannot trade.
+    buyerRegion, sellerRegion, buyerAcronym, sellerAcronym, gnaTgnaType, gnaTgnaNumber,
   } = req.body;
 
   // The filer is whoever holds the token — never a name supplied in the body.
@@ -425,19 +425,37 @@ router.post('/', async (req, res) => {
       energy_category = plantRes.rows[0].energy_category;
     }
 
-    // A trader's filing carries the trade with it: who bought, who sold, and
-    // in which regions. Where those regions differ the record does not go
-    // straight to Pending — it goes to the seller's region to be confirmed.
+    // A trade filing (Traders and States) carries the trade with it: who
+    // bought, who sold, in which regions, and under which GNA/T-GNA approval.
+    // Where the regions differ the record does not go straight to Pending — it
+    // waits on the consenting region (see resolveRouting / openingState).
     let trade = null;
+    let routing = { correctingRegion: null, consentingRegion: null };
     let opening = { status: 'Pending', consentState: null };
-    if (isTrader(energy_category)) {
+    if (isTradeCapable(energy_category)) {
       const checked = validateTrade(
-        { buyerRegion, sellerRegion, buyerAcronym, sellerAcronym },
+        { buyerRegion, sellerRegion, buyerAcronym, sellerAcronym, gnaTgnaType, gnaTgnaNumber },
         regionCodes()
       );
       if (!checked.ok) return res.status(400).json({ error: checked.error });
       trade = checked.trade;
       opening = openingState(trade);
+
+      // Which end applies the fix is decided by the SELLER plant's category:
+      // an RE seller is corrected in its own (seller) region with the buyer
+      // consenting; a non-RE seller is corrected at the buyer's end with the
+      // seller consenting. Settled here and stored, since the seller acronym may
+      // live in a region that is not on this portal.
+      const sellerCatRes = await pool.query(
+        'SELECT energy_category FROM wbes_entities WHERE UPPER(wbes_acronym) = UPPER($1)',
+        [trade.sellerAcronym]
+      );
+      const sellerIsRE = sellerCatRes.rows[0]?.energy_category === 'RE';
+      routing = resolveRouting({
+        sellerIsRE,
+        buyerRegion: trade.buyerRegion,
+        sellerRegion: trade.sellerRegion,
+      });
 
       // Neither side of a trade may be a blocked acronym. These columns carry no
       // foreign key — a counterpart in a region that does not use this portal
@@ -462,7 +480,7 @@ router.post('/', async (req, res) => {
       // station file something that looks like a trade and behaves like an
       // ordinary filing, which is worse than saying no.
       return res.status(400).json({
-        error: 'Only a Traders account files a discrepancy against a trade.',
+        error: 'Only a Traders or States account files a discrepancy against a trade.',
       });
     }
 
@@ -485,9 +503,11 @@ router.post('/', async (req, res) => {
 
     const result = await pool.query(
       `INSERT INTO discrepancies (request_by, region, request_date, correction_for_date, days_diff, time_blocks, request_content, discrepancy_type, status, energy_category, files, admin_comment, admin_files, rejection_reason, resolved_time, wbes_acronym,
-                                  buyer_region, seller_region, buyer_wbes_acronym, seller_wbes_acronym, consent_state)
+                                  buyer_region, seller_region, buyer_wbes_acronym, seller_wbes_acronym, consent_state,
+                                  gna_tgna_type, gna_tgna_number, correcting_region, consenting_region)
        VALUES ($1, $10, CURRENT_DATE, $2, $3, $4, $5, $6, $11, $7, $8::jsonb, '', '[]'::jsonb, '', NULL, $9,
-               $12, $13, $14, $15, $16)
+               $12, $13, $14, $15, $16,
+               $17, $18, $19, $20)
        RETURNING *`,
       [username, correctionDate, diff >= 0 ? diff : 0, parsedBlocks.normalised, requestContent, discrepancyType || '', energy_category, JSON.stringify(files || []), targetAcronym,
        // Stamped from the filer's account at the moment of filing, so the
@@ -496,17 +516,19 @@ router.post('/', async (req, res) => {
        opening.status,
        trade?.buyerRegion || null, trade?.sellerRegion || null,
        trade?.buyerAcronym || null, trade?.sellerAcronym || null,
-       opening.consentState]
+       opening.consentState,
+       trade?.gnaTgnaType || null, trade?.gnaTgnaNumber || null,
+       routing.correctingRegion, routing.consentingRegion]
     );
 
     await logEvent('success', `Discrepancy raised: Req No ${result.rows[0].req_no} for ${correctionDate} (${energy_category})`);
     if (trade && isInterRegional(trade)) {
-      // Logged into both regions' logs: the buyer's, because a ticket has
-      // just arrived for them to answer, and the seller's, because it is
-      // theirs to finish afterwards.
+      // Logged into both regions' logs: the consenting region, because a ticket
+      // has just arrived for it to answer, and the correcting region, because it
+      // is theirs to finish afterwards.
       const line = `Inter-regional trade Req No ${result.rows[0].req_no}: `
                  + `${trade.sellerAcronym} (${trade.sellerRegion}) → ${trade.buyerAcronym} (${trade.buyerRegion}). `
-                 + `Awaiting ${trade.buyerRegion}'s consent.`;
+                 + `Awaiting ${routing.consentingRegion}'s consent; ${routing.correctingRegion} applies the fix.`;
       await logEvent('info', line, trade.sellerRegion);
       await logEvent('info', line, trade.buyerRegion);
     }
@@ -588,12 +610,13 @@ router.patch('/:reqNo/process', requireAdmin, async (req, res) => {
   }
 });
 
-// PATCH /api/discrepancies/:reqNo/consent — the seller's region answers.
+// PATCH /api/discrepancies/:reqNo/consent — the consenting region answers.
 //
 // Consent is not approval of the correction. It says only "yes, this trade was
-// ours" — the buyer's region still has to judge the discrepancy itself and
-// apply the fix. A refusal, on the other hand, ends the ticket: if the seller
-// says the trade was not theirs there is nothing left to correct.
+// ours" — the correcting region (decided by the seller's category; see
+// utils/trade.js) still has to judge the discrepancy itself and apply the fix.
+// A refusal, on the other hand, ends the ticket: if the trade is disowned there
+// is nothing left to correct.
 router.patch('/:reqNo/consent', requireAdmin, async (req, res) => {
   const { reqNo } = req.params;
   const { decision, remark } = req.body || {};
@@ -611,15 +634,12 @@ router.patch('/:reqNo/consent', requireAdmin, async (req, res) => {
     if (discRes.rows.length === 0) return res.status(404).json({ error: 'Discrepancy not found.' });
     const disc = discRes.rows[0];
 
-    if (disc.consent_state !== 'Awaiting') {
-      return res.status(409).json({ error: 'This discrepancy is not waiting on anyone’s consent.' });
-    }
-    // The national administrator may answer for a region, which is the only
-    // way a ticket against an unresponsive centre ever moves.
-    if (!isSuperAdmin(req) && !isBuyerRegion(disc, req.auth.region)) {
-      return res.status(403).json({
-        error: `${disc.buyer_region} is the buyer’s region and answers this one.`,
-      });
+    // The consenting region answers (the one NOT applying the fix). The
+    // national administrator may answer for it, which is the only way a ticket
+    // against an unresponsive centre ever moves.
+    const answer = mayConsent({ isNational: isSuperAdmin(req), actingRegion: req.auth.region, row: disc });
+    if (!answer.ok) {
+      return res.status(answer.error.includes('not waiting') ? 409 : 403).json({ error: answer.error });
     }
 
     const consented = decision === 'consent';
@@ -637,8 +657,8 @@ router.patch('/:reqNo/consent', requireAdmin, async (req, res) => {
     );
 
     const line = consented
-      ? `Req No ${reqNo}: ${disc.buyer_region} consented to the trade. ${disc.seller_region} to apply the fix.`
-      : `Req No ${reqNo}: ${disc.buyer_region} refused the trade. Ticket closed.`;
+      ? `Req No ${reqNo}: ${disc.consenting_region} consented to the trade. ${disc.correcting_region} to apply the fix.`
+      : `Req No ${reqNo}: ${disc.consenting_region} refused the trade. Ticket closed.`;
     for (const r of new Set([disc.buyer_region, disc.seller_region].filter(Boolean))) {
       await logEvent(consented ? 'success' : 'warn', line, r);
     }
@@ -650,14 +670,15 @@ router.patch('/:reqNo/consent', requireAdmin, async (req, res) => {
   }
 });
 
-// PATCH /api/discrepancies/:reqNo/offline-consent — bypass the buyer's consent.
+// PATCH /api/discrepancies/:reqNo/offline-consent — bypass the consenting
+// region's on-portal consent.
 //
-// When the buyer's region is unavailable or has not approved on the portal,
-// the seller's region records the consent it obtained off the portal — on the
-// telephone, or by email — and the ticket is resolved in the same step. This
-// is the one action the seller takes: there is no separate "apply the fix"
-// afterwards, because bypassing an unresponsive buyer and closing the ticket
-// are the same decision.
+// When the consenting region is unavailable or has not approved on the portal,
+// the correcting region records the consent it obtained off the portal — on the
+// telephone, or by email — and the ticket is resolved in the same step. This is
+// the one action it takes: there is no separate "apply the fix" afterwards,
+// because bypassing an unresponsive counterpart and closing the ticket are the
+// same decision.
 //
 // The remark is mandatory, and enforced by the database as well as by this
 // handler: a bypass with no explanation is indistinguishable from a region
@@ -705,7 +726,7 @@ router.patch('/:reqNo/offline-consent', requireAdmin, async (req, res) => {
     // Recorded at warn level on purpose. It is a legitimate step, but it is
     // one region deciding on another's behalf and closing the ticket on it, so
     // it should be findable in the log without knowing to look for it.
-    const line = `Req No ${reqNo}: ${disc.seller_region} bypassed ${disc.buyer_region}'s consent `
+    const line = `Req No ${reqNo}: ${disc.correcting_region} bypassed ${disc.consenting_region}'s consent `
                + `(offline) and resolved the ticket — by "${req.auth.username}", `
                + `${files?.length || 0} attachment(s). Remark: ${note.slice(0, 200)}`;
     for (const r of new Set([disc.buyer_region, disc.seller_region].filter(Boolean))) {

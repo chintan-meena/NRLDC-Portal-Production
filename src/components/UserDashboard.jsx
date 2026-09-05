@@ -9,7 +9,7 @@ import { RULES as PASSWORD_RULES, validatePassword } from '../utils/password';
 import { Banner, EmptyState, SkeletonRows } from './Feedback';
 import { categoryLabel } from '../utils/categories';
 import { CategoryIcon, DiscrepancyTypeIcon } from '../utils/typeIcons';
-import { GRID_REGIONS, isTraderCategory, consentBadge } from '../utils/trade';
+import { GRID_REGIONS, GNA_TYPES, isTradeCapableCategory, consentBadge } from '../utils/trade';
 import AcronymPicker from './AcronymPicker';
 import { useFeedback } from '../hooks/useFeedback';
 import { useModalDismiss } from '../hooks/useModalDismiss';
@@ -27,7 +27,7 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
   const isQcaUser = currentUser.role === 'QCA';
   // A trader files against a trade rather than against a plant they operate,
   // so their form asks who bought, who sold, and in which regions.
-  const isTrader = isTraderCategory(currentUser.energy_category);
+  const canTrade = isTradeCapableCategory(currentUser.energy_category);
   const isRenewableUser = currentUser.energy_category === 'RE';
 
   const [discrepancies, setDiscrepancies] = useState([]);
@@ -108,12 +108,15 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
     return () => document.removeEventListener('keydown', onKey);
   }, [fileResult]);
 
-  // The trade a discrepancy is being filed against. Traders only — every other
-  // category leaves these empty and the server refuses them if they are not.
+  // The trade a discrepancy is being filed against. Traders and States — every
+  // other category leaves these empty and the server refuses them if they are not.
   const [buyerRegion, setBuyerRegion] = useState('');
   const [sellerRegion, setSellerRegion] = useState('');
   const [buyerAcronym, setBuyerAcronym] = useState('');
   const [sellerAcronym, setSellerAcronym] = useState('');
+  // The trade's regulatory approval reference.
+  const [gnaTgnaType, setGnaTgnaType] = useState('GNA');
+  const [gnaTgnaNumber, setGnaTgnaNumber] = useState('');
 
   // Multiselect Reason States
   const [selectedReasons, setSelectedReasons] = useState([]);
@@ -347,13 +350,14 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
 
     if (isSubmitting) return;   // guard against a double click
     if (isQcaUser && !selectedPlantAcronym) { setFormError('Please select a plant from your assignments.'); return; }
-    if (isTrader && !reRaiseReqNo) {
+    if (canTrade && !reRaiseReqNo) {
       if (!buyerRegion || !sellerRegion) { setFormError('Choose both the buyer’s region and the seller’s region.'); return; }
       if (!buyerAcronym || !sellerAcronym) {
         setFormError('Pick both entities from the search results — a typed acronym that was never in the list is not a valid entity.');
         return;
       }
       if (buyerAcronym === sellerAcronym) { setFormError('The buyer and the seller cannot be the same entity.'); return; }
+      if (!gnaTgnaNumber.trim()) { setFormError('Enter the GNA / T-GNA approval number for this trade.'); return; }
     }
     if (!correctionDate) { setFormError('Please select a correction date.'); return; }
     if (!timeBlocks.trim()) { setFormError('Please specify the affected time blocks.'); return; }
@@ -418,16 +422,17 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
       } else {
         // Standard new creation
         const targetAcronym = isQcaUser ? selectedPlantAcronym : currentUser.wbes_acronym;
-        const trade = isTrader
-          ? { buyerRegion, sellerRegion, buyerAcronym, sellerAcronym }
+        const trade = canTrade
+          ? { buyerRegion, sellerRegion, buyerAcronym, sellerAcronym, gnaTgnaType, gnaTgnaNumber: gnaTgnaNumber.trim() }
           : null;
         await createDiscrepancy(currentUser.username, correctionDate, blockCheck.normalised, reason, discrepancyType, uploadedFilenames, targetAcronym, trade);
         setFileResult({ ok: true, message: 'Discrepancy Filed and submitted to RLDC.' });
       }
 
-      setCorrectionDate(''); 
+      setCorrectionDate('');
       setBuyerRegion(''); setSellerRegion('');
       setBuyerAcronym(''); setSellerAcronym('');
+      setGnaTgnaType('GNA'); setGnaTgnaNumber('');
       setTimeBlocks(''); 
       setReason(''); 
       setSelectedReasons([]);
@@ -1137,13 +1142,13 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
                 </div>
               </div>
 
-              {isTrader && !reRaiseReqNo && (
+              {canTrade && !reRaiseReqNo && (
                 <div className="glass-panel" style={{ padding: '16px', marginBottom: '20px' }}>
                   <h4 style={{ fontSize: '0.92rem', margin: '0 0 3px' }}>The trade</h4>
                   <p style={{ color: 'var(--text-secondary)', fontSize: '0.79rem', margin: '0 0 14px', maxWidth: '70ch' }}>
-                    Who bought, who sold, and through which despatch centres. Where the two
-                    regions differ, the selling region confirms the trade was theirs before
-                    the buying region changes any schedule.
+                    Who bought, who sold, through which despatch centres, and under which
+                    GNA / T-GNA approval. Where the two regions differ, one region must
+                    consent before the other applies the fix (see below).
                   </p>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px' }}>
                     <div className="form-group">
@@ -1180,13 +1185,26 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
                       disabled={!buyerRegion}
                       hint="The entity the power was sold to."
                     />
+                    <div className="form-group">
+                      <label htmlFor="ud-gna-type">Approval type <span style={{ color: 'var(--danger-text)' }}>*</span></label>
+                      <select id="ud-gna-type" className="form-control" value={gnaTgnaType}
+                        onChange={(e) => setGnaTgnaType(e.target.value)}>
+                        {GNA_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                      </select>
+                    </div>
+                    <div className="form-group">
+                      <label htmlFor="ud-gna-number">GNA / T-GNA approval number <span style={{ color: 'var(--danger-text)' }}>*</span></label>
+                      <input id="ud-gna-number" type="text" className="form-control" value={gnaTgnaNumber}
+                        placeholder="e.g. T-GNA/2026/000123"
+                        onChange={(e) => setGnaTgnaNumber(e.target.value)} maxLength={50} />
+                    </div>
                   </div>
 
                   {buyerRegion && sellerRegion && (
                     <p className="settings-field-hint" style={{ marginTop: '12px', display: 'block' }}>
                       {buyerRegion === sellerRegion
                         ? `Both ends are inside ${buyerRegion}, so this is an intra-regional trade — it goes straight to ${buyerRegion} operations, with no consent step.`
-                        : `Inter-regional: ${buyerRegion} confirms the trade, then ${sellerRegion} applies the fix.`}
+                        : `Inter-regional: the region that does not apply the fix must consent first. If the seller is an RE plant, ${sellerRegion} applies the fix and ${buyerRegion} consents; otherwise ${buyerRegion} applies the fix and ${sellerRegion} consents.`}
                     </p>
                   )}
                 </div>

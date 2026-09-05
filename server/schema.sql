@@ -263,6 +263,20 @@ CREATE TABLE IF NOT EXISTS revoked_tokens (
   revoked_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- Password-recovery abuse throttle. The recovery endpoints (forgot-password,
+-- reset-password, request-password-reset) have no account to lock, so a source
+-- that hammers them with junk is throttled by IP: after `resetAbuseThreshold`
+-- failed attempts within the window, that IP is blocked from the recovery flow
+-- until `blocked_until` (default 24h, both configurable at the national level).
+-- DB-backed so a block survives a restart. See utils/resetAbuse.js.
+CREATE TABLE IF NOT EXISTS password_reset_abuse (
+  ip VARCHAR(64) PRIMARY KEY,
+  failed_count INTEGER NOT NULL DEFAULT 0,
+  first_failed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  blocked_until TIMESTAMPTZ,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 -- Self-service registration requests. Someone signing up does not become a
 -- user: the request waits here until an administrator approves it, and only
 -- then is an account created. Their chosen password is carried across as a
@@ -823,14 +837,39 @@ ALTER TABLE discrepancies
   ADD COLUMN IF NOT EXISTS buyer_wbes_acronym   VARCHAR(50),
   ADD COLUMN IF NOT EXISTS seller_wbes_acronym  VARCHAR(50);
 
+-- The trade's regulatory approval, and the routing decision taken at filing
+-- time. The routing is stored (not re-derived) because the seller acronym may
+-- live in a region that is not on this portal, so the correcting/consenting
+-- split must be settled once, when the seller's category is known.
+--   gna_tgna_type      'GNA' | 'T-GNA'
+--   correcting_region  the region that applies the fix and resolves the ticket
+--   consenting_region  the other region, which must consent first
+--                      (NULL for an intra-regional trade — nobody to ask)
+-- Routing rule:  seller is RE  -> seller region corrects, buyer consents
+--                seller non-RE -> buyer  region corrects, seller consents
+ALTER TABLE discrepancies
+  ADD COLUMN IF NOT EXISTS gna_tgna_type      VARCHAR(10),
+  ADD COLUMN IF NOT EXISTS gna_tgna_number    VARCHAR(50),
+  ADD COLUMN IF NOT EXISTS correcting_region  VARCHAR(10),
+  ADD COLUMN IF NOT EXISTS consenting_region  VARCHAR(10);
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'discrepancies_gna_tgna_type_check') THEN
+    ALTER TABLE discrepancies ADD CONSTRAINT discrepancies_gna_tgna_type_check
+      CHECK (gna_tgna_type IS NULL OR gna_tgna_type IN ('GNA', 'T-GNA'));
+  END IF;
+END $$;
+
 -- The consent trail. Kept separate from `status` so it survives the ticket
 -- moving on: once the seller has consented the status becomes 'Pending', and
 -- without these columns there would be nothing left to show that consent was
 -- ever given, by whom, or on what evidence.
 --
 --   consent_state  NULL | 'Awaiting' | 'Consented' | 'Refused'
---   consent_mode   'portal'  — the seller's own administrator answered here
---                  'offline' — the buyer recorded consent obtained elsewhere
+--   consent_mode   'portal'  — the consenting region's administrator answered here
+--                  'offline' — the correcting region recorded consent obtained
+--                              elsewhere (phone/message) on the other's behalf
 ALTER TABLE discrepancies
   ADD COLUMN IF NOT EXISTS consent_state   VARCHAR(12),
   ADD COLUMN IF NOT EXISTS consent_mode    VARCHAR(10),

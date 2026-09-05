@@ -35,6 +35,9 @@ const DEFAULT_REGION = 'NRLDC';
 const GLOBAL_KEYS = new Set([
   'smtpHost', 'smtpPort', 'smtpSecure', 'smtpUser', 'smtpPass', 'smtpFrom',
   'otpTrustDays', 'resetOtpMinutes', 'mailDailyCap',
+  // The password-recovery abuse throttle is national — one policy for the whole
+  // portal, since it protects a public, account-less flow. See utils/resetAbuse.js.
+  'resetAbuseEnabled', 'resetAbuseThreshold', 'resetAbuseBlockHours',
 ]);
 
 const isGlobalKey = (key) => GLOBAL_KEYS.has(key);
