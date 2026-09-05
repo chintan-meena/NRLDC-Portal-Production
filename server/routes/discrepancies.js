@@ -40,6 +40,12 @@ if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
 
+// One entry in a discrepancy's append-only remark thread. Never edits a past
+// entry — callers concatenate it onto remark_history. See schema.sql.
+function remarkEntry(by, role, kind, text) {
+  return { by, role, kind, text: String(text || ''), at: new Date().toISOString() };
+}
+
 // Upload rules (accepted types, size cap, cleanup) live in config/uploads.js
 const { upload, handleUploadErrors } = createUploader(uploadsDir);
 
@@ -504,10 +510,10 @@ router.post('/', async (req, res) => {
     const result = await pool.query(
       `INSERT INTO discrepancies (request_by, region, request_date, correction_for_date, days_diff, time_blocks, request_content, discrepancy_type, status, energy_category, files, admin_comment, admin_files, rejection_reason, resolved_time, wbes_acronym,
                                   buyer_region, seller_region, buyer_wbes_acronym, seller_wbes_acronym, consent_state,
-                                  gna_tgna_type, gna_tgna_number, correcting_region, consenting_region)
+                                  gna_tgna_type, gna_tgna_number, correcting_region, consenting_region, remark_history)
        VALUES ($1, $10, CURRENT_DATE, $2, $3, $4, $5, $6, $11, $7, $8::jsonb, '', '[]'::jsonb, '', NULL, $9,
                $12, $13, $14, $15, $16,
-               $17, $18, $19, $20)
+               $17, $18, $19, $20, $21::jsonb)
        RETURNING *`,
       [username, correctionDate, diff >= 0 ? diff : 0, parsedBlocks.normalised, requestContent, discrepancyType || '', energy_category, JSON.stringify(files || []), targetAcronym,
        // Stamped from the filer's account at the moment of filing, so the
@@ -518,7 +524,8 @@ router.post('/', async (req, res) => {
        trade?.buyerAcronym || null, trade?.sellerAcronym || null,
        opening.consentState,
        trade?.gnaTgnaType || null, trade?.gnaTgnaNumber || null,
-       routing.correctingRegion, routing.consentingRegion]
+       routing.correctingRegion, routing.consentingRegion,
+       JSON.stringify([remarkEntry(username, userRole, 'filed', requestContent)])]
     );
 
     await logEvent('success', `Discrepancy raised: Req No ${result.rows[0].req_no} for ${correctionDate} (${energy_category})`);
@@ -579,14 +586,22 @@ router.patch('/:reqNo/process', requireAdmin, async (req, res) => {
     // so it is only honoured on a rejection.
     const markFlagged = status === 'Rejected' && flagged === true;
 
+    // Record this decision in the thread: the return/resolution comment, or the
+    // rejection reason, attributed to the RLDC and dated.
+    const kind = status === 'Resolved' ? 'resolved' : status === 'Returned' ? 'returned' : 'rejected';
+    const entryText = status === 'Rejected' ? (rejectionReason || '') : (comment || '');
+    const entry = remarkEntry(req.auth.username, req.auth.role, kind, entryText);
+
     const result = await pool.query(
       `UPDATE discrepancies
           SET status = $1, admin_comment = $2, admin_files = $3::jsonb,
               rejection_reason = $4, resolved_time = NOW(),
-              flagged = $6, flag_note = $7
+              flagged = $6, flag_note = $7,
+              remark_history = remark_history || $8::jsonb
         WHERE req_no = $5 RETURNING *`,
       [status, comment || '', JSON.stringify(adminFiles || []), rejectionReason || '', reqNo,
-       markFlagged, markFlagged ? String(flagNote || '').slice(0, 500) : '']
+       markFlagged, markFlagged ? String(flagNote || '').slice(0, 500) : '',
+       JSON.stringify([entry])]
     );
 
     if (markFlagged) {
@@ -643,17 +658,24 @@ router.patch('/:reqNo/consent', requireAdmin, async (req, res) => {
     }
 
     const consented = decision === 'consent';
+    const entry = remarkEntry(
+      req.auth.username, req.auth.role,
+      consented ? 'consented' : 'denied',
+      consented ? 'Consented for correction.' : String(remark || '')
+    );
     const result = await pool.query(
       `UPDATE discrepancies
           SET consent_state = $1, consent_mode = 'portal', consent_by = $2, consent_at = NOW(),
               consent_remark = $3,
               status = $4,
               rejection_reason = CASE WHEN $5::boolean THEN '' ELSE $3 END,
-              resolved_time = CASE WHEN $5::boolean THEN resolved_time ELSE NOW() END
+              resolved_time = CASE WHEN $5::boolean THEN resolved_time ELSE NOW() END,
+              remark_history = remark_history || $7::jsonb
         WHERE req_no = $6
       RETURNING *`,
       [consented ? 'Consented' : 'Refused', req.auth.username, String(remark || '').slice(0, 1000),
-       consented ? 'Pending' : 'Rejected', consented, reqNo]
+       consented ? 'Pending' : 'Rejected', consented, reqNo,
+       JSON.stringify([entry])]
     );
 
     const line = consented
@@ -807,19 +829,38 @@ router.patch('/:reqNo/reraise', async (req, res) => {
     const newFiles = Array.isArray(files) ? files : [];
     const mergedFiles = [...existingFiles, ...newFiles];
 
+    // A re-raised inter-regional trade must go back through consent — otherwise a
+    // filing that was consented (or refused) once would slip straight to Pending
+    // and bypass the consenting region on every subsequent round. Reset it to
+    // Awaiting and clear the prior consent trail; an ordinary filing just
+    // re-opens as Pending. The trade route columns (buyer/seller/correcting/
+    // consenting/GNA) are left intact.
+    const interRegional = !!(disc.buyer_region && disc.seller_region
+      && disc.buyer_region !== disc.seller_region);
+    const newStatus = interRegional ? 'Awaiting Consent' : 'Pending';
+    const entry = remarkEntry(username, req.auth.role, 'reraised', requestContent);
+
     const result = await pool.query(
-      `UPDATE discrepancies SET 
-         status = 'Pending', 
-         request_date = CURRENT_DATE, 
-         days_diff = $1, 
-         request_content = $2, 
-         discrepancy_type = $3, 
-         files = $4::jsonb, 
-         rejection_reason = '', 
-         resolved_time = NULL, 
-         reraise_count = reraise_count + 1
+      `UPDATE discrepancies SET
+         status = $6,
+         request_date = CURRENT_DATE,
+         days_diff = $1,
+         request_content = $2,
+         discrepancy_type = $3,
+         files = $4::jsonb,
+         rejection_reason = '',
+         resolved_time = NULL,
+         reraise_count = reraise_count + 1,
+         consent_state  = CASE WHEN $7::boolean THEN 'Awaiting'   ELSE consent_state  END,
+         consent_mode   = CASE WHEN $7::boolean THEN NULL         ELSE consent_mode   END,
+         consent_by     = CASE WHEN $7::boolean THEN NULL         ELSE consent_by     END,
+         consent_at     = CASE WHEN $7::boolean THEN NULL         ELSE consent_at     END,
+         consent_remark = CASE WHEN $7::boolean THEN ''           ELSE consent_remark END,
+         consent_files  = CASE WHEN $7::boolean THEN '[]'::jsonb  ELSE consent_files  END,
+         remark_history = remark_history || $8::jsonb
        WHERE req_no = $5 RETURNING *`,
-      [diff >= 0 ? diff : 0, requestContent, discrepancyType, JSON.stringify(mergedFiles), reqNo]
+      [diff >= 0 ? diff : 0, requestContent, discrepancyType, JSON.stringify(mergedFiles), reqNo,
+       newStatus, interRegional, JSON.stringify([entry])]
     );
 
     await logEvent('success', `Discrepancy Req No ${reqNo} successfully RE-RAISED by user "${username}" (Count: ${result.rows[0].reraise_count}/${reraiseLimit})`);

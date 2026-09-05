@@ -11,6 +11,7 @@ import { categoryLabel } from '../utils/categories';
 import { CategoryIcon, DiscrepancyTypeIcon } from '../utils/typeIcons';
 import { GRID_REGIONS, GNA_TYPES, isTradeCapableCategory, consentBadge } from '../utils/trade';
 import AcronymPicker from './AcronymPicker';
+import RemarkThread from './RemarkThread';
 import { useFeedback } from '../hooks/useFeedback';
 import { useModalDismiss } from '../hooks/useModalDismiss';
 import { originalFilename, isNetScheduleSummary } from '../utils/filenames';
@@ -91,6 +92,9 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
 
   // Form States
   const [reRaiseReqNo, setReRaiseReqNo] = useState(null);
+  // The prior thread of the discrepancy being re-raised, shown read-only on the
+  // form so the filer can see previous remarks and the RLDC's feedback.
+  const [reRaiseHistory, setReRaiseHistory] = useState([]);
   const [correctionDate, setCorrectionDate] = useState('');
   const [timeBlocks, setTimeBlocks] = useState('');
   const [reason, setReason] = useState('');
@@ -440,6 +444,7 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
       setSelectedFiles([]);
       setSelectedPlantAcronym('');
       setReRaiseReqNo(null);
+      setReRaiseHistory([]);
       await loadData();
     } catch (err) {
       // A failed submit is shown as a dialog, and the form is left intact so it
@@ -544,6 +549,7 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
   const handleReRaiseClick = (disc) => {
     // 1. Set reRaise reference
     setReRaiseReqNo(disc.req_no);
+    setReRaiseHistory(disc.remark_history || []);
     
     // 2. Prepopulate form values
     setCorrectionDate(disc.correction_for_date?.slice(0, 10) || '');
@@ -570,8 +576,10 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
     setSelectedReasons(reasons);
     setMiscReasonText(miscText);
 
-    // 4. Prepopulate reason with header block
-    setReason(`[New Remarks]: \n\n-----------------\nPrevious Remarks (Req #${disc.req_no}):\n${disc.request_content}`);
+    // 4. Fresh, empty remarks box. Previous remarks and the RLDC's feedback are
+    //    preserved in the read-only thread (remark_history) and shown on the
+    //    re-raise form — the filer writes new remarks, never edits the old ones.
+    setReason('');
 
     // 5. Navigate to raise form tab
     setActiveTab('raise_request');
@@ -764,7 +772,7 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
                 History and status of schedule correction requests raised by your station.
               </p>
             </div>
-            <button className="btn btn-primary" onClick={() => { setReRaiseReqNo(null); setCorrectionDate(''); setTimeBlocks(''); setReason(''); setSelectedReasons([]); setMiscReasonText(''); setActiveTab('raise_request'); }}>
+            <button className="btn btn-primary" onClick={() => { setReRaiseReqNo(null); setReRaiseHistory([]); setCorrectionDate(''); setTimeBlocks(''); setReason(''); setSelectedReasons([]); setMiscReasonText(''); setActiveTab('raise_request'); }}>
               <Plus size={16} /> Raise New Discrepancy
             </button>
           </div>
@@ -997,11 +1005,17 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
             <span>{reRaiseReqNo ? `Re-raise Discrepancy (Req #${reRaiseReqNo})` : 'Schedule Correction Request Form'}</span>
           </h2>
           <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '25px', borderBottom: '1px solid var(--border-color)', paddingBottom: '15px' }}>
-            {reRaiseReqNo 
-              ? `You are re-raising an existing discrepancy. Remarks typed will be saved, and status reset to Pending.`
+            {reRaiseReqNo
+              ? `You are re-raising an existing discrepancy. Your new remarks are added to the history below; a trade re-enters the consent step, otherwise it returns to Pending.`
               : `As per prevailing regulations (IEGC 2023, 49(11)(b)), standard discrepancy filing is within ${config.maxDays} days. ${config.allowExtended ? `An extended discrepancy filing limit is ${config.extendedMaxDays} days.` : ''}`
             }
           </p>
+
+          {reRaiseReqNo && (
+            <div style={{ marginBottom: '20px' }}>
+              <RemarkThread history={reRaiseHistory} title="Previous remarks & RLDC feedback (read-only)" />
+            </div>
+          )}
 
           <Banner type="error" message={formError} />
 
@@ -2089,6 +2103,8 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
                 <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', display: 'block', marginBottom: '4px' }}>Remarks / Explanation:</span>
                 <div style={{ background: 'var(--bg-tertiary)', padding: '12px', borderRadius: '6px', fontSize: '0.85rem', whiteSpace: 'pre-wrap', maxHeight: '100px', overflowY: 'auto' }}>{selectedRequest.request_content}</div>
               </div>
+
+              <RemarkThread history={selectedRequest.remark_history} />
 
               {selectedRequest.files && selectedRequest.files.length > 0 && (
                 <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '10px' }}>

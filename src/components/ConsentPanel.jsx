@@ -5,6 +5,7 @@ import { originalFilename } from '../utils/filenames';
 import { ACCEPT_ATTRIBUTE, MAX_UPLOAD_MB, validateFiles } from '../utils/uploads';
 import { Handshake, Clock, XCircle, PhoneOutgoing, Paperclip, ArrowRight } from 'lucide-react';
 import { formatDateDMYHM } from '../utils/format';
+import { Banner } from './Feedback';
 
 /**
  * ConsentPanel — the step where two regions have to agree.
@@ -24,6 +25,9 @@ export default function ConsentPanel({ request, currentUser, onDone, notify }) {
   const [remark, setRemark] = useState('');
   const [proof, setProof] = useState([]);
   const [busy, setBusy] = useState(false);
+  // Errors from a consent action show here, inside the panel, not on the
+  // page-top banner that sits behind the open discrepancy modal.
+  const [panelError, setPanelError] = useState('');
 
   if (!isTrade(request)) return null;
 
@@ -66,22 +70,24 @@ export default function ConsentPanel({ request, currentUser, onDone, notify }) {
 
   const run = async (fn, success) => {
     setBusy(true);
+    setPanelError('');
     try {
       await fn();
       notify('success', success);
       setMode(null); setRemark(''); setProof([]);
       await onDone();
     } catch (err) {
-      notify('error', err.message || 'Could not record that.');
+      setPanelError(err.message || 'Could not record that.');
     } finally {
       setBusy(false);
     }
   };
 
   const submitOffline = async () => {
-    if (!remark.trim()) { notify('error', 'Record who agreed, and when. This is the only evidence the ticket will carry.'); return; }
+    setPanelError('');
+    if (!remark.trim()) { setPanelError('Record who agreed, and when. This is the only evidence the ticket will carry.'); return; }
     const badFile = validateFiles(proof);   // returns the message, or null
-    if (badFile) { notify('error', badFile); return; }
+    if (badFile) { setPanelError(badFile); return; }
 
     let names = [];
     if (proof.length > 0) {
@@ -145,6 +151,12 @@ export default function ConsentPanel({ request, currentUser, onDone, notify }) {
               </a>
             ))}
           </p>
+        )}
+
+        {panelError && (
+          <div style={{ marginTop: '10px' }}>
+            <Banner type="error" message={panelError} />
+          </div>
         )}
 
         {/* ── The consenting region's decision ──────────────────────────── */}

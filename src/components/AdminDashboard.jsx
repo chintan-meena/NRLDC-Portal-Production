@@ -22,7 +22,9 @@ import { categoryLabel, categoryShort, CATEGORIES } from '../utils/categories';
 import { CategoryIcon, DiscrepancyTypeIcon } from '../utils/typeIcons';
 import { SIGNUP_TYPES, signupTypeLabel, parseSignupTypes } from '../utils/wbesTypes';
 import ConsentPanel from './ConsentPanel';
+import RemarkThread from './RemarkThread';
 import { isTrade, consentBadge } from '../utils/trade';
+import { validateFiles } from '../utils/uploads';
 import { useFeedback } from '../hooks/useFeedback';
 import { useModalDismiss } from '../hooks/useModalDismiss';
 import { originalFilename } from '../utils/filenames';
@@ -94,6 +96,9 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
   const [selectedRequest, setSelectedRequest] = useState(null);
   const [correctiveAction, setCorrectiveAction] = useState('Approved and Resolved');
   const [rejectionReason, setRejectionReason] = useState('');
+  // Errors from an action taken inside the discrepancy modal, shown IN the modal
+  // rather than behind it on the page-top banner.
+  const [modalError, setModalError] = useState('');
   // The RLDC's judgement that this filer keeps raising the same thing. Set at
   // the moment of rejection, because that is when the reviewer has the
   // evidence in front of them.
@@ -289,12 +294,30 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, fromDate, toDate, categoryFilter, searchQuery, typeFilter, statusFilter, currentPage, pageSize]);
 
+  // The default text a resolve/return form starts with. Returned filings get an
+  // actionable prompt, not the resolution wording.
+  const RETURN_DEFAULT = 'Returned, Kindly provide the missing supporting documents or contact RLDC admin';
+  const RESOLVE_DEFAULT = 'Approved and Resolved';
+  const defaultActionText = (mode) => (mode === 'return' ? RETURN_DEFAULT : RESOLVE_DEFAULT);
+
   const handleOpenActionModal = (req, mode) => {
     setSelectedRequest(req);
     setModalMode(mode);
-    setCorrectiveAction(req.admin_comment || (mode === 'return' ? 'Returned, Kindly check the file discrepancy again' : 'Approved and Resolved'));
+    setModalError('');
+    setCorrectiveAction(req.admin_comment || defaultActionText(mode));
     setRejectionReason(req.rejection_reason || '');
     setAdminAttachments(req.admin_files || []);
+  };
+
+  // Switch the open modal into an action mode (from the detail view). Unlike a
+  // bare setModalMode, this seeds the correct default text and clears any prior
+  // error, so entering Return no longer shows the "Approved and Resolved" text.
+  const enterMode = (mode) => {
+    setModalError('');
+    if (mode === 'resolve' || mode === 'return') {
+      setCorrectiveAction(selectedRequest?.admin_comment || defaultActionText(mode));
+    }
+    setModalMode(mode);
   };
 
   const handleCloseModal = () => {
@@ -302,6 +325,7 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
     setFlaggedNote('');
     setSelectedRequest(null);
     setModalMode('');
+    setModalError('');
     setCorrectiveAction('Approved and Resolved');
     setRejectionReason('');
     setAdminAttachments([]);
@@ -309,7 +333,8 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
 
   const handleResolveSubmit = async (e) => {
     e.preventDefault();
-    if (!correctiveAction.trim()) { notify('error', 'Please specify the corrective action taken.'); return; }
+    setModalError('');
+    if (!correctiveAction.trim()) { setModalError('Please specify the corrective action taken.'); return; }
 
     try {
       const existingFilenames = adminAttachments.filter(f => typeof f === 'string');
@@ -332,13 +357,14 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
       await loadData();
       handleCloseModal();
     } catch (err) {
-      notify('error', err.message || 'Failed to process resolution.');
+      setModalError(err.message || 'Failed to process resolution.');
     }
   };
 
   const handleReturnSubmit = async (e) => {
     e.preventDefault();
-    if (!correctiveAction.trim()) { notify('error', 'Please specify the return comments / feedback.'); return; }
+    setModalError('');
+    if (!correctiveAction.trim()) { setModalError('Please specify the return comments / feedback.'); return; }
 
     try {
       const existingFilenames = adminAttachments.filter(f => typeof f === 'string');
@@ -361,19 +387,20 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
       await loadData();
       handleCloseModal();
     } catch (err) {
-      notify('error', err.message || 'Failed to process return request.');
+      setModalError(err.message || 'Failed to process return request.');
     }
   };
 
   const handleRejectSubmit = async (e) => {
     e.preventDefault();
-    if (!rejectionReason.trim()) { notify('error', 'Please specify the rejection reason.'); return; }
+    setModalError('');
+    if (!rejectionReason.trim()) { setModalError('Please specify the rejection reason.'); return; }
     try {
       await processDiscrepancy(selectedRequest.req_no, 'Rejected', '', [], rejectionReason, markFlagged, flagNote);
       await loadData();
       handleCloseModal();
     } catch (err) {
-      notify('error', err.message || 'Failed to reject discrepancy.');
+      setModalError(err.message || 'Failed to reject discrepancy.');
     }
   };
 
@@ -413,6 +440,11 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
 
   const handleAdminFileChange = (e) => {
     const files = Array.from(e.target.files);
+    // Catch a bad file here so the reason shows in the modal immediately, rather
+    // than after a round trip on submit. The server enforces the same rule.
+    const bad = validateFiles(files);
+    if (bad) { setModalError(bad); e.target.value = ''; return; }
+    setModalError('');
     setAdminAttachments(prev => [...prev, ...files]);
   };
 
@@ -989,7 +1021,10 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
                   filteredRequests.map((req) => (
                     <tr key={req.req_no} className={`${req.energy_category} status-${req.status.toLowerCase()}`} style={{ cursor: 'pointer' }}>
                       <td onClick={() => handleOpenActionModal(req, 'view')} style={{ fontWeight: 'bold' }}>#{req.req_no}</td>
-                      <td onClick={() => handleOpenActionModal(req, 'view')} style={{ fontWeight: '500' }}>{req.request_by}</td>
+                      <td onClick={() => handleOpenActionModal(req, 'view')} style={{ fontWeight: '500' }}>
+                        {req.request_by_name || req.request_by}
+                        {req.request_by_name && <span style={{ display: 'block', fontWeight: 400, fontSize: '0.72rem', color: 'var(--text-muted)' }}>{req.request_by}</span>}
+                      </td>
                       <td onClick={() => handleOpenActionModal(req, 'view')}>{formatDateDMY(req.request_date)}</td>
                       <td onClick={() => handleOpenActionModal(req, 'view')}>{formatDateDMY(req.correction_for_date)}</td>
                       <td onClick={() => handleOpenActionModal(req, 'view')}>
@@ -1883,7 +1918,7 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', marginBottom: '20px' }}>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', fontSize: '0.85rem' }}>
-                <div><span style={{ color: 'var(--text-secondary)' }}>Filer Station:</span> <strong>{selectedRequest.request_by}</strong></div>
+                <div><span style={{ color: 'var(--text-secondary)' }}>Filer Station:</span> <strong>{selectedRequest.request_by_name || selectedRequest.request_by}</strong>{selectedRequest.request_by_name && <span style={{ color: 'var(--text-muted)' }}> ({selectedRequest.request_by})</span>}</div>
                 <div><span style={{ color: 'var(--text-secondary)' }}>Category:</span> <span className={`energy-badge ${selectedRequest.energy_category}`} style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}><CategoryIcon category={selectedRequest.energy_category} size={13} />{categoryLabel(selectedRequest.energy_category)}</span></div>
                 <div><span style={{ color: 'var(--text-secondary)' }}>Request Date:</span> {formatDateDMY(selectedRequest.request_date)}</div>
                 <div><span style={{ color: 'var(--text-secondary)' }}>Correction Date:</span> {formatDateDMY(selectedRequest.correction_for_date)}</div>
@@ -1899,6 +1934,9 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
                 notify={notify}
                 onDone={async () => { await loadData(); handleCloseModal(); }}
               />
+
+              <RemarkThread history={selectedRequest.remark_history} />
+
 
               <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '10px' }}>
                 <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', display: 'block', marginBottom: '4px' }}>Type of Discrepancy Tags:</span>
@@ -1990,6 +2028,14 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
                 </div>
               )}
             </div>
+
+            {/* Errors from an in-modal action appear here, inside the dialog,
+                rather than on the page-top banner hidden behind it. */}
+            {modalError && ['resolve', 'return', 'reject'].includes(modalMode) && (
+              <div style={{ marginTop: '12px' }}>
+                <Banner type="error" message={modalError} />
+              </div>
+            )}
 
             {modalMode === 'resolve' && (
               <form onSubmit={handleResolveSubmit} style={{ borderTop: '1px solid var(--border-color)', paddingTop: '15px' }}>
@@ -2113,9 +2159,9 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
                     || currentUser.region === selectedRequest.correcting_region
                   ) && (
                     <>
-                      <button className="btn btn-teal" onClick={() => setModalMode('resolve')}>Resolve</button>
-                      <button className="btn btn-warning" style={{ background: 'var(--warn-strong)', color: 'var(--on-accent)' }} onClick={() => setModalMode('return')}>Return</button>
-                      <button className="btn btn-danger" onClick={() => setModalMode('reject')}>Reject</button>
+                      <button className="btn btn-teal" onClick={() => enterMode('resolve')}>Resolve</button>
+                      <button className="btn btn-warning" style={{ background: 'var(--warn-strong)', color: 'var(--on-accent)' }} onClick={() => enterMode('return')}>Return</button>
+                      <button className="btn btn-danger" onClick={() => enterMode('reject')}>Reject</button>
                     </>
                   )}
                   <button className="btn btn-primary" onClick={handleCloseModal}>Close Details</button>

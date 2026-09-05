@@ -861,6 +861,15 @@ BEGIN
   END IF;
 END $$;
 
+-- An append-only thread of remarks, so a returned filing keeps every round
+-- rather than overwriting the last one. Each entry is
+-- { by, role, kind, text, at }; kinds: filed, returned, rejected, resolved,
+-- consented, denied, reraised. Neither the filer nor the RLDC edits a past
+-- entry — the UI renders it read-only. request_content still holds the latest
+-- filer remark for the list view.
+ALTER TABLE discrepancies
+  ADD COLUMN IF NOT EXISTS remark_history JSONB NOT NULL DEFAULT '[]';
+
 -- The consent trail. Kept separate from `status` so it survives the ticket
 -- moving on: once the seller has consented the status becomes 'Pending', and
 -- without these columns there would be nothing left to show that consent was
