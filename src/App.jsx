@@ -9,6 +9,33 @@ import SystemLogs from './components/SystemLogs';
 // Both administer; they differ in reach, not in which screens they get.
 const ADMIN_ROLES = ['ADMIN', 'SUPERADMIN'];
 
+// The browser tab. This SPA has no router — the active screen is `activeTab`
+// state — so nothing ever updated document.title and every screen showed the
+// same static title. Wording mirrors the Navbar labels so the tab names the
+// screen you are actually on. Two tabs read differently by role.
+const BASE_TITLE = 'NRLDC Portal';
+const SCREEN_TITLES = {
+  national: 'National Administration',
+  requests: 'Discrepancy Requests',
+  outages: 'Unit Outages',
+  cycle_downloads: 'Cycle Data',
+  cycle_upload: 'Cycle Data Upload',
+  users: 'User Registry',
+  transfers: 'Transfer Requests',
+  simulation: 'Simulation',
+  qca_status: 'QCA Status',
+  logs: 'Server Logs',
+  raise_request: 'File Discrepancy',
+  my_plants: 'My Plants',
+};
+
+function screenTitle(activeTab, role) {
+  const isAdmin = ADMIN_ROLES.includes(role);
+  if (activeTab === 'dashboard') return isAdmin ? 'Overview' : 'Discrepancy Requests';
+  if (activeTab === 'settings') return isAdmin ? 'System Parameters' : 'Profile Settings';
+  return SCREEN_TITLES[activeTab] || null;
+}
+
 export default function App() {
   const [currentUser, setCurrentUser] = useState(null);
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -42,6 +69,12 @@ export default function App() {
       }
     }
   }, []);
+
+  // Keep the browser tab's title in step with the screen the user is on.
+  useEffect(() => {
+    const screen = currentUser ? screenTitle(activeTab, currentUser.role) : 'Sign in';
+    document.title = screen ? `${screen} · ${BASE_TITLE}` : BASE_TITLE;
+  }, [activeTab, currentUser]);
 
   const handleLoginSuccess = (user) => {
     setCurrentUser(user);
