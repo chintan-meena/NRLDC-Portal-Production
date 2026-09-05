@@ -992,17 +992,17 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
             <table className="custom-table">
               <thead>
                 <tr>
-                  <th>Req No</th>
-                  <th>Request By</th>
-                  <th>Filed Date</th>
-                  <th>Correction Date</th>
-                  <th>Days Diff</th>
-                  <th>Category</th>
-                  <th>Type of Discrepancy</th>
-                  <th>Time Blocks</th>
-                  <th>Attachments</th>
-                  <th>Status</th>
-                  <th>Actions</th>
+                  <th scope="col">Req No</th>
+                  <th scope="col">Request By</th>
+                  <th scope="col">Filed Date</th>
+                  <th scope="col">Correction Date</th>
+                  <th scope="col">Days Diff</th>
+                  <th scope="col">Category</th>
+                  <th scope="col">Type of Discrepancy</th>
+                  <th scope="col">Time Blocks</th>
+                  <th scope="col">Attachments</th>
+                  <th scope="col">Status</th>
+                  <th scope="col">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -1196,15 +1196,15 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
             <table className="custom-table">
               <thead>
                 <tr>
-                  <th>Timestamp</th>
-                  <th>Generator Station</th>
-                  <th>Unit Number</th>
-                  <th>Outage Type</th>
-                  <th>Outage Date From</th>
-                  <th>Outage Date To</th>
-                  <th>Reason of Outage</th>
-                  <th>Approval Status</th>
-                  <th style={{ textAlign: 'center' }}>Action</th>
+                  <th scope="col">Timestamp</th>
+                  <th scope="col">Generator Station</th>
+                  <th scope="col">Unit Number</th>
+                  <th scope="col">Outage Type</th>
+                  <th scope="col">Outage Date From</th>
+                  <th scope="col">Outage Date To</th>
+                  <th scope="col">Reason of Outage</th>
+                  <th scope="col">Approval Status</th>
+                  <th scope="col" style={{ textAlign: 'center' }}>Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -1316,11 +1316,11 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
             <table className="custom-table">
               <thead>
                 <tr>
-                  <th>Upload Timestamp</th>
-                  <th>Generator Utility</th>
-                  <th>Cycle Duration Date Range</th>
-                  <th>Filename</th>
-                  <th>Action</th>
+                  <th scope="col">Upload Timestamp</th>
+                  <th scope="col">Generator Utility</th>
+                  <th scope="col">Cycle Duration Date Range</th>
+                  <th scope="col">Filename</th>
+                  <th scope="col">Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -1830,14 +1830,14 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
               <table className="custom-table" style={{ fontSize: '0.85rem' }}>
                 <thead>
                   <tr>
-                    <th>Req ID</th>
-                    <th>WBES Acronym</th>
-                    <th>Current Owner QCA</th>
-                    <th>New Owner QCA</th>
-                    <th>Effective Date</th>
-                    <th>Filed Date</th>
-                    <th>Status</th>
-                    <th>Actions</th>
+                    <th scope="col">Req ID</th>
+                    <th scope="col">WBES Acronym</th>
+                    <th scope="col">Current Owner QCA</th>
+                    <th scope="col">New Owner QCA</th>
+                    <th scope="col">Effective Date</th>
+                    <th scope="col">Filed Date</th>
+                    <th scope="col">Status</th>
+                    <th scope="col">Actions</th>
                   </tr>
                 </thead>
                 <tbody>

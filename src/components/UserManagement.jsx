@@ -583,14 +583,14 @@ export default function UserManagement({ currentUser }) {
               <table className="custom-table">
                 <thead>
                   <tr>
-                    <th>Applicant</th>
-                    <th>Username</th>
-                    <th>WBES Acronym</th>
-                    <th>Type</th>
-                    <th>Email</th>
-                    <th>Submitted</th>
-                    <th>Status</th>
-                    <th>Decision</th>
+                    <th scope="col">Applicant</th>
+                    <th scope="col">Username</th>
+                    <th scope="col">WBES Acronym</th>
+                    <th scope="col">Type</th>
+                    <th scope="col">Email</th>
+                    <th scope="col">Submitted</th>
+                    <th scope="col">Status</th>
+                    <th scope="col">Decision</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -819,12 +819,12 @@ export default function UserManagement({ currentUser }) {
               <table className="custom-table">
                 <thead>
                   <tr>
-                    <th>Account</th>
-                    <th>Plant</th>
-                    <th>Reason given</th>
-                    <th>Requested</th>
-                    <th>Status</th>
-                    <th>Decision</th>
+                    <th scope="col">Account</th>
+                    <th scope="col">Plant</th>
+                    <th scope="col">Reason given</th>
+                    <th scope="col">Requested</th>
+                    <th scope="col">Status</th>
+                    <th scope="col">Decision</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1099,16 +1099,16 @@ export default function UserManagement({ currentUser }) {
         <table className="custom-table">
           <thead>
             <tr>
-              <th>Station / Full Name</th>
-              <th>Role</th>
-              <th>Username</th>
-              <th>WBES Acronym</th>
-              <th>Mandatory Email</th>
-              <th>Category</th>
-              <th>OTP</th>
-              <th>Cycle Upload</th>
-              <th>Account Status</th>
-              <th style={{ textAlign: 'center' }}>Actions</th>
+              <th scope="col">Station / Full Name</th>
+              <th scope="col">Role</th>
+              <th scope="col">Username</th>
+              <th scope="col">WBES Acronym</th>
+              <th scope="col">Mandatory Email</th>
+              <th scope="col">Category</th>
+              <th scope="col">OTP</th>
+              <th scope="col">Cycle Upload</th>
+              <th scope="col">Account Status</th>
+              <th scope="col" style={{ textAlign: 'center' }}>Actions</th>
             </tr>
           </thead>
           <tbody>

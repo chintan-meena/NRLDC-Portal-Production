@@ -819,16 +819,16 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
             <table className="custom-table">
               <thead>
                 <tr>
-                  <th>Req No</th>
-                  <th>Filed Date</th>
-                  <th>Correction Date</th>
-                  <th>Days Diff</th>
-                  <th>Type of Discrepancy</th>
-                  <th>Time Blocks</th>
-                  <th>Reason / Details</th>
-                  <th>Attachments</th>
-                  <th>Status</th>
-                  <th>Action</th>
+                  <th scope="col">Req No</th>
+                  <th scope="col">Filed Date</th>
+                  <th scope="col">Correction Date</th>
+                  <th scope="col">Days Diff</th>
+                  <th scope="col">Type of Discrepancy</th>
+                  <th scope="col">Time Blocks</th>
+                  <th scope="col">Reason / Details</th>
+                  <th scope="col">Attachments</th>
+                  <th scope="col">Status</th>
+                  <th scope="col">Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -1096,11 +1096,11 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
                     <table className="custom-table" style={{ margin: 0 }}>
                       <thead>
                         <tr>
-                          <th>ID</th>
-                          <th>To QCA</th>
-                          <th>Effective Date</th>
-                          <th>Status</th>
-                          <th>Submitted At</th>
+                          <th scope="col">ID</th>
+                          <th scope="col">To QCA</th>
+                          <th scope="col">Effective Date</th>
+                          <th scope="col">Status</th>
+                          <th scope="col">Submitted At</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1444,11 +1444,11 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
                     <table className="custom-table" style={{ margin: 0 }}>
                       <thead>
                         <tr>
-                          <th>ID</th>
-                          <th>To QCA</th>
-                          <th>Effective Date</th>
-                          <th>Status</th>
-                          <th>Submitted At</th>
+                          <th scope="col">ID</th>
+                          <th scope="col">To QCA</th>
+                          <th scope="col">Effective Date</th>
+                          <th scope="col">Status</th>
+                          <th scope="col">Submitted At</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1547,13 +1547,13 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
             <table className="custom-table">
               <thead>
                 <tr>
-                  <th>Timestamp</th>
-                  <th>Unit Number</th>
-                  <th>Outage Type</th>
-                  <th>Outage Date From</th>
-                  <th>Outage Date To</th>
-                  <th>Reason of Outage</th>
-                  <th>Approval Status</th>
+                  <th scope="col">Timestamp</th>
+                  <th scope="col">Unit Number</th>
+                  <th scope="col">Outage Type</th>
+                  <th scope="col">Outage Date From</th>
+                  <th scope="col">Outage Date To</th>
+                  <th scope="col">Reason of Outage</th>
+                  <th scope="col">Approval Status</th>
                 </tr>
               </thead>
               <tbody>
@@ -1648,10 +1648,10 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
             <table className="custom-table">
               <thead>
                 <tr>
-                  <th>Upload Timestamp</th>
-                  <th>Date Range Duration</th>
-                  <th>Excel Sheet Filename</th>
-                  <th>Download / View</th>
+                  <th scope="col">Upload Timestamp</th>
+                  <th scope="col">Date Range Duration</th>
+                  <th scope="col">Excel Sheet Filename</th>
+                  <th scope="col">Download / View</th>
                 </tr>
               </thead>
               <tbody>
@@ -1833,10 +1833,10 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
                 <table className="custom-table" style={{ fontSize: '0.85rem' }}>
                   <thead>
                     <tr>
-                      <th>Plant Acronym</th>
-                      <th>Plant Name</th>
-                      <th>From Date</th>
-                      <th>To Date (Active)</th>
+                      <th scope="col">Plant Acronym</th>
+                      <th scope="col">Plant Name</th>
+                      <th scope="col">From Date</th>
+                      <th scope="col">To Date (Active)</th>
                     </tr>
                   </thead>
                   <tbody>

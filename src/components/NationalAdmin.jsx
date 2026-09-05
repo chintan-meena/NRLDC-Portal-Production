@@ -395,14 +395,14 @@ export default function NationalAdmin({ currentUser }) {
         <table className="custom-table">
           <thead>
             <tr>
-              <th>Region</th>
-              <th>Acronym</th>
-              <th>Administrator</th>
-              <th style={{ textAlign: 'right' }}>Users</th>
-              <th style={{ textAlign: 'right' }}>Plants</th>
-              <th style={{ textAlign: 'right' }}>Discrepancies</th>
-              <th>Status</th>
-              <th style={{ textAlign: 'center' }}>Actions</th>
+              <th scope="col">Region</th>
+              <th scope="col">Acronym</th>
+              <th scope="col">Administrator</th>
+              <th scope="col" style={{ textAlign: 'right' }}>Users</th>
+              <th scope="col" style={{ textAlign: 'right' }}>Plants</th>
+              <th scope="col" style={{ textAlign: 'right' }}>Discrepancies</th>
+              <th scope="col">Status</th>
+              <th scope="col" style={{ textAlign: 'center' }}>Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -594,7 +594,7 @@ export default function NationalAdmin({ currentUser }) {
                         ) : (
                           <div className="table-container" style={{ maxHeight: '320px' }}>
                             <table className="custom-table">
-                              <thead><tr><th>Username</th><th>Name</th><th>Role</th><th>Category</th><th>Created</th></tr></thead>
+                              <thead><tr><th scope="col">Username</th><th scope="col">Name</th><th scope="col">Role</th><th scope="col">Category</th><th scope="col">Created</th></tr></thead>
                               <tbody>
                                 {regionUsers.map(u => (
                                   <tr key={u.username}>

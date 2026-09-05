@@ -151,7 +151,7 @@ export default function SimulationScreen() {
         <div className="glass-panel" style={{ padding: '14px', marginBottom: 16 }}>
           <h4 style={{ marginTop: 0 }}>Proposed transfers</h4>
           <table className="data-table" style={{ width: '100%' }}>
-            <thead><tr><th>Plant</th><th>From</th><th>To</th><th>Effective</th><th>Result</th></tr></thead>
+            <thead><tr><th scope="col">Plant</th><th scope="col">From</th><th scope="col">To</th><th scope="col">Effective</th><th scope="col">Result</th></tr></thead>
             <tbody>
               {result.whatIf.applied.map((a, i) => (
                 <tr key={i}>

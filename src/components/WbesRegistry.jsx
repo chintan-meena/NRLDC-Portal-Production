@@ -412,14 +412,14 @@ export default function WbesRegistry({ currentUser }) {
               <table className="custom-table" style={{ margin: 0, minWidth: '980px' }}>
                 <thead>
                   <tr>
-                    <th style={{ width: '36px' }}>#</th>
-                    <th style={{ minWidth: '180px' }}>Display Name</th>
-                    <th style={{ minWidth: '130px' }}>WBES Acronym</th>
-                    <th style={{ minWidth: '150px' }}>Utility Type</th>
-                    <th style={{ minWidth: '120px' }}>Generator Type</th>
-                    <th style={{ minWidth: '120px' }}>SubType</th>
-                    <th style={{ minWidth: '135px' }}>From Date</th>
-                    <th style={{ minWidth: '150px' }}>Date of Commissioning</th>
+                    <th scope="col" style={{ width: '36px' }}>#</th>
+                    <th scope="col" style={{ minWidth: '180px' }}>Display Name</th>
+                    <th scope="col" style={{ minWidth: '130px' }}>WBES Acronym</th>
+                    <th scope="col" style={{ minWidth: '150px' }}>Utility Type</th>
+                    <th scope="col" style={{ minWidth: '120px' }}>Generator Type</th>
+                    <th scope="col" style={{ minWidth: '120px' }}>SubType</th>
+                    <th scope="col" style={{ minWidth: '135px' }}>From Date</th>
+                    <th scope="col" style={{ minWidth: '150px' }}>Date of Commissioning</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -561,12 +561,12 @@ export default function WbesRegistry({ currentUser }) {
             <table className="custom-table">
               <thead>
                 <tr>
-                  <th>Acronym</th>
-                  <th>Display Name</th>
-                  <th>Type</th>
-                  {national && <th>Region</th>}
-                  <th>Status</th>
-                  <th style={{ width: '210px' }}>Actions</th>
+                  <th scope="col">Acronym</th>
+                  <th scope="col">Display Name</th>
+                  <th scope="col">Type</th>
+                  {national && <th scope="col">Region</th>}
+                  <th scope="col">Status</th>
+                  <th scope="col" style={{ width: '210px' }}>Actions</th>
                 </tr>
               </thead>
               <tbody>

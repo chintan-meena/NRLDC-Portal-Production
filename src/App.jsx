@@ -1,10 +1,26 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, lazy, Suspense } from 'react';
 import { initDB, logout } from './services/db';
 import Login from './components/Login';
 import Navbar from './components/Navbar';
-import UserDashboard from './components/UserDashboard';
-import AdminDashboard from './components/AdminDashboard';
-import SystemLogs from './components/SystemLogs';
+
+// The three heavy screens are code-split so they load on demand rather than
+// riding in the initial bundle. A plant user never downloads the admin
+// dashboards, and vice versa; the login screen paints without any of them.
+const UserDashboard = lazy(() => import('./components/UserDashboard'));
+const AdminDashboard = lazy(() => import('./components/AdminDashboard'));
+const SystemLogs = lazy(() => import('./components/SystemLogs'));
+
+// Shown for the moment a lazy screen's chunk is being fetched. Deliberately
+// quiet — a couple of shimmer lines rather than a spinner that flashes and goes.
+function ScreenFallback() {
+  return (
+    <div className="dashboard-layout" aria-busy="true">
+      <div className="skeleton-line" style={{ width: '40%', height: '18px' }} />
+      <div className="skeleton-line" style={{ width: '100%', height: '120px' }} />
+      <div className="skeleton-line" style={{ width: '100%', height: '240px' }} />
+    </div>
+  );
+}
 
 // Both administer; they differ in reach, not in which screens they get.
 const ADMIN_ROLES = ['ADMIN', 'SUPERADMIN'];
@@ -107,30 +123,32 @@ export default function App() {
             onLogout={handleLogout}
           />
           <main className="main-content">
-            {ADMIN_ROLES.includes(currentUser.role) ? (
-              <>
-                {activeTab === 'logs' ? (
-                  <div className="dashboard-layout">
-                    <SystemLogs />
-                  </div>
-                ) : (
-                  <AdminDashboard
-                    currentUser={currentUser}
-                    onUserUpdate={setCurrentUser}
-                    activeTab={activeTab}
-                    setActiveTab={setActiveTab}
-                  />
-                )}
-              </>
-            ) : (
-              // User views
-              <UserDashboard
-                currentUser={currentUser}
-                onUserUpdate={setCurrentUser}
-                activeTab={activeTab}
-                setActiveTab={setActiveTab}
-              />
-            )}
+            <Suspense fallback={<ScreenFallback />}>
+              {ADMIN_ROLES.includes(currentUser.role) ? (
+                <>
+                  {activeTab === 'logs' ? (
+                    <div className="dashboard-layout">
+                      <SystemLogs />
+                    </div>
+                  ) : (
+                    <AdminDashboard
+                      currentUser={currentUser}
+                      onUserUpdate={setCurrentUser}
+                      activeTab={activeTab}
+                      setActiveTab={setActiveTab}
+                    />
+                  )}
+                </>
+              ) : (
+                // User views
+                <UserDashboard
+                  currentUser={currentUser}
+                  onUserUpdate={setCurrentUser}
+                  activeTab={activeTab}
+                  setActiveTab={setActiveTab}
+                />
+              )}
+            </Suspense>
           </main>
         </>
       )}

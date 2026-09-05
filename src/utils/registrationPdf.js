@@ -7,8 +7,6 @@
  * administrator's approval — useful to quote a request number in a follow-up.
  */
 
-import { jsPDF } from 'jspdf';
-
 const BRAND = '#0f766e';   // teal, matching the portal accent
 const INK = '#1f2937';
 const MUTED = '#6b7280';
@@ -16,10 +14,15 @@ const MUTED = '#6b7280';
 /**
  * Build the PDF document from the registration details.
  * `details` mirrors the confirmation screen; `mobile` is optional.
+ *
+ * jsPDF (and its ~370 KB of dependencies) is loaded on demand here rather than
+ * imported at the top of the module: only the registration-confirmation screen
+ * ever builds a PDF, so nobody pays for it on first paint. Returns a Promise.
  */
-export function buildRegistrationPdf({
+export async function buildRegistrationPdf({
   requestId, username, wbesAcronym, accountType, category, region, name, email, mobile,
 }) {
+  const { jsPDF } = await import('jspdf');
   const doc = new jsPDF({ unit: 'pt', format: 'a4' });
   const pageW = doc.internal.pageSize.getWidth();
   const marginX = 56;
@@ -113,8 +116,8 @@ function fileNameFor(details) {
   return `registration-${tag}.pdf`;
 }
 
-/** Build and trigger a download of the registration PDF. */
-export function downloadRegistrationPdf(details) {
-  const doc = buildRegistrationPdf(details);
+/** Build and trigger a download of the registration PDF. Returns a Promise. */
+export async function downloadRegistrationPdf(details) {
+  const doc = await buildRegistrationPdf(details);
   doc.save(fileNameFor(details));
 }

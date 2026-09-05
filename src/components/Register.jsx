@@ -92,7 +92,7 @@ export default function Register({ onBackToLogin }) {
   // The button below is the reliable fallback if a browser blocks the auto-save.
   useEffect(() => {
     if (!submitted) return;
-    try { downloadRegistrationPdf(pdfDetails()); } catch { /* use the button */ }
+    downloadRegistrationPdf(pdfDetails()).catch(() => { /* use the button */ });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [submitted]);
 
@@ -169,7 +169,7 @@ export default function Register({ onBackToLogin }) {
             sign in with the password you just chose.
           </p>
 
-          <button type="button" className="btn btn-teal" style={{ width: '100%', marginTop: '20px' }} onClick={() => downloadRegistrationPdf(pdfDetails())}>
+          <button type="button" className="btn btn-teal" style={{ width: '100%', marginTop: '20px' }} onClick={() => { downloadRegistrationPdf(pdfDetails()).catch(() => {}); }}>
             <Download size={15} /> Download my details (PDF)
           </button>
 

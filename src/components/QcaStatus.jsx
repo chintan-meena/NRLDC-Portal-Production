@@ -133,13 +133,13 @@ export default function QcaStatus() {
                 <table className="custom-table" style={{ margin: 0, fontSize: '0.85rem' }}>
                   <thead>
                     <tr>
-                      <th>WBES Acronym</th>
-                      <th>Plant</th>
-                      <th>Category</th>
-                      <th>From Date</th>
-                      <th>To Date</th>
-                      <th>State</th>
-                      <th style={{ width: '150px' }}>Actions</th>
+                      <th scope="col">WBES Acronym</th>
+                      <th scope="col">Plant</th>
+                      <th scope="col">Category</th>
+                      <th scope="col">From Date</th>
+                      <th scope="col">To Date</th>
+                      <th scope="col">State</th>
+                      <th scope="col" style={{ width: '150px' }}>Actions</th>
                     </tr>
                   </thead>
                   <tbody>

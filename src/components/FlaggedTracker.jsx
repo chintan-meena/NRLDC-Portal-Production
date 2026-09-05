@@ -133,14 +133,14 @@ export default function FlaggedTracker() {
         <table className="custom-table">
           <thead>
             <tr>
-              <th>Filer</th>
-              <th>Plant</th>
-              <th style={{ textAlign: 'right' }}>Filed</th>
-              <th style={{ textAlign: 'right' }}>Rejected</th>
-              <th style={{ textAlign: 'right' }}>Marked</th>
-              <th style={{ textAlign: 'right' }}>Share</th>
-              <th>Categories marked</th>
-              <th>Reviewer notes</th>
+              <th scope="col">Filer</th>
+              <th scope="col">Plant</th>
+              <th scope="col" style={{ textAlign: 'right' }}>Filed</th>
+              <th scope="col" style={{ textAlign: 'right' }}>Rejected</th>
+              <th scope="col" style={{ textAlign: 'right' }}>Marked</th>
+              <th scope="col" style={{ textAlign: 'right' }}>Share</th>
+              <th scope="col">Categories marked</th>
+              <th scope="col">Reviewer notes</th>
             </tr>
           </thead>
           <tbody>
