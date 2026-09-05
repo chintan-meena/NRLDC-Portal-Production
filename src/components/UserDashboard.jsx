@@ -8,6 +8,7 @@ import {
 import { RULES as PASSWORD_RULES, validatePassword } from '../utils/password';
 import { Banner, EmptyState, SkeletonRows } from './Feedback';
 import { categoryLabel } from '../utils/categories';
+import { CategoryIcon, DiscrepancyTypeIcon } from '../utils/typeIcons';
 import { GRID_REGIONS, isTraderCategory, consentBadge } from '../utils/trade';
 import AcronymPicker from './AcronymPicker';
 import { useFeedback } from '../hooks/useFeedback';
@@ -861,6 +862,9 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
                             {disc.discrepancy_type ? (
                               disc.discrepancy_type.match(/<[^>]+>/g)?.map((tag, idx) => (
                                 <span key={idx} style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '4px',
                                   background: 'rgba(59,130,246,0.1)',
                                   color: 'var(--link-text)',
                                   border: '1px solid rgba(59,130,246,0.2)',
@@ -871,6 +875,7 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
                                   whiteSpace: 'normal',
                                   wordBreak: 'break-word'
                                 }}>
+                                  <DiscrepancyTypeIcon type={tag.slice(1, -1)} size={12} style={{ flexShrink: 0 }} />
                                   {tag.slice(1, -1)}
                                 </span>
                               ))
@@ -1307,7 +1312,7 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
             <div className="form-group">
               <label>{netFileRequiredNow
                 ? 'Upload Supporting Documents (Net Schedule Summary from WBES required)'
-                : 'Upload Supporting Documents (Optional)'}</label>
+                : 'Upload Supporting Documents'}</label>
               <div className="file-upload-zone" onClick={() => document.getElementById('file-picker').click()}>
                 <Upload size={32} style={{ color: 'var(--text-secondary)', marginBottom: '8px' }} />
                 <p style={{ fontSize: '0.9rem', fontWeight: '500' }}>Click to select files</p>
@@ -2023,7 +2028,7 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
             <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', marginBottom: '20px' }}>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', fontSize: '0.85rem' }}>
                 <div><span style={{ color: 'var(--text-secondary)' }}>Filer Station:</span> <strong>{selectedRequest.request_by}</strong></div>
-                <div><span style={{ color: 'var(--text-secondary)' }}>Category:</span> <span className={`energy-badge ${selectedRequest.energy_category}`}>{categoryLabel(selectedRequest.energy_category)}</span></div>
+                <div><span style={{ color: 'var(--text-secondary)' }}>Category:</span> <span className={`energy-badge ${selectedRequest.energy_category}`} style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}><CategoryIcon category={selectedRequest.energy_category} size={13} />{categoryLabel(selectedRequest.energy_category)}</span></div>
                 <div><span style={{ color: 'var(--text-secondary)' }}>Request Date:</span> {formatDateDMY(selectedRequest.request_date)}</div>
                 <div><span style={{ color: 'var(--text-secondary)' }}>Correction Date:</span> {formatDateDMY(selectedRequest.correction_for_date)}</div>
                 <div><span style={{ color: 'var(--text-secondary)' }}>Days Mismatch:</span> <strong style={{ color: selectedRequest.days_diff > config.maxDays ? 'var(--danger-text)' : 'var(--text-primary)' }}>{selectedRequest.days_diff} days</strong></div>
@@ -2036,6 +2041,9 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
                   {selectedRequest.discrepancy_type ? (
                     selectedRequest.discrepancy_type.match(/<[^>]+>/g)?.map((tag, idx) => (
                       <span key={idx} style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '5px',
                         background: 'rgba(59,130,246,0.1)',
                         color: 'var(--link-text)',
                         border: '1px solid rgba(59,130,246,0.2)',
@@ -2044,6 +2052,7 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
                         fontSize: '0.78rem',
                         fontWeight: '600'
                       }}>
+                        <DiscrepancyTypeIcon type={tag.slice(1, -1)} size={13} style={{ flexShrink: 0 }} />
                         {tag.slice(1, -1)}
                       </span>
                     ))

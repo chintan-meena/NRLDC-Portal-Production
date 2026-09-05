@@ -50,16 +50,10 @@ const ALLOWED_UPLOAD_TYPES = [
     label: 'Excel 97-2003 workbook',
     mime: ['application/vnd.ms-excel', 'application/excel', 'application/x-excel'],
   },
-  {
-    ext: '.xlsm',
-    label: 'Excel macro-enabled workbook',
-    mime: ['application/vnd.ms-excel.sheet.macroEnabled.12'],
-  },
-  {
-    ext: '.csv',
-    label: 'CSV',
-    mime: ['text/csv', 'application/csv', 'text/plain'],
-  },
+  // NOTE: .xlsm (macro-enabled) and .csv are deliberately NOT accepted.
+  // Macro-enabled workbooks can carry executable VBA, so they are refused for
+  // everyone — plant users and RLDC admins alike (both upload paths share this
+  // one filter). The rule is uniform: only PDF and plain Excel (.xlsx/.xls).
 ];
 
 /**

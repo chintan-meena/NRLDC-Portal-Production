@@ -19,6 +19,7 @@ import { isNational, regionLabel } from '../utils/regions';
 import ConfirmDialog from './ConfirmDialog';
 import { Banner, EmptyState, SkeletonRows } from './Feedback';
 import { categoryLabel, categoryShort, CATEGORIES } from '../utils/categories';
+import { CategoryIcon, DiscrepancyTypeIcon } from '../utils/typeIcons';
 import { SIGNUP_TYPES, signupTypeLabel, parseSignupTypes } from '../utils/wbesTypes';
 import ConsentPanel from './ConsentPanel';
 import { isTrade, consentBadge } from '../utils/trade';
@@ -985,12 +986,15 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
                           {req.days_diff > config.maxDays && <span style={{ marginLeft: '4px' }} title={`Beyond regulation limit of ${config.maxDays} days`}>⚠️</span>}
                         </span>
                       </td>
-                      <td onClick={() => handleOpenActionModal(req, 'view')}><span className={`energy-badge ${req.energy_category}`}>{categoryShort(req.energy_category)}</span></td>
+                      <td onClick={() => handleOpenActionModal(req, 'view')}><span className={`energy-badge ${req.energy_category}`} style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}><CategoryIcon category={req.energy_category} size={12} />{categoryShort(req.energy_category)}</span></td>
                       <td onClick={() => handleOpenActionModal(req, 'view')} style={{ maxWidth: '180px' }}>
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
                           {req.discrepancy_type ? (
                             req.discrepancy_type.match(/<[^>]+>/g)?.map((tag, idx) => (
                               <span key={idx} style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '4px',
                                 background: 'rgba(59,130,246,0.1)',
                                 color: 'var(--link-text)',
                                 border: '1px solid rgba(59,130,246,0.2)',
@@ -1001,6 +1005,7 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
                                 whiteSpace: 'normal',
                                 wordBreak: 'break-word'
                               }}>
+                                <DiscrepancyTypeIcon type={tag.slice(1, -1)} size={12} style={{ flexShrink: 0 }} />
                                 {tag.slice(1, -1)}
                               </span>
                             ))
@@ -1832,7 +1837,7 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
             <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', marginBottom: '20px' }}>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', fontSize: '0.85rem' }}>
                 <div><span style={{ color: 'var(--text-secondary)' }}>Filer Station:</span> <strong>{selectedRequest.request_by}</strong></div>
-                <div><span style={{ color: 'var(--text-secondary)' }}>Category:</span> <span className={`energy-badge ${selectedRequest.energy_category}`}>{categoryLabel(selectedRequest.energy_category)}</span></div>
+                <div><span style={{ color: 'var(--text-secondary)' }}>Category:</span> <span className={`energy-badge ${selectedRequest.energy_category}`} style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}><CategoryIcon category={selectedRequest.energy_category} size={13} />{categoryLabel(selectedRequest.energy_category)}</span></div>
                 <div><span style={{ color: 'var(--text-secondary)' }}>Request Date:</span> {formatDateDMY(selectedRequest.request_date)}</div>
                 <div><span style={{ color: 'var(--text-secondary)' }}>Correction Date:</span> {formatDateDMY(selectedRequest.correction_for_date)}</div>
                 <div><span style={{ color: 'var(--text-secondary)' }}>Days Mismatch:</span> <strong style={{ color: selectedRequest.days_diff > config.maxDays ? 'var(--danger-text)' : 'var(--text-primary)' }}>{selectedRequest.days_diff} days</strong></div>
@@ -1854,6 +1859,9 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
                   {selectedRequest.discrepancy_type ? (
                     selectedRequest.discrepancy_type.match(/<[^>]+>/g)?.map((tag, idx) => (
                       <span key={idx} style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '5px',
                         background: 'rgba(59,130,246,0.1)',
                         color: 'var(--link-text)',
                         border: '1px solid rgba(59,130,246,0.2)',
@@ -1862,6 +1870,7 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
                         fontSize: '0.78rem',
                         fontWeight: '600'
                       }}>
+                        <DiscrepancyTypeIcon type={tag.slice(1, -1)} size={13} style={{ flexShrink: 0 }} />
                         {tag.slice(1, -1)}
                       </span>
                     ))
@@ -1971,6 +1980,7 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
                   <Check size={14} /><span>Submitting will trigger a notification email stating the issue is Cleared.</span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+                  <button type="button" className="btn btn-secondary" onClick={() => setModalMode('view')}>← Back</button>
                   <button type="button" className="btn btn-secondary" onClick={handleCloseModal}>Cancel</button>
                   <button type="submit" className="btn btn-teal">Approve &amp; Resolve</button>
                 </div>
@@ -1987,6 +1997,7 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
                   <Undo2 size={14} /><span>Submitting will return this request back to the user to review and correct.</span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+                  <button type="button" className="btn btn-secondary" onClick={() => setModalMode('view')}>← Back</button>
                   <button type="button" className="btn btn-secondary" onClick={handleCloseModal}>Cancel</button>
                   <button type="submit" className="btn btn-warning" style={{ background: 'var(--warn-strong)', color: 'var(--on-accent)' }}>Return to User</button>
                 </div>
@@ -2029,6 +2040,7 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
                   <XCircle size={14} /><span>Submitting will trigger a rejection email warning.</span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+                  <button type="button" className="btn btn-secondary" onClick={() => setModalMode('view')}>← Back</button>
                   <button type="button" className="btn btn-secondary" onClick={handleCloseModal}>Cancel</button>
                   <button type="submit" className="btn btn-danger">Reject Filing</button>
                 </div>
@@ -2037,11 +2049,9 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
 
             {modalMode === 'view' && (
               <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid var(--border-color)', paddingTop: '15px', gap: '10px' }}>
-                <div>
-                  <button className="btn btn-secondary" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }} onClick={() => downloadFile(`/discrepancies/${selectedRequest.req_no}/export-excel`, `discrepancy_report_req_${selectedRequest.req_no}.xlsx`).catch(err => notify('error', err.message))}>
-                    <Download size={14} /> Export to Excel
-                  </button>
-                </div>
+                {/* Export to Excel is hidden — the feature is incomplete. Kept
+                    as an empty slot so the action buttons stay right-aligned. */}
+                <div />
                 <div style={{ display: 'flex', gap: '10px' }}>
                   {/* On a consented trade the fix belongs to the seller's region
                       alone. The buyer has already had its say, and offering it

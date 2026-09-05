@@ -10,7 +10,9 @@
  *   src/utils/uploads.js       ← this file, for the picker and the hint
  */
 
-export const ALLOWED_EXTENSIONS = ['.pdf', '.xlsx', '.xls', '.xlsm', '.csv'];
+// .xlsm (macro-enabled) and .csv are deliberately excluded — see the note in
+// server/config/uploads.js. Only PDF and plain Excel, uniform for all users.
+export const ALLOWED_EXTENSIONS = ['.pdf', '.xlsx', '.xls'];
 
 export const MAX_UPLOAD_MB = 25;
 
@@ -18,7 +20,7 @@ export const MAX_UPLOAD_MB = 25;
 export const ACCEPT_ATTRIBUTE = ALLOWED_EXTENSIONS.join(',');
 
 /** Human-readable list, e.g. for a hint under the upload box. */
-export const ALLOWED_DESCRIPTION = 'PDF, Excel (.xlsx, .xls, .xlsm) and CSV';
+export const ALLOWED_DESCRIPTION = 'PDF and Excel (.xlsx, .xls)';
 
 function extensionOf(name) {
   const i = String(name).lastIndexOf('.');

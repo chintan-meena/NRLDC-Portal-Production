@@ -391,7 +391,7 @@ export default function Login({ onLoginSuccess }) {
                   id="username"
                   type="text"
                   className="form-control"
-                  placeholder="e.g. acronym@rldc or admin@nldc"
+                  placeholder="e.g. abcd@rldc"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   disabled={loading}

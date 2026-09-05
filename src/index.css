@@ -1177,6 +1177,17 @@ button {
   background: var(--bg-secondary);
   border: 1px solid rgba(0,0,0,0.05);
   box-shadow: 0 20px 40px -15px rgba(15, 23, 42, 0.08);
+  /* Headings and labels are not editable, so they should not show a text
+     caret / I-beam when clicked. Only the real fields do (rule below). */
+  cursor: default;
+  user-select: none;
+}
+
+/* The input fields keep their natural text caret and selectable text. */
+.login-card input,
+.login-card textarea {
+  cursor: text;
+  user-select: text;
 }
 
 /* System log entries (rendered in the Server Logs tab) */

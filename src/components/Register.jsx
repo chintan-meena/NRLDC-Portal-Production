@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { registerAccount, searchWbesForRegistration } from '../services/db';
+import { downloadRegistrationPdf } from '../utils/registrationPdf';
 import { RULES as PASSWORD_RULES, validatePassword } from '../utils/password';
 import { usernameFromAcronym } from '../utils/usernames';
 import { regionLabel } from '../utils/regions';
@@ -8,7 +9,7 @@ import { categoryLabel } from '../utils/categories';
 import { isTraderCategory } from '../utils/trade';
 import { deriveSignupType, isQcaSignupType } from '../utils/wbesTypes';
 import AcronymPicker from './AcronymPicker';
-import { UserPlus, ArrowLeft, CheckCircle2, Building2, Lock } from 'lucide-react';
+import { UserPlus, ArrowLeft, CheckCircle2, Building2, Lock, Download } from 'lucide-react';
 
 /**
  * Register — self-service sign-up.
@@ -72,6 +73,28 @@ export default function Register({ onBackToLogin }) {
   const isQca = accountType === 'QCA';
   // QCAs coordinate Renewable Energy plants only, so the category is fixed.
   const effectiveCategory = isQca ? 'RE' : energyCategory;
+
+  // The details the applicant can keep — mirrors the confirmation screen, with
+  // no password. Used by both the auto-download and the manual button.
+  const pdfDetails = () => ({
+    requestId: submitted?.requestId,
+    username: username.trim(),
+    wbesAcronym: wbesAcronym.trim().toUpperCase(),
+    accountType: isQca ? `QCA — ${qcaName.trim()}` : 'Plant user',
+    category: effectiveCategory,
+    region,
+    name,
+    email: email.trim(),
+    mobile: mobile.trim() || null,
+  });
+
+  // On a successful submit, hand the applicant a PDF of what they registered.
+  // The button below is the reliable fallback if a browser blocks the auto-save.
+  useEffect(() => {
+    if (!submitted) return;
+    try { downloadRegistrationPdf(pdfDetails()); } catch { /* use the button */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [submitted]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -146,7 +169,11 @@ export default function Register({ onBackToLogin }) {
             sign in with the password you just chose.
           </p>
 
-          <button type="button" className="btn btn-secondary" style={{ width: '100%', marginTop: '20px' }} onClick={onBackToLogin}>
+          <button type="button" className="btn btn-teal" style={{ width: '100%', marginTop: '20px' }} onClick={() => downloadRegistrationPdf(pdfDetails())}>
+            <Download size={15} /> Download my details (PDF)
+          </button>
+
+          <button type="button" className="btn btn-secondary" style={{ width: '100%', marginTop: '10px' }} onClick={onBackToLogin}>
             <ArrowLeft size={15} /> Back to sign in
           </button>
         </div>

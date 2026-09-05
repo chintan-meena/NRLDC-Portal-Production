@@ -3,6 +3,7 @@ import { getQcaStatus, updateUserAssignment } from '../services/db';
 import { Banner, EmptyState } from './Feedback';
 import { useFeedback } from '../hooks/useFeedback';
 import { categoryShort } from '../utils/categories';
+import { CategoryIcon, GenerationIcon } from '../utils/typeIcons';
 import { formatDateDMY } from '../utils/format';
 import { Users, Pencil, X, Check } from 'lucide-react';
 
@@ -145,8 +146,8 @@ export default function QcaStatus() {
                     {visiblePlants(g).map((p) => (
                       <tr key={p.assignment_id} style={{ opacity: p.is_active ? 1 : 0.6 }}>
                         <td className="mono">{p.wbes_acronym}</td>
-                        <td>{p.plant_name}</td>
-                        <td>{categoryShort(p.energy_category)}</td>
+                        <td><span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}><GenerationIcon source={`${p.plant_name || ''} ${p.generator_type || ''}`} size={14} />{p.plant_name}</span></td>
+                        <td><span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}><CategoryIcon category={p.energy_category} size={13} />{categoryShort(p.energy_category)}</span></td>
                         {editing === p.assignment_id ? (
                           <>
                             <td>
