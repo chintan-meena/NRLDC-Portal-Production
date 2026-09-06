@@ -11,24 +11,29 @@
  */
 
 import {
-  Factory, Sprout, Landmark, ArrowLeftRight,
+  Sprout,
   Sun, Wind, BatteryCharging, Droplets, Flame, Atom, Fuel,
   SlidersHorizontal, CalendarClock, TrendingDown, Siren, Handshake,
   RadioTower, Unplug, PowerOff, Tag,
   Clock, CheckCircle2, XCircle, PhoneOutgoing, HelpCircle,
 } from 'lucide-react';
+import Icon from '../components/Icon';
 
 // ── Energy categories ────────────────────────────────────────────────────────
-const CATEGORY_ICONS = {
-  ISGS: Factory,
-  RE: Sprout,
-  States: Landmark,
-  Traders: ArrowLeftRight,
+// Category → in-house glyph (src/assets/icons, via components/Icon), so the
+// whole app speaks one visual language. Colour comes from the surrounding
+// context — an .energy-badge, or the category filter row — because every glyph
+// is stroke="currentColor".
+const CATEGORY_ICON_NAME = {
+  ISGS: 'regional-entity',
+  RE: 'renewable',
+  States: 'states',
+  Traders: 'traders',
+  QCA: 'renewable',
 };
 
 export function CategoryIcon({ category, size = 14, ...rest }) {
-  const Icon = CATEGORY_ICONS[category] || HelpCircle;
-  return <Icon size={size} aria-hidden="true" {...rest} />;
+  return <Icon name={CATEGORY_ICON_NAME[category] || 'all-categories'} size={size} {...rest} />;
 }
 
 // ── Generation types (parsed from the plant name or generator_type) ──────────

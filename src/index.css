@@ -627,6 +627,19 @@ button {
   white-space: nowrap;
 }
 
+/* ── Category filter (Discrepancy Requests) ─────────────────────────────────
+   Each tab's icon carries its category's own colour — blue for Regional Entity,
+   teal/green for Renewable, green for States, rose for Traders — so the row
+   reads as a legend as much as a filter. Scoped to .category-filter so the same
+   glyph in the navbar (e.g. My Plants uses `renewable`) is left untouched. On
+   the active (blue) tab the icon turns white so it stays legible. */
+.category-filter .icon-all-categories { color: var(--text-secondary); }
+.category-filter .icon-regional-entity { color: var(--link-text); }
+.category-filter .icon-renewable { color: var(--success-text); }
+.category-filter .icon-states { color: var(--cat-states); }
+.category-filter .icon-traders { color: var(--cat-traders); }
+.category-filter .category-tab.active .icon { color: var(--on-accent); }
+
 .category-tab:hover {
   color: var(--text-primary);
   background: var(--tab-hover-bg);

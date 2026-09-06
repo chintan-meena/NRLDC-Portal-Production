@@ -847,15 +847,21 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
               title="Filers your reviewers marked as flagged when rejecting">
               <Repeat size={15} /> {showTracker ? 'Hide' : 'Flagged Filing'}
             </button>
-            <div className="category-tabs">
+            <div className="category-tabs subtabs category-filter">
               {/* Rendered from the shared category list so a category added to
                   the data model cannot be silently missing here — this row had
-                  gained States but not Traders. */}
-              <button className={`category-tab ${categoryFilter === 'both' ? 'active' : ''}`} onClick={() => setCategoryFilter('both')}>All Categories</button>
+                  gained States but not Traders. Each tab carries its category's
+                  in-house icon, tinted its category colour (see .category-filter
+                  in index.css) and turned white on the active tab. */}
+              <button className={`category-tab ${categoryFilter === 'both' ? 'active' : ''}`} onClick={() => setCategoryFilter('both')} title="All Categories">
+                <CategoryIcon category="both" size={16} /><span className="tab-label">All Categories</span>
+              </button>
               {CATEGORIES.map(cat => (
                 <button key={cat}
                   className={`category-tab ${categoryFilter === cat ? 'active' : ''}`}
-                  onClick={() => setCategoryFilter(cat)}>{categoryLabel(cat)}</button>
+                  onClick={() => setCategoryFilter(cat)} title={categoryLabel(cat)}>
+                  <CategoryIcon category={cat} size={16} /><span className="tab-label">{categoryLabel(cat)}</span>
+                </button>
               ))}
             </div>
           </div>
