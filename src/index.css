@@ -593,22 +593,38 @@ button {
 .category-tab {
   /* Four tabs to a row, each the same width. Eight tabs therefore read as a
      tidy 4 + 4 rather than 6 spilling into 2. A tab too narrow for its label
-     truncates with an ellipsis and keeps the full text in its tooltip. */
+     truncates with an ellipsis (on .tab-label) and keeps the full text in its
+     tooltip. The icon sits before the label and never shrinks. */
   flex: 0 0 calc((100% - 3 * 8px) / 4);
   max-width: calc((100% - 3 * 8px) / 4);
   min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
   padding: 7px 10px;
   border-radius: 6px;
   font-size: 0.8rem;
   font-weight: 600;
-  text-align: center;
   white-space: nowrap;
   overflow: hidden;
-  text-overflow: ellipsis;
   color: var(--text-secondary);
   transition: all 0.2s ease;
   background: var(--tab-bg);
   border: 1px solid var(--border-color);
+}
+
+/* The icon inherits the tab's color (currentColor), so it goes muted → primary
+   on hover and white on the active tab for free. It must not be squeezed when
+   the label is long. */
+.category-tab > svg { flex: 0 0 auto; }
+
+/* Only the label truncates; the icon stays whole. */
+.category-tab .tab-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .category-tab:hover {

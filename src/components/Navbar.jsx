@@ -2,6 +2,24 @@ import { useTheme } from '../hooks/useTheme';
 import { useState, useEffect } from 'react';
 import { Calendar, Clock, LogOut, Sun, Moon, Monitor } from 'lucide-react';
 import { getConfig } from '../services/db';
+import Icon from './Icon';
+
+// One navigation tab: an in-house icon plus its label. The icon is decorative
+// (aria-hidden — the visible label names the tab) and inherits the tab's color,
+// so it turns white on the active tab and muted on the rest with no extra CSS.
+function NavTab({ id, icon, label, activeTab, setActiveTab, title }) {
+  return (
+    <button
+      type="button"
+      className={`category-tab ${activeTab === id ? 'active' : ''}`}
+      onClick={() => setActiveTab(id)}
+      title={title || label}
+    >
+      <Icon name={icon} size={18} />
+      <span className="tab-label">{label}</span>
+    </button>
+  );
+}
 
 export default function Navbar({ currentUser, onLogout, activeTab, setActiveTab }) {
   const { mode: themeMode, resolved, cycle } = useTheme();
@@ -85,129 +103,44 @@ export default function Navbar({ currentUser, onLogout, activeTab, setActiveTab 
       <div className="category-tabs" style={{ marginLeft: '16px', marginRight: '16px' }}>
         {isAdmin ? (
           <>
-            <button
-              className={`category-tab ${activeTab === 'dashboard' ? 'active' : ''}`}
-              onClick={() => setActiveTab('dashboard')} title="Overview Dashboard"
-            >
-              Overview Dashboard
-            </button>
+            <NavTab id="dashboard" icon="overview-dashboard" label="Overview Dashboard" activeTab={activeTab} setActiveTab={setActiveTab} />
             {currentUser.role === 'SUPERADMIN' && (
-              <button
-                className={`category-tab ${activeTab === 'national' ? 'active' : ''}`}
-                onClick={() => setActiveTab('national')} title="National Administration — regions and their administrators"
-              >
-                National Admin
-              </button>
+              <NavTab id="national" icon="authority" label="National Admin" title="National Administration — regions and their administrators" activeTab={activeTab} setActiveTab={setActiveTab} />
             )}
-            <button
-              className={`category-tab ${activeTab === 'requests' ? 'active' : ''}`}
-              onClick={() => setActiveTab('requests')} title="Discrepancy Requests"
-            >
-              Discrepancy Requests
-            </button>
+            <NavTab id="requests" icon="discrepancy-requests" label="Discrepancy Requests" activeTab={activeTab} setActiveTab={setActiveTab} />
             {isOutagesFeatureEnabled && (
-              <button
-                className={`category-tab ${activeTab === 'outages' ? 'active' : ''}`}
-                onClick={() => setActiveTab('outages')} title="Unit Outages"
-              >
-                Unit Outages
-              </button>
+              <NavTab id="outages" icon="unit-outages" label="Unit Outages" activeTab={activeTab} setActiveTab={setActiveTab} />
             )}
             {isCycleDataEnabled && (
-              <button
-                className={`category-tab ${activeTab === 'cycle_downloads' ? 'active' : ''}`}
-                onClick={() => setActiveTab('cycle_downloads')} title="Cycle Data Downloads"
-              >
-                Cycle Data Downloads
-              </button>
+              <NavTab id="cycle_downloads" icon="schedule" label="Cycle Data Downloads" activeTab={activeTab} setActiveTab={setActiveTab} />
             )}
-            <button
-              className={`category-tab ${activeTab === 'users' ? 'active' : ''}`}
-              onClick={() => setActiveTab('users')} title="User Registry"
-            >
-              User Registry
-            </button>
-            <button
-              className={`category-tab ${activeTab === 'transfers' ? 'active' : ''}`}
-              onClick={() => setActiveTab('transfers')} title="Transfer Requests"
-            >
-              Transfer Requests
-            </button>
+            <NavTab id="users" icon="user-registry" label="User Registry" activeTab={activeTab} setActiveTab={setActiveTab} />
+            <NavTab id="transfers" icon="transfer-requests" label="Transfer Requests" activeTab={activeTab} setActiveTab={setActiveTab} />
             {currentUser.role === 'SUPERADMIN' && (
-              <button
-                className={`category-tab ${activeTab === 'simulation' ? 'active' : ''}`}
-                onClick={() => setActiveTab('simulation')} title="Simulation"
-              >
-                Simulation
-              </button>
+              <NavTab id="simulation" icon="market" label="Simulation" activeTab={activeTab} setActiveTab={setActiveTab} />
             )}
             {isQcaStatusEnabled && (
-              <button
-                className={`category-tab ${activeTab === 'qca_status' ? 'active' : ''}`}
-                onClick={() => setActiveTab('qca_status')} title="QCA Status"
-              >
-                QCA Status
-              </button>
+              <NavTab id="qca_status" icon="qca-status" label="QCA Status" activeTab={activeTab} setActiveTab={setActiveTab} />
             )}
-            <button
-              className={`category-tab ${activeTab === 'logs' ? 'active' : ''}`}
-              onClick={() => setActiveTab('logs')} title="Server Logs"
-            >
-              Server Logs
-            </button>
-            <button
-              className={`category-tab ${activeTab === 'settings' ? 'active' : ''}`}
-              onClick={() => setActiveTab('settings')} title="System Parameters"
-            >
-              System Parameters
-            </button>
+            <NavTab id="logs" icon="user-logs" label="Server Logs" activeTab={activeTab} setActiveTab={setActiveTab} />
+            <NavTab id="settings" icon="system-parameters" label="System Parameters" activeTab={activeTab} setActiveTab={setActiveTab} />
           </>
         ) : (
           <>
-            <button
-              className={`category-tab ${activeTab === 'dashboard' ? 'active' : ''}`}
-              onClick={() => setActiveTab('dashboard')} title="Discrepancy Requests"
-            >
-              Discrepancy Requests
-            </button>
-            <button
-              className={`category-tab ${activeTab === 'raise_request' ? 'active' : ''}`}
-              onClick={() => setActiveTab('raise_request')} title="File Discrepancy"
-            >
-              File Discrepancy
-            </button>
+            <NavTab id="dashboard" icon="discrepancy-requests" label="Discrepancy Requests" activeTab={activeTab} setActiveTab={setActiveTab} />
+            <NavTab id="raise_request" icon="file-discrepancy" label="File Discrepancy" activeTab={activeTab} setActiveTab={setActiveTab} />
             {isOutageEnabled && isOutagesFeatureEnabled && (
-              <button
-                className={`category-tab ${activeTab === 'outages' ? 'active' : ''}`}
-                onClick={() => setActiveTab('outages')} title="Unit Outages"
-              >
-                Unit Outages
-              </button>
+              <NavTab id="outages" icon="unit-outages" label="Unit Outages" activeTab={activeTab} setActiveTab={setActiveTab} />
             )}
             {isCycleDataEnabled && currentUser?.can_upload_cycle_data && currentUser?.role !== 'QCA' && (
-              <button
-                className={`category-tab ${activeTab === 'cycle_upload' ? 'active' : ''}`}
-                onClick={() => setActiveTab('cycle_upload')} title="Cycle Data Upload"
-              >
-                Cycle Data Upload
-              </button>
+              <NavTab id="cycle_upload" icon="schedule" label="Cycle Data Upload" activeTab={activeTab} setActiveTab={setActiveTab} />
             )}
             {/* QCA coordination is Renewable Energy only — an ISGS or States
                 user never sees the plant-portfolio tab. */}
             {currentUser?.role === 'QCA' && currentUser?.energy_category === 'RE' && (
-              <button
-                className={`category-tab ${activeTab === 'my_plants' ? 'active' : ''}`}
-                onClick={() => setActiveTab('my_plants')} title="My Plants"
-              >
-                My Plants
-              </button>
+              <NavTab id="my_plants" icon="renewable" label="My Plants" activeTab={activeTab} setActiveTab={setActiveTab} />
             )}
-            <button
-              className={`category-tab ${activeTab === 'settings' ? 'active' : ''}`}
-              onClick={() => setActiveTab('settings')} title="Profile Settings"
-            >
-              Profile Settings
-            </button>
+            <NavTab id="settings" icon="system-parameters" label="Profile Settings" activeTab={activeTab} setActiveTab={setActiveTab} />
           </>
         )}
       </div>
