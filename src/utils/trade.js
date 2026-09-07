@@ -14,7 +14,7 @@
  */
 
 /** The load despatch centres, for the buyer/seller pickers. */
-export const GRID_REGIONS = ['NRLDC', 'WRLDC', 'SRLDC', 'ERLDC', 'NERLDC'];
+export const GRID_REGIONS = ['NRLDC', 'WRLDC', 'SRLDC', 'ERLDC', 'NERLDC', 'NLDC'];
 
 /** The two regulatory approval kinds a trade filing may quote. */
 export const GNA_TYPES = ['GNA', 'T-GNA'];

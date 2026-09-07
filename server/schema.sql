@@ -20,14 +20,19 @@ CREATE TABLE IF NOT EXISTS regions (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- The five Indian RLDCs, so an existing deployment keeps working unchanged.
--- Further regions are created through the portal, not here.
+-- The five Indian RLDCs plus the national NLDC, so an existing deployment keeps
+-- working unchanged. NLDC is the registration home for nationally-scoped
+-- entities such as inter-state traders; their trades are still corrected at the
+-- RLDCs through the inter-regional consent workflow (see utils/trade.js), so
+-- NLDC never becomes the resolving region. Further regions are created through
+-- the portal, not here.
 INSERT INTO regions (acronym, name) VALUES
   ('NRLDC',  'Northern Regional Load Despatch Centre'),
   ('ERLDC',  'Eastern Regional Load Despatch Centre'),
   ('WRLDC',  'Western Regional Load Despatch Centre'),
   ('SRLDC',  'Southern Regional Load Despatch Centre'),
-  ('NERLDC', 'North Eastern Regional Load Despatch Centre')
+  ('NERLDC', 'North Eastern Regional Load Despatch Centre'),
+  ('NLDC',   'National Load Despatch Centre')
 ON CONFLICT (acronym) DO NOTHING;
 
 CREATE TABLE IF NOT EXISTS wbes_entities (
@@ -433,7 +438,8 @@ INSERT INTO regions (acronym, name) VALUES
   ('ERLDC',  'Eastern Regional Load Despatch Centre'),
   ('WRLDC',  'Western Regional Load Despatch Centre'),
   ('SRLDC',  'Southern Regional Load Despatch Centre'),
-  ('NERLDC', 'North Eastern Regional Load Despatch Centre')
+  ('NERLDC', 'North Eastern Regional Load Despatch Centre'),
+  ('NLDC',   'National Load Despatch Centre')
 ON CONFLICT (acronym) DO NOTHING;
 
 -- Any region already referenced by data but missing from the table is adopted
@@ -763,7 +769,7 @@ SELECT d.key, r.region, d.value
     -- and unrestricted. Off leaves attachments entirely optional.
     ('requireNetScheduleFile', 'true')
   ) AS d(key, value)
-  CROSS JOIN (VALUES ('NRLDC'), ('ERLDC'), ('WRLDC'), ('SRLDC'), ('NERLDC')) AS r(region)
+  CROSS JOIN (VALUES ('NRLDC'), ('ERLDC'), ('WRLDC'), ('SRLDC'), ('NERLDC'), ('NLDC')) AS r(region)
 ON CONFLICT (key, region) DO NOTHING;
 
 -- Global settings: there is one mail account and one daily allowance, so these
@@ -914,7 +920,7 @@ CREATE INDEX IF NOT EXISTS idx_disc_seller_region ON discrepancies (seller_regio
 -- in the WBES sense and NLDC is its acronym.
 INSERT INTO wbes_entities (wbes_acronym, region, name, energy_category)
 SELECT 'NLDC', r.acronym, 'National Load Despatch Centre', 'ISGS'
-  FROM regions r WHERE r.acronym = 'NRLDC'
+  FROM regions r WHERE r.acronym = 'NLDC'
 ON CONFLICT (wbes_acronym) DO NOTHING;
 
 UPDATE users SET wbes_acronym = 'NLDC'

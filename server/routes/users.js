@@ -964,7 +964,7 @@ router.get('/wbes-entities/template', requireSuperAdmin, async (req, res) => {
     legend.addRow({ c: 'Generator SubType', v: GENERATOR_SUBTYPES.join(', ') + '  (optional)' });
     legend.addRow({ c: 'From Date', v: 'YYYY-MM-DD (optional)' });
     legend.addRow({ c: 'Date of Commissioning', v: 'YYYY-MM-DD (optional)' });
-    legend.addRow({ c: 'Region', v: 'The RLDC acronym the entity belongs to (e.g. NRLDC, ERLDC, WRLDC, SRLDC, NERLDC)' });
+    legend.addRow({ c: 'Region', v: 'The despatch-centre acronym the entity belongs to (e.g. NRLDC, ERLDC, WRLDC, SRLDC, NERLDC; use NLDC for nationally-registered entities such as inter-state traders)' });
     legend.addRow({ c: 'Note', v: 'Display Name, WBES Acronym and Region are required. Everything else is optional but recommended — without a Utility Type an acronym is uncategorised until an admin sets its type.' });
 
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');

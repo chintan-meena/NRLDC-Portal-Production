@@ -11,6 +11,7 @@ export const REGIONS = [
   { code: 'WRLDC',  name: 'Western' },
   { code: 'SRLDC',  name: 'Southern' },
   { code: 'NERLDC', name: 'North Eastern' },
+  { code: 'NLDC',   name: 'National' },
 ];
 
 export const REGION_CODES = REGIONS.map(r => r.code);
