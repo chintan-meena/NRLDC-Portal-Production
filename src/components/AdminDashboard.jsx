@@ -558,7 +558,7 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
 
   const handleOpenEditOutage = (out) => {
     setEditingOutage(out);
-    setEditOutageUnitNumber(out.unit_number);
+    setEditOutageUnitNumber(out.unit_number || '');
     setEditOutageType(out.outage_type);
     
     const formatDateTimeLocal = (dateStr) => {
@@ -582,7 +582,9 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
     setEditOutageError('');
     setEditOutageSuccess('');
 
-    if (!editOutageUnitNumber.trim() || !editOutageFrom || !editOutageTo || !editOutageReason.trim()) {
+    // A renewable filing carries no unit number; only non-RE outages need one.
+    const editingRenewable = editingOutage?.energy_category === 'RE';
+    if ((!editingRenewable && !editOutageUnitNumber.trim()) || !editOutageFrom || !editOutageTo || !editOutageReason.trim()) {
       setEditOutageError('Please fill in all mandatory fields.');
       return;
     }
@@ -599,7 +601,7 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
 
     try {
       await updateOutageAdmin(editingOutage.id, {
-        unit_number: editOutageUnitNumber.trim(),
+        unit_number: editingRenewable ? null : editOutageUnitNumber.trim(),
         outage_type: editOutageType,
         outage_from: editOutageFrom,
         outage_to: editOutageTo,
@@ -1209,16 +1211,17 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
                   <th scope="col">Outage Date From</th>
                   <th scope="col">Outage Date To</th>
                   <th scope="col">Reason of Outage</th>
+                  <th scope="col">Attachment</th>
                   <th scope="col">Approval Status</th>
                   <th scope="col" style={{ textAlign: 'center' }}>Action</th>
                 </tr>
               </thead>
               <tbody>
                 {showSkeleton(outagesList) ? (
-                  <SkeletonRows rows={5} columns={9} />
+                  <SkeletonRows rows={5} columns={10} />
                 ) : outagesList.filter(o => outageTypeFilter === 'All' || o.outage_type === outageTypeFilter).length === 0 ? (
                   <tr>
-                    <td colSpan="9">
+                    <td colSpan="10">
                       <EmptyState title="No outage reports" hint="No unit outages have been filed for this date range and type." />
                     </td>
                   </tr>
@@ -1229,7 +1232,7 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
                       <tr key={out.id}>
                         <td>{formatDateDMYHM(out.created_at)}</td>
                         <td style={{ fontWeight: '500' }}>{out.generator_name} ({out.username})</td>
-                        <td style={{ fontWeight: '600' }}>{out.unit_number}</td>
+                        <td style={{ fontWeight: '600' }}>{out.unit_number || '—'}</td>
                         <td>
                           <span className={`status-badge ${out.outage_type === 'Forced Outage' ? 'rejected' : 'returned'}`}>
                             {out.outage_type}
@@ -1238,6 +1241,17 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
                         <td>{formatDateDMYHM(out.outage_from)}</td>
                         <td>{formatDateDMYHM(out.outage_to)}</td>
                         <td>{out.reason}</td>
+                        <td>
+                          {Array.isArray(out.files) && out.files.length > 0 ? (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                              {out.files.map((file, idx) => (
+                                <button key={idx} type="button" onClick={() => downloadFile(`/upload/${encodeURIComponent(file)}`, file).catch(err => notify('error', err.message))} className="btn btn-secondary" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '0.72rem', padding: '3px 6px', width: 'fit-content' }}>
+                                  <FileText size={12} />{originalFilename(file)}
+                                </button>
+                              ))}
+                            </div>
+                          ) : <span style={{ color: 'var(--text-muted)' }}>—</span>}
+                        </td>
                         <td>
                           <span className={`status-badge ${out.status === 'Approved' ? 'resolved' : (out.status === 'Rejected' ? 'rejected' : 'pending')}`}>
                             {out.status}
@@ -1262,6 +1276,17 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
                                   Reject
                                 </button>
                               </>
+                            )}
+                            {/* A rejected filing stays on record; the RLDC may reconsider and
+                                approve it later. The filer cannot re-raise it themselves. */}
+                            {out.status === 'Rejected' && (
+                              <button
+                                className="btn btn-teal"
+                                style={{ padding: '4px 8px', fontSize: '0.75rem', height: '28px' }}
+                                onClick={() => handleProcessOutage(out.id, 'Approved')}
+                              >
+                                Approve
+                              </button>
                             )}
                             <button
                               className="btn btn-secondary"
@@ -2197,16 +2222,19 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
             <Banner type="success" message={editOutageSuccess} />
 
             <form onSubmit={handleEditOutageSubmit}>
-              <div className="form-group">
-                <label htmlFor="ad-unit-number-affected">Unit Number Affected</label>
-                <input id="ad-unit-number-affected" 
-                  type="text" 
-                  className="form-control" 
-                  value={editOutageUnitNumber} 
-                  onChange={(e) => setEditOutageUnitNumber(e.target.value)} 
-                  required 
-                />
-              </div>
+              {/* Renewable filings carry no unit number, so the field is omitted for them. */}
+              {editingOutage.energy_category !== 'RE' && (
+                <div className="form-group">
+                  <label htmlFor="ad-unit-number-affected">Unit Number Affected</label>
+                  <input id="ad-unit-number-affected"
+                    type="text"
+                    className="form-control"
+                    value={editOutageUnitNumber}
+                    onChange={(e) => setEditOutageUnitNumber(e.target.value)}
+                    required
+                  />
+                </div>
+              )}
 
               <div className="form-group">
                 <label htmlFor="ad-type-of-outage">Type of Outage</label>

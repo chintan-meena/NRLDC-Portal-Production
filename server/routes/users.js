@@ -337,7 +337,12 @@ router.post('/', requireAdmin, async (req, res) => {
     return res.status(400).json({ error: 'That username cannot be used. Use letters, digits, dots or hyphens.' });
   }
 
-  const category = FILING_CATEGORIES.includes(energy_category) ? energy_category : 'ISGS';
+  // An administrator is not a plant: it has no energy category. Ordinary
+  // (USER/QCA) accounts keep a real one, defaulting to ISGS when unspecified.
+  const isAdminRole = role === 'ADMIN' || role === 'SUPERADMIN';
+  const category = isAdminRole
+    ? null
+    : (FILING_CATEGORIES.includes(energy_category) ? energy_category : 'ISGS');
 
   // QCAs are RE-only — reject rather than silently rewriting the category.
   const qcaError = validateQcaCategory(role, category, qca_name);
@@ -388,10 +393,12 @@ router.post('/', requireAdmin, async (req, res) => {
       `INSERT INTO wbes_entities (wbes_acronym, name, energy_category, region)
        VALUES ($1, $2, $3, $4)
        ON CONFLICT (wbes_acronym) DO NOTHING`,
-      [wbes_acronym.trim().toUpperCase(), name.trim(), category, newRegion]
+      // The entities column is NOT NULL; an administrator's acronym has no real
+      // category, so fall back to a valid placeholder for the register row only.
+      [wbes_acronym.trim().toUpperCase(), name.trim(), category || 'ISGS', newRegion]
     );
 
-    await logEvent('success', `New user registered: ${namespacedUsername} (${newRegion}, ${category} category, role: ${role}, wbes: ${wbes_acronym}, qca: ${qca_name || 'None'})`, newRegion);
+    await logEvent('success', `New user registered: ${namespacedUsername} (${newRegion}, ${category || 'no'} category, role: ${role}, wbes: ${wbes_acronym}, qca: ${qca_name || 'None'})`, newRegion);
     res.status(201).json(result.rows[0]);
   } catch (err) {
     if (err.code === '23505') {
@@ -664,7 +671,16 @@ router.patch('/:username', requireAdmin, requireSameRegion(), async (req, res) =
       updates.push(`role = $${idx++}`);
       values.push(role);
     }
-    if (energy_category !== undefined) {
+    // An administrator carries no energy category. Force it null whatever the
+    // form sent (including when a user is promoted to admin); only USER/QCA
+    // accounts take a real category.
+    const effectiveIsAdmin = effectiveRole === 'ADMIN' || effectiveRole === 'SUPERADMIN';
+    if (effectiveIsAdmin) {
+      if (current.energy_category !== null) {
+        updates.push(`energy_category = $${idx++}`);
+        values.push(null);
+      }
+    } else if (energy_category !== undefined) {
       if (!FILING_CATEGORIES.includes(energy_category)) {
         return res.status(400).json({ error: `Invalid energy category. Choose one of: ${FILING_CATEGORIES.join(', ')}.` });
       }

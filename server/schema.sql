@@ -147,12 +147,19 @@ CREATE TABLE IF NOT EXISTS outages (
   id SERIAL PRIMARY KEY,
   username VARCHAR(100) NOT NULL REFERENCES users(username) ON UPDATE CASCADE,
   generator_name VARCHAR(200) NOT NULL,
-  unit_number VARCHAR(50) NOT NULL,
+  -- Nullable: renewable (RE) plants have no dischargeable "unit", so they file
+  -- an outage without one and this stays NULL. Conventional/ISGS filers still
+  -- supply it (enforced in routes/outages.js, not by the column).
+  unit_number VARCHAR(50),
   outage_type VARCHAR(50) NOT NULL,
   outage_from TIMESTAMPTZ NOT NULL,
   outage_to TIMESTAMPTZ NOT NULL,
   reason TEXT NOT NULL,
   status VARCHAR(20) NOT NULL DEFAULT 'Pending' CHECK (status IN ('Pending', 'Approved', 'Rejected')),
+  -- Optional supporting attachments (e.g. the PDF of the outage-intimation
+  -- email). Stored names, same convention as discrepancies.files; kept alive by
+  -- utils/uploadSweep.js so the orphan sweep does not delete them.
+  files JSONB NOT NULL DEFAULT '[]',
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -337,6 +344,26 @@ CREATE TABLE IF NOT EXISTS password_reset_requests (
 -- the proportion against a per-region threshold.
 ALTER TABLE discrepancies ADD COLUMN IF NOT EXISTS flagged BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE discrepancies ADD COLUMN IF NOT EXISTS flag_note TEXT NOT NULL DEFAULT '';
+
+-- ─── Unit-less outages for renewables ──────────────────────────────────────
+-- RE plants have no generating "unit" to name, so they file outages without
+-- one. Drop the NOT NULL that older databases carried; the requirement is now
+-- per-category and enforced in routes/outages.js (mandatory for non-RE only).
+ALTER TABLE outages ALTER COLUMN unit_number DROP NOT NULL;
+
+-- Optional supporting attachments on an outage (the PDF of the intimation
+-- email, typically). Referenced by utils/uploadSweep.js so they survive the
+-- orphan sweep.
+ALTER TABLE outages ADD COLUMN IF NOT EXISTS files JSONB NOT NULL DEFAULT '[]';
+
+-- ─── An administrator has no plant energy category ─────────────────────────
+-- RLDC/national accounts are not plants; older databases defaulted their
+-- energy_category to 'ISGS', misclassifying them. Make the column nullable and
+-- clear it for every administrator so nothing reads them as an ISGS filer.
+-- Ordinary (USER/QCA) accounts keep their real category. routes/users.js and
+-- init_fresh.js create administrators with NULL from now on.
+ALTER TABLE users ALTER COLUMN energy_category DROP NOT NULL;
+UPDATE users SET energy_category = NULL WHERE role IN ('ADMIN', 'SUPERADMIN') AND energy_category IS NOT NULL;
 
 -- ─── WBES entity classification ────────────────────────────────────────────
 -- The finer type the national WBES list carries, captured so self-registration

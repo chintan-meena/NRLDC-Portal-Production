@@ -44,6 +44,7 @@ const REQUIRED_COLUMNS = [
   ['discrepancies', 'correcting_region'], // added with two-sided trade consent
   ['discrepancies', 'gna_tgna_number'],   // added with GNA/T-GNA on trade filings
   ['discrepancies', 'remark_history'],    // added with the append-only remark thread
+  ['outages', 'files'],                   // added with optional outage attachments
 ];
 
 /**

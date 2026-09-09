@@ -89,7 +89,7 @@ async function createNationalAdmin() {
   await pool.query(
     `INSERT INTO users (username, name, role, region, email, password_hash, energy_category,
                         locked, failed_attempts, bypass_2fa, can_upload_cycle_data, wbes_acronym)
-     VALUES ($1, $2, 'SUPERADMIN', NULL, $3, $4, 'ISGS', FALSE, 0, TRUE, FALSE, $5)`,
+     VALUES ($1, $2, 'SUPERADMIN', NULL, $3, $4, NULL, FALSE, 0, TRUE, FALSE, $5)`,
     [NATIONAL_ADMIN.username, NATIONAL_ADMIN.name, NATIONAL_ADMIN.email, hash, NATIONAL_ADMIN.wbes_acronym]
   );
   console.log(`[FRESH] ${NATIONAL_ADMIN.username} created (password: ${DEFAULT_PASSWORD}, OTP bypassed).`);

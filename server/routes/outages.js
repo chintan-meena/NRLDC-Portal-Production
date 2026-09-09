@@ -70,7 +70,8 @@ router.get('/', async (req, res) => {
   const username = isAdmin(req) ? req.query.username : req.auth.username;
   try {
     let query = `SELECT o.id, o.username, o.generator_name, o.unit_number, o.outage_type,
-                        o.outage_from, o.outage_to, o.reason, o.status, o.created_at, u.region
+                        o.outage_from, o.outage_to, o.reason, o.status, o.created_at, o.files,
+                        u.region, u.energy_category
                    FROM outages o
                    JOIN users u ON o.username = u.username`;
     const params = [];
@@ -111,34 +112,51 @@ router.get('/', async (req, res) => {
 
 // POST /api/outages — File a new outage
 router.post('/', async (req, res) => {
-  const { generator_name, unit_number, outage_type, outage_from, outage_to, reason } = req.body;
+  const { generator_name, unit_number, outage_type, outage_from, outage_to, reason, files } = req.body;
   const username = req.auth.username;
 
-  if (!generator_name || !unit_number || !outage_type || !outage_from || !outage_to || !reason) {
-    return res.status(400).json({ error: 'All outage fields are mandatory.' });
-  }
-
-  const now = new Date();
-  if (new Date(outage_to) > now) {
-    return res.status(400).json({ error: 'Outage Date & Time To cannot be in the future.' });
-  }
-  if (new Date(outage_from) > now) {
-    return res.status(400).json({ error: 'Outage Date & Time From cannot be in the future.' });
-  }
-
   try {
-    // Look up user's wbes_acronym to populate generator_name or wbes acronym field
-    const userRes = await pool.query('SELECT wbes_acronym, name FROM users WHERE username = $1', [username]);
+    // Look up the filer's acronym and category. A renewable (RE) plant has no
+    // generating unit to name, so the unit number is omitted for it and stored
+    // NULL; every other category must still supply one.
+    const userRes = await pool.query('SELECT wbes_acronym, name, energy_category FROM users WHERE username = $1', [username]);
     const acronym = (userRes.rows.length > 0 && userRes.rows[0].wbes_acronym) ? userRes.rows[0].wbes_acronym : generator_name;
+    const category = userRes.rows.length > 0 ? userRes.rows[0].energy_category : null;
+    const isRenewable = category === 'RE';
 
+    // Per-category filing switch (outage_RE / outage_ISGS / outage_States).
+    // Hiding the tab is only cosmetic; a category switched off must be refused
+    // at the endpoint too, so a direct call cannot file around it.
+    if (['ISGS', 'RE', 'States'].includes(category)) {
+      const categoryEnabled = await getBoolean(`outage_${category}`, req.auth.region, true);
+      if (!categoryEnabled) {
+        return res.status(403).json({ error: 'Unit outage filing is switched off for your energy category by the administrator.' });
+      }
+    }
+
+    const unit = isRenewable ? null : (unit_number || '').trim();
+    const missingUnit = !isRenewable && !unit;
+    if (!generator_name || missingUnit || !outage_type || !outage_from || !outage_to || !reason) {
+      return res.status(400).json({ error: 'All outage fields are mandatory.' });
+    }
+
+    const now = new Date();
+    if (new Date(outage_to) > now) {
+      return res.status(400).json({ error: 'Outage Date & Time To cannot be in the future.' });
+    }
+    if (new Date(outage_from) > now) {
+      return res.status(400).json({ error: 'Outage Date & Time From cannot be in the future.' });
+    }
+
+    const attachments = Array.isArray(files) ? files : [];
     const result = await pool.query(
-      `INSERT INTO outages (username, generator_name, unit_number, outage_type, outage_from, outage_to, reason, status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, 'Pending')
+      `INSERT INTO outages (username, generator_name, unit_number, outage_type, outage_from, outage_to, reason, status, files)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, 'Pending', $8::jsonb)
        RETURNING *`,
-      [username, acronym, unit_number, outage_type, outage_from, outage_to, reason]
+      [username, acronym, unit, outage_type, outage_from, outage_to, reason, JSON.stringify(attachments)]
     );
 
-    await logEvent('success', `Filed unit outage: ${acronym} Unit ${unit_number} (${outage_type})`);
+    await logEvent('success', `Filed unit outage: ${acronym}${unit ? ` Unit ${unit}` : ''} (${outage_type})`);
     res.status(201).json(result.rows[0]);
   } catch (err) {
     console.error('[OUTAGES POST]', err);

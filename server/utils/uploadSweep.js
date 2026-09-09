@@ -37,8 +37,8 @@ function selectOrphans(files, referenced, cutoffMs) {
 
 /**
  * Collect every stored filename the database still points at.
- * Discrepancy attachments live in three JSONB arrays; cycle-data uploads in a
- * plain column.
+ * Discrepancy attachments live in three JSONB arrays; outage attachments in
+ * one; cycle-data uploads in a plain column.
  */
 async function referencedFilenames(db) {
   const referenced = new Set();
@@ -47,6 +47,7 @@ async function referencedFilenames(db) {
     SELECT jsonb_array_elements_text(files)         AS name FROM discrepancies WHERE jsonb_typeof(files) = 'array'
     UNION SELECT jsonb_array_elements_text(admin_files)   FROM discrepancies WHERE jsonb_typeof(admin_files) = 'array'
     UNION SELECT jsonb_array_elements_text(consent_files) FROM discrepancies WHERE jsonb_typeof(consent_files) = 'array'
+    UNION SELECT jsonb_array_elements_text(files)         FROM outages       WHERE jsonb_typeof(files) = 'array'
     UNION SELECT filename FROM cycle_data_uploads
   `);
   for (const row of disc.rows) {

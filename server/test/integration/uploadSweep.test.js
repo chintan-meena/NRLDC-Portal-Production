@@ -46,6 +46,11 @@ before(async () => {
     `INSERT INTO cycle_data_uploads (username, start_date, end_date, filename)
      VALUES ('u@nrldc','2026-06-01','2026-06-02','cycle-ref.xlsx')`
   );
+  // An outage references a third (its intimation-email PDF).
+  await pool.query(
+    `INSERT INTO outages (username, generator_name, unit_number, outage_type, outage_from, outage_to, reason, files)
+     VALUES ('u@nrldc','ACR','Unit 1','Forced Outage', NOW() - INTERVAL '2 hours', NOW() - INTERVAL '1 hour','x', '["outage-ref.pdf"]'::jsonb)`
+  );
 });
 
 after(async () => {
@@ -53,16 +58,18 @@ after(async () => {
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
-test('referencedFilenames gathers names from discrepancies and cycle uploads', async () => {
+test('referencedFilenames gathers names from discrepancies, outages and cycle uploads', async () => {
   const refs = await referencedFilenames(pool);
   assert.equal(refs.has('referenced.xlsx'), true);
   assert.equal(refs.has('cycle-ref.xlsx'), true);
+  assert.equal(refs.has('outage-ref.pdf'), true);
   assert.equal(refs.has('never-uploaded.xlsx'), false);
 });
 
 test('the sweep deletes old orphans but keeps referenced and recent files', async () => {
   writeFileAged('referenced.xlsx', 30);  // referenced → keep despite age
   writeFileAged('cycle-ref.xlsx', 30);   // referenced → keep
+  writeFileAged('outage-ref.pdf', 30);   // referenced by an outage → keep
   writeFileAged('old-orphan.xlsx', 10);  // unreferenced + old → delete
   writeFileAged('recent-orphan.xlsx', 1); // unreferenced but recent → keep
 
@@ -71,6 +78,7 @@ test('the sweep deletes old orphans but keeps referenced and recent files', asyn
 
   assert.equal(fs.existsSync(path.join(dir, 'referenced.xlsx')), true);
   assert.equal(fs.existsSync(path.join(dir, 'cycle-ref.xlsx')), true);
+  assert.equal(fs.existsSync(path.join(dir, 'outage-ref.pdf')), true);
   assert.equal(fs.existsSync(path.join(dir, 'recent-orphan.xlsx')), true);
   assert.equal(fs.existsSync(path.join(dir, 'old-orphan.xlsx')), false);
 });

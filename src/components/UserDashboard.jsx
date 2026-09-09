@@ -79,6 +79,7 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
   const [outageFrom, setOutageFrom] = useState('');
   const [outageTo, setOutageTo] = useState('');
   const [outageReason, setOutageReason] = useState('');
+  const [outageFiles, setOutageFiles] = useState([]);
   const [outageError, setOutageError] = useState('');
   const [outageSuccess, setOutageSuccess] = useState('');
 
@@ -585,13 +586,33 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
     setActiveTab('raise_request');
   };
 
+  // Outage attachments (optional, e.g. the PDF of the intimation email).
+  const handleOutageFileChange = (e) => {
+    const files = Array.from(e.target.files);
+    const problem = validateFiles(files);
+    if (problem) {
+      setOutageError(problem);
+      e.target.value = '';
+      return;
+    }
+    setOutageError('');
+    setOutageFiles(prev => [...prev, ...files]);
+    e.target.value = '';
+  };
+
+  const removeOutageFile = (index) => {
+    setOutageFiles(prev => prev.filter((_, idx) => idx !== index));
+  };
+
   // Filed Outages Submit
   const handleOutageSubmit = async (e) => {
     e.preventDefault();
     setOutageError('');
     setOutageSuccess('');
 
-    if (!outageUnitNumber.trim() || !outageFrom || !outageTo || !outageReason.trim()) {
+    // Renewable plants have no generating unit, so the unit number is omitted
+    // for them; everyone else must supply it.
+    if ((!isRenewableUser && !outageUnitNumber.trim()) || !outageFrom || !outageTo || !outageReason.trim()) {
       setOutageError('Please fill in all mandatory outage details.');
       return;
     }
@@ -608,20 +629,29 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
 
     try {
       setIsSubmitting(true);
+      let uploadedFilenames = [];
+      if (outageFiles.length > 0) {
+        const formData = new FormData();
+        outageFiles.forEach(file => formData.append('files', file));
+        const uploadRes = await uploadFiles(formData);
+        if (uploadRes.success) uploadedFilenames = uploadRes.filenames;
+      }
       await createOutage({
         username: currentUser.username,
         generator_name: currentUser.name,
-        unit_number: outageUnitNumber.trim(),
+        unit_number: isRenewableUser ? null : outageUnitNumber.trim(),
         outage_type: outageType,
         outage_from: outageFrom,
         outage_to: outageTo,
-        reason: outageReason.trim()
+        reason: outageReason.trim(),
+        files: uploadedFilenames
       });
       setOutageSuccess('Generating Unit Outage filed successfully in registry!');
       setOutageUnitNumber('');
       setOutageFrom('');
       setOutageTo('');
       setOutageReason('');
+      setOutageFiles([]);
       await loadData();
     } catch (err) {
       setOutageError(err.message || 'Failed to file outage.');
@@ -1500,10 +1530,13 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
                   <label htmlFor="ud-generator-acronym-wbes">Generator Acronym (WBES)</label>
                   <input id="ud-generator-acronym-wbes" type="text" className="form-control" value={`${currentUser.name} (${currentUser.wbes_acronym || 'No Acronym'})`} disabled />
                 </div>
-                <div className="form-group" style={{ marginBottom: 0 }}>
-                  <label htmlFor="ud-unit-number-affected">Unit Number Affected</label>
-                  <input id="ud-unit-number-affected" type="text" className="form-control" placeholder="e.g. Unit 3 or Unit 5" value={outageUnitNumber} onChange={(e) => setOutageUnitNumber(e.target.value)} required />
-                </div>
+                {/* Renewable plants have no generating unit — the field is omitted for them. */}
+                {!isRenewableUser && (
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label htmlFor="ud-unit-number-affected">Unit Number Affected</label>
+                    <input id="ud-unit-number-affected" type="text" className="form-control" placeholder="e.g. Unit 3 or Unit 5" value={outageUnitNumber} onChange={(e) => setOutageUnitNumber(e.target.value)} required />
+                  </div>
+                )}
               </div>
 
               <div className="form-group">
@@ -1530,9 +1563,29 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
                 <textarea id="ud-reason-of-outage-specify-proper-and-exact-details" rows="4" className="form-control" placeholder="e.g. Boiler tube leakage, PA FAN-3A TRIPPED..." value={outageReason} onChange={(e) => setOutageReason(e.target.value)} required />
               </div>
 
+              <div className="form-group">
+                <label>Supporting Documents (optional)</label>
+                <div className="file-upload-zone" onClick={() => document.getElementById('outage-file-picker').click()}>
+                  <Upload size={28} style={{ color: 'var(--text-secondary)', marginBottom: '6px' }} />
+                  <p style={{ fontSize: '0.9rem', fontWeight: '500' }}>Click to attach the outage-intimation email (PDF) or other proof</p>
+                  <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '2px' }}>{ALLOWED_DESCRIPTION} only, up to {MAX_UPLOAD_MB} MB per file. Optional.</p>
+                  <input type="file" id="outage-file-picker" multiple accept={ACCEPT_ATTRIBUTE} style={{ display: 'none' }} onChange={handleOutageFileChange} />
+                </div>
+                {outageFiles.length > 0 && (
+                  <div className="file-list">
+                    {outageFiles.map((file, idx) => (
+                      <div key={idx} className="file-row">
+                        <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><FileText size={14} style={{ color: 'var(--accent-blue)' }} />{file.name}</span>
+                        <button type="button" className="file-remove" onClick={() => removeOutageFile(idx)}>Remove</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
               <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '20px' }}>
                 <button type="submit" className="btn btn-teal" disabled={isSubmitting}>
-                  {isSubmitting ? 'Filing…' : 'File Outage Details'}
+                  {isSubmitting ? (outageFiles.length > 0 ? 'Uploading…' : 'Filing…') : 'File Outage Details'}
                 </button>
               </div>
             </form>
@@ -1553,13 +1606,14 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
                   <th scope="col">Outage Date From</th>
                   <th scope="col">Outage Date To</th>
                   <th scope="col">Reason of Outage</th>
+                  <th scope="col">Attachment</th>
                   <th scope="col">Approval Status</th>
                 </tr>
               </thead>
               <tbody>
                 {outages.length === 0 ? (
                   <tr>
-                    <td colSpan="7">
+                    <td colSpan="8">
                       <EmptyState title="No outages filed" hint="Unit outages you report will be listed here." icon={Zap} />
                     </td>
                   </tr>
@@ -1567,7 +1621,7 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
                   outages.map((out) => (
                     <tr key={out.id}>
                       <td>{formatDateDMYHM(out.created_at)}</td>
-                      <td style={{ fontWeight: '600' }}>{out.unit_number}</td>
+                      <td style={{ fontWeight: '600' }}>{out.unit_number || '—'}</td>
                       <td>
                         <span className={`status-badge ${out.outage_type === 'Forced Outage' ? 'rejected' : 'returned'}`}>
                           {out.outage_type}
@@ -1576,6 +1630,17 @@ export default function UserDashboard({ currentUser, onUserUpdate, activeTab, se
                       <td>{formatDateDMYHM(out.outage_from)}</td>
                       <td>{formatDateDMYHM(out.outage_to)}</td>
                       <td>{out.reason}</td>
+                      <td>
+                        {Array.isArray(out.files) && out.files.length > 0 ? (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                            {out.files.map((file, idx) => (
+                              <button key={idx} type="button" onClick={() => downloadFile(`/upload/${encodeURIComponent(file)}`, file).catch(err => notify('error', err.message))} className="btn btn-secondary" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '0.72rem', padding: '3px 6px', width: 'fit-content' }}>
+                                <FileText size={12} />{originalFilename(file)}
+                              </button>
+                            ))}
+                          </div>
+                        ) : <span style={{ color: 'var(--text-muted)' }}>—</span>}
+                      </td>
                       <td>
                         <span className={`status-badge ${out.status === 'Approved' ? 'resolved' : (out.status === 'Rejected' ? 'rejected' : 'pending')}`}>
                           {out.status}
