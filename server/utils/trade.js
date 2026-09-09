@@ -269,6 +269,35 @@ function mayResolveTrade({ isNational, actingRegion, row }) {
   return { ok: true };
 }
 
+/**
+ * Who may close a trade on behalf of an unmanned CORRECTING region — the mirror
+ * of mayRecordOfflineConsent.
+ *
+ * The correcting region applies the fix and closes the ticket. When it has no
+ * administrator on the portal the ticket is stranded: the consenting region has
+ * agreed (or is the one acting now), yet only the correcting region or national
+ * may resolve it. This lets the consenting region close it on the correcting
+ * region's behalf — but ONLY while the correcting region is genuinely off the
+ * portal, documented the same way the offline-consent bypass is. A refused
+ * trade is already closed and out of scope.
+ *
+ * `correctorOnPortal` is whether the correcting region has a usable (unlocked)
+ * administrator; false is the observable fact that it cannot act here.
+ */
+function mayResolveForUnmannedCorrector({ isNational, actingRegion, row, correctorOnPortal }) {
+  if (row.consent_state === 'Refused') {
+    return { ok: false, error: `${row.consenting_region} refused this trade, so the ticket is closed.` };
+  }
+  if (isNational) return { ok: true };
+  if (correctorOnPortal !== false) {
+    return { ok: false, error: `${row.correcting_region} has an administrator here and applies the fix itself.` };
+  }
+  if (!isConsentingRegion(row, actingRegion)) {
+    return { ok: false, error: `Only ${row.consenting_region} can close this trade while ${row.correcting_region} is off the portal.` };
+  }
+  return { ok: true };
+}
+
 module.exports = {
   GRID_REGIONS,
   FILING_CATEGORIES,
@@ -292,4 +321,5 @@ module.exports = {
   mayConsent,
   mayRecordOfflineConsent,
   mayResolveTrade,
+  mayResolveForUnmannedCorrector,
 };

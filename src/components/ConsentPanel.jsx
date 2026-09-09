@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { decideConsent, recordOfflineConsent, uploadFiles } from '../services/db';
+import { decideConsent, recordOfflineConsent, resolveUnmannedCorrector, uploadFiles } from '../services/db';
 import { consentSummary, isTrade } from '../utils/trade';
 import { originalFilename } from '../utils/filenames';
 import { ACCEPT_ATTRIBUTE, MAX_UPLOAD_MB, validateFiles } from '../utils/uploads';
@@ -65,6 +65,14 @@ export default function ConsentPanel({ request, currentUser, onDone, notify }) {
   // consenter has no account here or simply has not answered. National may too.
   const consenterCanAnswer = request.consenter_on_portal !== false;
   const mayRecordOffline = awaiting && (isNational || iAmCorrector);
+  // The mirror of the offline bypass: the correcting region has no admin here,
+  // so it cannot apply the fix and close the ticket itself. Once consent is on
+  // record, the consenting region (or national) closes it on its behalf.
+  const correctorCanAnswer = request.corrector_on_portal !== false;
+  const mayResolveForCorrector = request.consent_state === 'Consented'
+    && !['Resolved', 'Rejected'].includes(request.status)
+    && !correctorCanAnswer
+    && (isNational || iAmConsenter);
 
   const Icon = summary.tone === 'pending' ? Clock : summary.tone === 'rejected' ? XCircle : Handshake;
 
@@ -99,6 +107,25 @@ export default function ConsentPanel({ request, currentUser, onDone, notify }) {
     await run(
       () => recordOfflineConsent(request.req_no, remark.trim(), names),
       `${request.consenting_region}’s consent bypassed and the discrepancy resolved.`
+    );
+  };
+
+  const submitResolveForCorrector = async () => {
+    setPanelError('');
+    if (!remark.trim()) { setPanelError('Name who applied the fix and when. This is the only evidence the ticket will carry.'); return; }
+    const badFile = validateFiles(proof);   // returns the message, or null
+    if (badFile) { setPanelError(badFile); return; }
+
+    let names = [];
+    if (proof.length > 0) {
+      const form = new FormData();
+      proof.forEach(f => form.append('files', f));
+      const res = await uploadFiles(form);
+      if (res.success) names = res.filenames;
+    }
+    await run(
+      () => resolveUnmannedCorrector(request.req_no, remark.trim(), names),
+      `Trade resolved on behalf of ${request.correcting_region}.`
     );
   };
 
@@ -240,6 +267,54 @@ export default function ConsentPanel({ request, currentUser, onDone, notify }) {
             <div className="consent-actions">
               <button type="button" className="btn btn-secondary" onClick={() => setMode('offline')}>
                 <PhoneOutgoing size={14} /> Bypass with offline consent
+              </button>
+            </div>
+          )
+        )}
+
+        {/* ── Mirror: the consenting region closes a consented trade whose
+            CORRECTING region has no admin here to apply the fix ──────────── */}
+        {mayResolveForCorrector && mode !== 'refuse' && mode !== 'offline' && (
+          mode === 'resolvecorr' ? (
+            <div style={{ marginTop: '11px' }}>
+              <label htmlFor="consent-resolvecorr-remark" style={{ fontSize: '0.8rem' }}>
+                How was the correction coordinated with {request.correcting_region}? <span style={{ color: 'var(--danger-text)' }}>*</span>
+              </label>
+              <textarea id="consent-resolvecorr-remark" className="form-control" rows={2} value={remark}
+                placeholder={`e.g. ${request.correcting_region} applied the schedule fix and confirmed by telephone.`}
+                onChange={(e) => setRemark(e.target.value)} />
+              <span className="settings-field-hint">
+                {request.correcting_region} has no administrator on the portal, so it cannot close
+                this itself. Name who applied the fix and when — this resolves the discrepancy and
+                is its only record.
+              </span>
+
+              <label htmlFor="consent-resolvecorr-proof" style={{ fontSize: '0.8rem', marginTop: '10px', display: 'block' }}>
+                Proof (optional)
+              </label>
+              <input id="consent-resolvecorr-proof" type="file" className="form-control" multiple
+                accept={ACCEPT_ATTRIBUTE}
+                onChange={(e) => setProof(Array.from(e.target.files || []))} />
+              <span className="settings-field-hint">
+                An email or a screenshot, up to {MAX_UPLOAD_MB}MB each. Better evidence than a
+                sentence, but a sentence is enough.
+              </span>
+
+              <div className="consent-actions">
+                <button type="button" className="btn btn-primary" disabled={busy || !remark.trim()}
+                  onClick={submitResolveForCorrector}>
+                  {busy ? 'Resolving…' : 'Resolve on their behalf'}
+                </button>
+                <button type="button" className="btn btn-secondary"
+                  onClick={() => { setMode(null); setRemark(''); setProof([]); }}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="consent-actions">
+              <button type="button" className="btn btn-secondary" onClick={() => setMode('resolvecorr')}>
+                <PhoneOutgoing size={14} /> Resolve — {request.correcting_region} is off-portal
               </button>
             </div>
           )

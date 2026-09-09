@@ -325,6 +325,14 @@ export const recordOfflineConsent = async (reqNo, remark, files) =>
     method: 'PATCH', body: { remark, files },
   });
 
+// The consenting region closes a trade whose correcting region has no admin on
+// the portal — the mirror of recordOfflineConsent. The remark is mandatory; it
+// is the only record that the correcting region's fix was coordinated offline.
+export const resolveUnmannedCorrector = async (reqNo, remark, files) =>
+  apiFetch(`/discrepancies/${encodeURIComponent(reqNo)}/resolve-unmanned-corrector`, {
+    method: 'PATCH', body: { remark, files },
+  });
+
 // ─── Regions (national level) ────────────────────────────────────────────────
 
 // ── Simulation (admin, read-only projection; never persists) ──────────────────

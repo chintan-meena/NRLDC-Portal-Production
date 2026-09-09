@@ -26,7 +26,7 @@ const { typeMatchPattern } = require('../utils/discrepancyTypes');
 const {
   isTradeCapable, validateTrade, isInterRegional, openingState, resolveRouting,
   isSellerRegion, isBuyerRegion,
-  mayConsent, mayRecordOfflineConsent, mayResolveTrade,
+  mayConsent, mayRecordOfflineConsent, mayResolveTrade, mayResolveForUnmannedCorrector,
   isProcessable, isReraiseable, PROCESSABLE_STATUSES, RERAISEABLE_STATUSES,
 } = require('../utils/trade');
 const { regionCodes } = require('../utils/regionRegistry');
@@ -225,18 +225,26 @@ router.get('/', async (req, res) => {
     // the same JOIN + WHERE (including the search scan) separately; COUNT(*)
     // OVER() counts every matching row before LIMIT, so the total is exact.
     //
-    // consenter_on_portal answers the one question the screen cannot: whether
-    // the region being asked to consent — the buyer's — has anybody who could
-    // consent here. It decides whether the seller is shown "waiting for ERLDC"
-    // or the offline path, and computing it in the browser is impossible — a
-    // regional admin cannot read another region's user list, and should not be
-    // able to.
+    // consenter_on_portal / corrector_on_portal answer the one question the
+    // screen cannot: whether the region being asked to consent, and the region
+    // that must apply the fix, each have anybody who could act here. They are
+    // read from the stored consenting_region / correcting_region (not buyer/
+    // seller directly — which end is which depends on the seller's category).
+    // consenter_on_portal decides whether the correcting region is shown
+    // "waiting for ERLDC" or the offline-consent path; corrector_on_portal is
+    // its mirror, letting the consenting region close a trade whose correcting
+    // region is off the portal. Computing either in the browser is impossible —
+    // a regional admin cannot read another region's user list.
     let baseQuery = `SELECT d.*, u.name AS request_by_name,
       COUNT(*) OVER()::int AS total_count,
-      CASE WHEN d.buyer_region IS NULL THEN NULL ELSE EXISTS (
+      CASE WHEN d.consenting_region IS NULL THEN NULL ELSE EXISTS (
         SELECT 1 FROM users su
-         WHERE su.region = d.buyer_region AND su.role = 'ADMIN' AND NOT su.locked
-      ) END AS consenter_on_portal
+         WHERE su.region = d.consenting_region AND su.role = 'ADMIN' AND NOT su.locked
+      ) END AS consenter_on_portal,
+      CASE WHEN d.correcting_region IS NULL THEN NULL ELSE EXISTS (
+        SELECT 1 FROM users su
+         WHERE su.region = d.correcting_region AND su.role = 'ADMIN' AND NOT su.locked
+      ) END AS corrector_on_portal
       ${fromClause}${whereClause}`;
     baseQuery += ` ORDER BY
       CASE d.status
@@ -783,6 +791,99 @@ router.patch('/:reqNo/offline-consent', requireAdmin, async (req, res) => {
   } catch (err) {
     console.error('[DISC OFFLINE CONSENT]', err);
     res.status(500).json({ error: 'Failed to record the offline consent.' });
+  }
+});
+
+// PATCH /api/discrepancies/:reqNo/resolve-unmanned-corrector — the consenting
+// region closes a trade whose CORRECTING region has no administrator.
+//
+// The mirror of /offline-consent. The correcting region normally applies the
+// fix and closes the ticket, but when it is off the portal (no unlocked admin)
+// nobody but the national account can — the ticket is stranded. This lets the
+// consenting region, which IS on the portal, close it on the correcting
+// region's behalf once the scheduling fix has been coordinated off the portal.
+//
+// Gated strictly on the correcting region being unmanned — checked against the
+// users table, not a cached flag, because closing a ticket on another region's
+// behalf must not run on stale data. The remark is mandatory and the action is
+// logged at warn level, exactly like the offline-consent bypass: one region is
+// closing a ticket the other owns.
+router.patch('/:reqNo/resolve-unmanned-corrector', requireAdmin, async (req, res) => {
+  const { reqNo } = req.params;
+  const { remark, files } = req.body || {};
+
+  const note = String(remark || '').trim();
+  if (!note) {
+    return res.status(400).json({
+      error: 'Record how the correcting region applied the fix off the portal — who, and when. This is the only evidence the ticket will carry.',
+    });
+  }
+
+  try {
+    const discRes = await pool.query('SELECT * FROM discrepancies WHERE req_no = $1', [reqNo]);
+    if (discRes.rows.length === 0) return res.status(404).json({ error: 'Discrepancy not found.' });
+    const disc = discRes.rows[0];
+
+    // Only inter-regional trades reach this path; everything else resolves the
+    // ordinary way through /process.
+    if (!disc.consent_state) {
+      return res.status(409).json({ error: 'This is not an inter-regional trade; resolve it the usual way.' });
+    }
+
+    const adminRes = await pool.query(
+      `SELECT EXISTS (
+         SELECT 1 FROM users WHERE region = $1 AND role = 'ADMIN' AND NOT locked
+       ) AS on_portal`,
+      [disc.correcting_region]
+    );
+    const correctorOnPortal = adminRes.rows[0].on_portal;
+
+    const permitted = mayResolveForUnmannedCorrector({
+      isNational: isSuperAdmin(req),
+      actingRegion: req.auth.region,
+      row: disc,
+      correctorOnPortal,
+    });
+    if (!permitted.ok) {
+      return res.status(permitted.error.includes('closed') ? 409 : 403).json({ error: permitted.error });
+    }
+
+    const entry = remarkEntry(req.auth.username, req.auth.role, 'resolved', note);
+
+    // Works whether the trade is still Awaiting the consenter's decision (the
+    // consenter is acting now, so its consent is recorded in the same step) or
+    // already Consented (only the close remains). consent fields are only
+    // written on the Awaiting→Consented transition, so a consent already on
+    // record is left untouched. A terminal row matches nothing.
+    const result = await pool.query(
+      `UPDATE discrepancies
+          SET status = 'Resolved', resolved_time = NOW(), admin_comment = $2,
+              consent_state  = 'Consented',
+              consent_mode   = CASE WHEN consent_state = 'Awaiting' THEN 'offline'  ELSE consent_mode   END,
+              consent_by     = CASE WHEN consent_state = 'Awaiting' THEN $1         ELSE consent_by     END,
+              consent_at     = CASE WHEN consent_state = 'Awaiting' THEN NOW()      ELSE consent_at     END,
+              consent_remark = CASE WHEN consent_state = 'Awaiting' THEN $2         ELSE consent_remark END,
+              consent_files  = CASE WHEN consent_state = 'Awaiting' THEN $3::jsonb  ELSE consent_files  END,
+              remark_history = remark_history || $5::jsonb
+        WHERE req_no = $4 AND status IN ('Pending', 'Returned', 'Awaiting Consent')
+      RETURNING *`,
+      [req.auth.username, note.slice(0, 1000), JSON.stringify(files || []), reqNo, JSON.stringify([entry])]
+    );
+    if (result.rowCount === 0) {
+      return res.status(409).json({ error: 'This trade can no longer be resolved. Reload and try again.' });
+    }
+
+    const line = `Req No ${reqNo}: ${disc.consenting_region} resolved the trade on behalf of `
+               + `${disc.correcting_region}, which is off the portal — by "${req.auth.username}", `
+               + `${files?.length || 0} attachment(s). Remark: ${note.slice(0, 200)}`;
+    for (const r of new Set([disc.buyer_region, disc.seller_region].filter(Boolean))) {
+      await logEvent('warn', line, r);
+    }
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('[DISC RESOLVE UNMANNED CORRECTOR]', err);
+    res.status(500).json({ error: 'Failed to resolve the trade.' });
   }
 });
 

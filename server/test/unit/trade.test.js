@@ -7,7 +7,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const {
   isTradeCapable, resolveRouting, validateTrade, isInterRegional, openingState,
-  mayConsent, mayResolveTrade, mayRecordOfflineConsent,
+  mayConsent, mayResolveTrade, mayRecordOfflineConsent, mayResolveForUnmannedCorrector,
   isProcessable, isReraiseable,
 } = require('../../utils/trade');
 
@@ -93,6 +93,19 @@ test('mayResolveTrade — correcting region, only after consent', () => {
   assert.equal(mayResolveTrade({ isNational: false, actingRegion: 'ERLDC', row: consented }).ok, false);
   assert.equal(mayResolveTrade({ isNational: false, actingRegion: 'NRLDC', row: awaitingRow }).ok, false); // not yet consented
   assert.equal(mayResolveTrade({ isNational: false, actingRegion: 'NRLDC', row: { ...consented, consent_state: 'Refused' } }).ok, false);
+});
+
+test('mayResolveForUnmannedCorrector — consenting region closes it only when the correcting region is off the portal', () => {
+  const consented = { consent_state: 'Consented', consenting_region: 'ERLDC', correcting_region: 'NRLDC' };
+  // Correcting region unmanned: the consenting region may close it on its behalf.
+  assert.equal(mayResolveForUnmannedCorrector({ isNational: false, actingRegion: 'ERLDC', row: consented, correctorOnPortal: false }).ok, true);
+  // Correcting region has an admin here: no bypass — it applies its own fix.
+  assert.equal(mayResolveForUnmannedCorrector({ isNational: false, actingRegion: 'ERLDC', row: consented, correctorOnPortal: true }).ok, false);
+  // Only the consenting region (or national) — not the correcting or an unrelated region.
+  assert.equal(mayResolveForUnmannedCorrector({ isNational: false, actingRegion: 'NRLDC', row: consented, correctorOnPortal: false }).ok, false);
+  assert.equal(mayResolveForUnmannedCorrector({ isNational: true, actingRegion: null, row: consented, correctorOnPortal: true }).ok, true);
+  // A refused trade is already closed — nothing to resolve.
+  assert.equal(mayResolveForUnmannedCorrector({ isNational: false, actingRegion: 'ERLDC', row: { ...consented, consent_state: 'Refused' }, correctorOnPortal: false }).ok, false);
 });
 
 test('isProcessable — only Pending and Returned may be processed', () => {
