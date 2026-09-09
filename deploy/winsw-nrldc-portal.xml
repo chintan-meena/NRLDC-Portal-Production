@@ -1,0 +1,67 @@
+<!--
+  WinSW service definition for the NRLDC Schedule Discrepancy Portal (Windows).
+
+  WinSW (https://github.com/winsw/winsw) wraps the Node process as a Windows
+  service — the Windows counterpart of deploy/nrldc-portal.service on Linux. It
+  is a single self-contained .exe with no installer, which suits a locked-down
+  box. NSSM is the alternative (see DEPLOYMENT-WINDOWS.md §5, Option A).
+
+  Install:
+    1. Download WinSW.exe and rename it to  nrldc-portal-svc.exe
+    2. Save this file beside it as         nrldc-portal-svc.xml
+    3. Edit the three placeholders below (node path, working directory, and —
+       recommended — the low-privilege service account).
+    4.  nrldc-portal-svc.exe install
+        nrldc-portal-svc.exe start
+    5. Verify:  curl.exe -s http://localhost:3001/api/health
+
+  On upgrade (see DEPLOYMENT-WINDOWS.md §14):
+    git pull && npm install && (cd server && npm install)
+    npm run build && node server\migrate.js
+    nrldc-portal-svc.exe restart
+-->
+<service>
+  <id>NRLDCPortal</id>
+  <name>NRLDC Schedule Discrepancy Portal</name>
+  <description>NRLDC Schedule Discrepancy Monitoring Portal — Node backend (serves the built frontend and the API on port 3001, behind IIS).</description>
+
+  <!-- CHANGE to the actual node.exe path if different -->
+  <executable>C:\Program Files\nodejs\node.exe</executable>
+  <arguments>server\index.js</arguments>
+
+  <!-- CHANGE to the checked-out repo root -->
+  <workingdirectory>C:\apps\nrldc-portal</workingdirectory>
+
+  <!-- NODE_ENV=production turns on CSP/HSTS and makes a missing SESSION_SECRET
+       fatal. Every other setting (DB creds, SESSION_SECRET, SMTP) is read from
+       server\.env by the app itself. -->
+  <env name="NODE_ENV" value="production" />
+
+  <!-- Recommended: run as a dedicated low-privilege account rather than
+       LocalSystem. Uncomment and fill in.
+  <serviceaccount>
+    <username>.\svc-nrldc</username>
+    <password>CHANGE_ME</password>
+    <allowservicelogon>true</allowservicelogon>
+  </serviceaccount>
+  -->
+
+  <!-- Bring a crashed process straight back (matches systemd Restart=always).
+       WinSW gives up after repeated fast failures so a broken build doesn't
+       loop forever. -->
+  <onfailure action="restart" delay="3 sec" />
+  <onfailure action="restart" delay="10 sec" />
+  <resetfailure>1 hour</resetfailure>
+
+  <!-- The app drains connections and closes the DB pool on stop; give it time. -->
+  <stoptimeout>15 sec</stoptimeout>
+
+  <startmode>Automatic</startmode>
+
+  <!-- Rolling logs under <workingdirectory>\logs -->
+  <logpath>C:\apps\nrldc-portal\logs</logpath>
+  <log mode="roll-by-size">
+    <sizeThreshold>10240</sizeThreshold>
+    <keepFiles>8</keepFiles>
+  </log>
+</service>
