@@ -84,7 +84,7 @@ PGHOST="$(env_get PGHOST)";       PGHOST="${PGHOST:-localhost}"
 PGPORT="$(env_get PGPORT)";       PGPORT="${PGPORT:-5432}"
 PGDATABASE="$(env_get PGDATABASE)"; PGDATABASE="${PGDATABASE:-nrldc_db}"
 PGUSER="$(env_get PGUSER)";       PGUSER="${PGUSER:-postgres}"
-PORT="$(env_get PORT)";           PORT="${PORT:-3001}"
+PORT="$(env_get PORT)";           PORT="${PORT:-8102}"
 SESSION_SECRET="$(env_get SESSION_SECRET)"
 
 if [ -z "${SESSION_SECRET:-}" ] || [ "${SESSION_SECRET}" = "replace_with_a_long_random_string" ] || [ "${SESSION_SECRET}" = "nrldc_secret_key_2026" ]; then

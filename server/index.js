@@ -1,6 +1,6 @@
 /**
  * index.js — NRLDC Express Server entry point
- * Port: 3001 (proxied from Vite frontend at /api)
+ * Port: 8102 (proxied from Vite frontend at /api)
  */
 
 require('dotenv').config({ path: require('path').join(__dirname, '.env') });
@@ -28,7 +28,7 @@ const regionsRoutes       = require('./routes/regions');
 const simulationRoutes    = require('./routes/simulation');
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 8102;
 
 // Behind a reverse proxy (nginx, a load balancer) Express needs to be told how
 // many hops to trust before req.ip is meaningful. 0 means "no proxy".

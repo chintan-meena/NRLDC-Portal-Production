@@ -12,7 +12,7 @@
 #   3. sudo systemctl daemon-reload
 #   4. sudo systemctl enable --now nrldc-portal
 #   5. systemctl status nrldc-portal   # confirm "active (running)"
-#      curl -sf http://localhost:3001/api/health
+#      curl -sf http://localhost:8102/api/health
 #
 # Build the frontend first (systemd runs the server, not the build):
 #   npm run build            # regenerates dist/, which the server serves
@@ -22,7 +22,7 @@
 #              sudo systemctl restart nrldc-portal
 #
 # NOTE: run the portal under EITHER this unit OR ./nrldc.sh — not both, or two
-# processes fight over port 3001. This unit is the production choice; nrldc.sh
+# processes fight over port 8102. This unit is the production choice; nrldc.sh
 # start/stop is convenient for a single box without systemd.
 
 [Unit]

@@ -55,7 +55,7 @@ env_get() {
                          -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//"
 }
 
-PORT="$(env_get PORT)";           PORT="${PORT:-3001}"
+PORT="$(env_get PORT)";           PORT="${PORT:-8102}"
 PGHOST="$(env_get PGHOST)";       PGHOST="${PGHOST:-localhost}"
 PGPORT="$(env_get PGPORT)";       PGPORT="${PGPORT:-5432}"
 PGDATABASE="$(env_get PGDATABASE)"; PGDATABASE="${PGDATABASE:-nrldc_db}"

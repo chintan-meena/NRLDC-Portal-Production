@@ -3,7 +3,7 @@ import {
   getDiscrepancies, processDiscrepancy, getConfig, updateConfig, updateAdminPreference, 
   uploadFiles, testSMTPSettings, getOutages, getAdminCycleUploads, processOutageAdmin,
   getTransferRequests, processTransferRequest, updateOutageAdmin, deleteOutageAdmin,
-  downloadFile, getMailUsage
+  downloadFile, getMailUsage, changeProfileSettings
 } from '../services/db';
 import {
   BarChart3, FileText, LayoutDashboard, Search,
@@ -31,6 +31,7 @@ import { originalFilename } from '../utils/filenames';
 import { FILTERABLE_TYPES } from '../utils/discrepancyTypes';
 import { formatDateDMY, formatDateDMYHM, getStatusPriority, statusClass, todayISO, daysAgoISO, shiftDaysISO, nowDatetimeLocal } from '../utils/format';
 import { fyWeekRange, fyWeekForDate, fyForDate, weeksInFY, fyLabel } from '../utils/financialYear';
+import { RULES as PASSWORD_RULES, validatePassword } from '../utils/password';
 
 
 export default function AdminDashboard({ currentUser, onUserUpdate, activeTab }) {
@@ -137,6 +138,15 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
   const [signupTypes, setSignupTypes] = useState(['ISGS', 'REGIONAL_ENTITY', 'RENEWABLE', 'TRADER', 'PARENT_STATE']);
   const [landingPref, setLandingPref] = useState('both');
   const [configSuccess, setConfigSuccess] = useState('');
+
+  // This admin's own password change. Kept out of the settings save so a
+  // password update is a deliberate act with its own current-password check,
+  // exactly as it is for ordinary users.
+  const [pwCurrent, setPwCurrent] = useState('');
+  const [pwNew, setPwNew] = useState('');
+  const [pwConfirm, setPwConfirm] = useState('');
+  const [pwError, setPwError] = useState('');
+  const [pwSuccess, setPwSuccess] = useState('');
 
   // Mail budget. The plan allows a few hundred messages a day, and otpTrustDays
   // is the lever that decides how many the portal actually needs.
@@ -508,6 +518,42 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
       await loadData();
     } catch (err) {
       notify('error', err.message || 'Failed to save configuration settings.');
+    }
+  };
+
+  const handleChangePassword = async (e) => {
+    e.preventDefault();
+    setPwError('');
+    setPwSuccess('');
+
+    if (!pwCurrent) {
+      setPwError('Please enter your current password.');
+      return;
+    }
+    if (!pwNew || !pwConfirm) {
+      setPwError('Please fill in both new password fields.');
+      return;
+    }
+    const policyError = validatePassword(pwNew);
+    if (policyError) {
+      setPwError(policyError);
+      return;
+    }
+    if (pwNew !== pwConfirm) {
+      setPwError('Passwords do not match.');
+      return;
+    }
+
+    try {
+      const res = await changeProfileSettings(currentUser.username, { password: pwNew, currentPassword: pwCurrent });
+      if (res.success) {
+        setPwSuccess('Password updated successfully!');
+        setPwCurrent('');
+        setPwNew('');
+        setPwConfirm('');
+      }
+    } catch (err) {
+      setPwError(err.message || 'Failed to update password.');
     }
   };
 
@@ -1844,6 +1890,54 @@ export default function AdminDashboard({ currentUser, onUserUpdate, activeTab })
               <button type="submit" className="btn btn-primary">Save All Settings</button>
             </div>
           </form>
+
+          {/* ── Change your own password ─────────────────────────────────
+              A separate form from the settings save above: a password change
+              needs the current password and is a deliberate act, so it must not
+              ride along with "Save All Settings". */}
+          <section className="glass-panel settings-card" style={{ marginTop: '22px' }}>
+            <h3 className="settings-heading" style={{ marginTop: 0 }}>Change Your Password</h3>
+            <p className="settings-hint">Updates the password for your own account ({currentUser.username}) only.</p>
+
+            <form onSubmit={handleChangePassword}>
+              <Banner type="error" message={pwError} />
+              <Banner type="success" message={pwSuccess} />
+
+              <div className="form-group">
+                <label htmlFor="ad-current-password">Current Password</label>
+                <input id="ad-current-password" type="password" className="form-control" placeholder="Enter your current password" value={pwCurrent} onChange={(e) => setPwCurrent(e.target.value)} autoComplete="current-password" required />
+              </div>
+
+              <div className="form-group">
+                <label htmlFor="ad-new-password">New Password</label>
+                <input id="ad-new-password" type="password" className="form-control" placeholder="Enter new password" value={pwNew} onChange={(e) => setPwNew(e.target.value)} autoComplete="new-password" required />
+                {pwNew && (
+                  <ul className="password-rules">
+                    {PASSWORD_RULES.map(rule => {
+                      const met = rule.test(pwNew);
+                      return (
+                        <li key={rule.label} className={met ? 'met' : ''}>
+                          <span aria-hidden="true">{met ? '✓' : '○'}</span> {rule.label}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </div>
+
+              <div className="form-group">
+                <label htmlFor="ad-confirm-new-password">Confirm New Password</label>
+                <input id="ad-confirm-new-password" type="password" className="form-control" placeholder="Verify password" value={pwConfirm} onChange={(e) => setPwConfirm(e.target.value)} autoComplete="new-password" required />
+                {pwConfirm && pwNew !== pwConfirm && (
+                  <small style={{ color: 'var(--danger-text)', fontSize: '0.75rem' }}>Passwords do not match.</small>
+                )}
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '25px' }}>
+                <button type="submit" className="btn btn-teal">Change Password</button>
+              </div>
+            </form>
+          </section>
         </div>
       )}
 

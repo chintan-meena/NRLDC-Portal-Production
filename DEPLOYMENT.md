@@ -67,7 +67,7 @@ portal feel populated while you are evaluating it.
 
 The server listens on plain HTTP. Passwords, OTP codes and eight-hour session
 tokens all cross the network, so terminate TLS at a reverse proxy or the load
-balancer and stop exposing port 3001 directly.
+balancer and stop exposing port 8102 directly.
 
 The application already expects this: HSTS is enabled under `NODE_ENV=production`,
 and `TRUST_PROXY_HOPS` tells the rate limiter how many proxies sit in front so it

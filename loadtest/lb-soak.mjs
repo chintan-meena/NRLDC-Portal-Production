@@ -27,7 +27,7 @@ const args = Object.fromEntries(
     .map(s => s.trim().split(/\s+/)).map(([k, ...v]) => [k, v.join(' ') || true])
 );
 
-const BASE = args.url || 'http://localhost:3001';
+const BASE = args.url || 'http://localhost:8102';
 const USER = args.user || 'admin@nrldc';
 const PASS = args.pass || 'Password@123';
 const SMOKE = args.profile === 'smoke';

@@ -22,7 +22,7 @@
  *          -e USERNAME=loadtest@nrldc -e PASSWORD='...' loadtest/lb-soak.js
  *
  *   # smaller, for a first pass or a local check
- *   k6 run -e BASE_URL=http://localhost:3001 -e PROFILE=smoke loadtest/lb-soak.js
+ *   k6 run -e BASE_URL=http://localhost:8102 -e PROFILE=smoke loadtest/lb-soak.js
  *
  * Install k6: brew install k6   (or https://k6.io/docs/get-started/installation/)
  *
@@ -45,7 +45,7 @@ import { check, sleep } from 'k6';
 import { Counter, Rate, Trend } from 'k6/metrics';
 import { textSummary } from 'https://jslib.k6.io/k6-summary/0.0.1/index.js';
 
-const BASE = __ENV.BASE_URL || 'http://localhost:3001';
+const BASE = __ENV.BASE_URL || 'http://localhost:8102';
 const USERNAME = __ENV.USERNAME || 'admin@nrldc';
 const PASSWORD = __ENV.PASSWORD || 'Password@123';
 const PROFILE = __ENV.PROFILE || 'full';

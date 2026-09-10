@@ -13,7 +13,7 @@
        recommended — the low-privilege service account).
     4.  nrldc-portal-svc.exe install
         nrldc-portal-svc.exe start
-    5. Verify:  curl.exe -s http://localhost:3001/api/health
+    5. Verify:  curl.exe -s http://localhost:8102/api/health
 
   On upgrade (see DEPLOYMENT-WINDOWS.md §14):
     git pull && npm install && (cd server && npm install)
@@ -23,7 +23,7 @@
 <service>
   <id>NRLDCPortal</id>
   <name>NRLDC Schedule Discrepancy Portal</name>
-  <description>NRLDC Schedule Discrepancy Monitoring Portal — Node backend (serves the built frontend and the API on port 3001, behind IIS).</description>
+  <description>NRLDC Schedule Discrepancy Monitoring Portal — Node backend (serves the built frontend and the API on port 8102, behind IIS).</description>
 
   <!-- CHANGE to the actual node.exe path if different -->
   <executable>C:\Program Files\nodejs\node.exe</executable>

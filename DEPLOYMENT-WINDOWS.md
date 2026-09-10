@@ -82,7 +82,7 @@ PGUSER=<app-db-login>
 PGPASSWORD=<app-db-password>
 PGPOOL_MAX=10
 
-PORT=3001
+PORT=8102
 
 # NOT cosmetic: turns on CSP + HSTS, makes a missing SESSION_SECRET fatal,
 # and makes the destructive seeders refuse to run.
@@ -219,7 +219,7 @@ to `nrldc-portal-svc.exe`, put the edited XML beside it as
 
 ```powershell
 Get-Service NRLDCPortal
-curl.exe -s http://localhost:3001/api/health
+curl.exe -s http://localhost:8102/api/health
 ```
 
 `/api/health` should return `"status":"ok"`, `"db":"connected"`, and
@@ -229,8 +229,8 @@ curl.exe -s http://localhost:3001/api/health
 
 ## 6. Put IIS in front as the HTTPS reverse proxy
 
-The Node server speaks **plain HTTP on 3001** and must never be exposed directly.
-IIS terminates TLS on 443 and reverse-proxies to `127.0.0.1:3001`.
+The Node server speaks **plain HTTP on 8102** and must never be exposed directly.
+IIS terminates TLS on 443 and reverse-proxies to `127.0.0.1:8102`.
 
 1. **Install the IIS pieces** (Server Manager → Add Roles, or the panels):
    - IIS (Web Server role)
@@ -243,7 +243,7 @@ IIS terminates TLS on 443 and reverse-proxies to `127.0.0.1:3001`.
    hostname; add an **http binding on 80** (used only to redirect to https).
 4. **Add the reverse-proxy + redirect rules:** drop the ready
    [deploy/iis-web.config](deploy/iis-web.config) into the site's root folder as
-   `web.config` (it contains the rewrite to `http://127.0.0.1:3001/` and the
+   `web.config` (it contains the rewrite to `http://127.0.0.1:8102/` and the
    80→443 redirect). ARR automatically adds the `X-Forwarded-For` header the rate
    limiter relies on.
 5. **Match upload size limits:** the app accepts file attachments; IIS caps request
@@ -329,7 +329,7 @@ Go-live gate — all of these before you point public DNS / open the firewall:
 - [ ] `node server\harden.js` reports **Ready** (no ✗)
 - [ ] every admin password changed off the default
 - [ ] a real OTP email received in an inbox
-- [ ] HTTPS valid in a browser; http→https redirect works; 3001 not reachable from outside
+- [ ] HTTPS valid in a browser; http→https redirect works; 8102 not reachable from outside
 
 ---
 
@@ -344,8 +344,8 @@ your IT security team:
   required.
 - **Put a WAF in front** (edge appliance or cloud WAF) if it must be public.
 - **Windows Firewall:** allow inbound **443** (and **80** for redirect) only. **Do
-  not** create an inbound rule for **3001** — IIS reaches Node over loopback, which
-  needs no rule; without a rule, 3001 is unreachable from outside. Restrict the DB
+  not** create an inbound rule for **8102** — IIS reaches Node over loopback, which
+  needs no rule; without a rule, 8102 is unreachable from outside. Restrict the DB
   path to the app server only.
 - **Run the codebase security review** before go-live — this repo has a
   `security-review` workflow; run it and triage anything it finds. (I can run it for
@@ -381,7 +381,7 @@ server respectively:
 | Task (`nrldc.sh …`) | On Windows |
 | --- | --- |
 | `start` / `stop` / `restart` | `nssm start\|stop\|restart NRLDCPortal` (or `Start/Stop-Service NRLDCPortal`) |
-| `status` | `Get-Service NRLDCPortal` + `curl.exe http://localhost:3001/api/health` |
+| `status` | `Get-Service NRLDCPortal` + `curl.exe http://localhost:8102/api/health` |
 | `logs` | `Get-Content C:\apps\nrldc-portal\logs\out.log -Wait` |
 | `migrate` | `node server\migrate.js` |
 | `harden` / `harden --fix` | `node server\harden.js` / `node server\harden.js --fix` |

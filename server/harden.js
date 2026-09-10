@@ -54,7 +54,7 @@ async function config(key, region = null) {
   // have sent someone chasing a problem that did not exist.
   let serverEnv = null;
   try {
-    const res = await fetch(`http://localhost:${process.env.PORT || 3001}/api/health`);
+    const res = await fetch(`http://localhost:${process.env.PORT || 8102}/api/health`);
     if (res.ok) serverEnv = await res.json();
   } catch { /* not running — fall back to this process's own environment */ }
 
